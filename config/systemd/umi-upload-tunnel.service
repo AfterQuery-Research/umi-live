@@ -1,11 +1,11 @@
 # Boot-persistent upload tunnel for a tunneled processing target — a Mac running
 # run_processing.sh, OR a cloud GPU box whose only open port is 22. Forwards THIS Pi's
 # localhost:@LOCAL_PORT@ to the endpoint's own localhost:@REMOTE_PORT@ (its ingest) so the
-# recorder's HTTP uploads reach it. provision_pi.sh substitutes
+# recorder's HTTP uploads reach it. bin/provision-pi substitutes
 # @USER@/@SSH_TARGET@/@LOCAL_PORT@/@REMOTE_PORT@ and enables this for tunneled targets
 # (mac, or gpu with SERVER_SSH). Plain ssh + systemd Restart=always gives autossh-like
 # resilience with no extra package. The Pi's key must be in the endpoint's
-# authorized_keys (provision_pi.sh adds it), and the endpoint must have sshd on.
+# authorized_keys (bin/provision-pi adds it), and the endpoint must have sshd on.
 [Unit]
 Description=UMI upload tunnel (Pi localhost:@LOCAL_PORT@ -> @SSH_TARGET@ ingest)
 Wants=network-online.target

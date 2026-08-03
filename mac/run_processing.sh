@@ -10,7 +10,7 @@
 #   mac/run_processing.sh
 #
 # The Pi (RIG_TARGET=mac) tunnels its uploads to this Mac's localhost:8091 (the
-# umi-upload-tunnel unit provision_pi.sh installs). Ctrl-C stops both ingest + runner.
+# umi-upload-tunnel unit bin/provision-pi installs). Ctrl-C stops both ingest + runner.
 set -eo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

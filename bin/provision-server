@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# provision_server.sh — stand up the PROCESSING HOST from your workstation, the same
-# way provision_pi.sh stands up a Pi: one local inventory, rendered and pushed. The
+# bin/provision-server — stand up the PROCESSING HOST from your workstation, the same
+# way bin/provision-pi stands up a Pi: one local inventory, rendered and pushed. The
 # upload token is written ONCE (provisioning/secrets) and fanned out to the box here
-# and to each Pi by provision_pi.sh — the two can never mismatch.
+# and to each Pi by bin/provision-pi — the two can never mismatch.
 #
 #   cp provisioning/secrets.example    provisioning/secrets      # 3 secrets
 #   cp provisioning/server.env.example provisioning/server.env   # box settings
-#   ./provision_server.sh ubuntu@<box-ip>     # remote GPU box: render .env, rsync repo,
+#   ./bin/provision-server ubuntu@<box-ip>     # remote GPU box: render .env, rsync repo,
 #                                             # run install_server.sh, verify
-#   ./provision_server.sh --local             # Mac-as-host: just render ./.env here,
+#   ./bin/provision-server --local             # Mac-as-host: just render ./.env here,
 #                                             # then run: PAIR=1 mac/run_processing.sh
 #
 # Idempotent; re-run after editing the inventory (edit the inventory, not the box).
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (script lives in bin/)
 die() { echo "provision_server: $*" >&2; exit 1; }
 log() { echo; echo "=== $* ==="; }
 
@@ -22,7 +22,7 @@ case "${1:-}" in
   --local) LOCAL=1;;
   -h|--help|"") sed -n '2,15p' "$0"; exit 0;;
   *@*) BOX="$1";;
-  *) die "usage: ./provision_server.sh <user@box> | --local";;
+  *) die "usage: ./bin/provision-server <user@box> | --local";;
 esac
 
 SECRETS="$HERE/provisioning/secrets"
@@ -39,8 +39,8 @@ SRVENV="$HERE/provisioning/server.env"
 
 render_env() {  # $1 = DATA_DIR value to embed
   cat <<ENV
-# Rendered by provision_server.sh from provisioning/secrets + provisioning/server.env.
-# Edit the inventory and re-run ./provision_server.sh — not this file.
+# Rendered by bin/provision-server from provisioning/secrets + provisioning/server.env.
+# Edit the inventory and re-run ./bin/provision-server — not this file.
 ROBOT_UMI_UPLOAD_TOKEN=$UPLOAD_TOKEN
 HF_TOKEN=${HF_TOKEN:-}
 ROBOT_UMI_REPO_ID=$REPO_ID
@@ -96,5 +96,5 @@ bssh "cd $REMOTE_REPO && bash server/scripts/install_server.sh" \
 echo
 echo "provision_server: done. Verify:"
 echo "  ssh $BOX 'curl -s -o /dev/null -w \"%{http_code}\\n\" -X POST http://localhost:8080/upload'   # 401 = up"
-echo "Now provision the Pis against it:  ./provision_pi.sh --target gpu <user@pi>"
+echo "Now provision the Pis against it:  ./bin/provision-pi --target gpu <user@pi>"
 echo "(rig env: SERVER_SSH=\"$BOX\" for an SSH-only cloud box, or SERVER_URL for a LAN box)"

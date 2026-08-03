@@ -41,9 +41,9 @@ HuggingFace Hub.
 
 Follow **[SETUP.md](SETUP.md)**. In brief: everything is driven from your
 workstation off one inventory (`provisioning/secrets` + `provisioning/server.env`
-+ `provisioning/rigs/<pi>.env`) — `./provision_server.sh <user@box>` stands up the
-processing host (`--local` for a Mac host), `./provision_pi.sh <user@pi>` each Pi
-(`./provision_pair.sh` for a bimanual pair), and `./switch_target.sh --target
++ `provisioning/rigs/<pi>.env`) — `./bin/provision-server <user@box>` stands up the
+processing host (`--local` for a Mac host), `./bin/provision-pi <user@pi>` each Pi
+(`./bin/provision-pair` for a bimanual pair), and `./bin/switch-target --target
 mac|gpu <user@pi>...` flips provisioned Pis between processing hosts. Secrets are
 written once and fanned out; no machine is hand-configured.
 

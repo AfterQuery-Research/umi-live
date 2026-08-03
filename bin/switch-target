@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# switch_target.sh — flip already-provisioned recorder Pis between processing targets
+# bin/switch-target — flip already-provisioned recorder Pis between processing targets
 # (Mac <-> GPU box) WITHOUT a full re-provision (no install_pi.sh, no reboot, ~5 s/Pi).
 #
-#   ./switch_target.sh --target gpu aq@10.0.0.11 aq@10.0.0.12   # both arms -> the box
-#   ./switch_target.sh --target mac aq@10.0.0.11 aq@10.0.0.12   # back to the Mac
-#   ./switch_target.sh --target gpu --rig myrig aq@10.0.0.11    # explicit rig env
+#   ./bin/switch-target --target gpu aq@10.0.0.11 aq@10.0.0.12   # both arms -> the box
+#   ./bin/switch-target --target mac aq@10.0.0.11 aq@10.0.0.12   # back to the Mac
+#   ./bin/switch-target --target gpu --rig myrig aq@10.0.0.11    # explicit rig env
 #
-# Reads the same inventory as provision_pi.sh (provisioning/rigs/<rig>.env + secrets):
+# Reads the same inventory as bin/provision-pi (provisioning/rigs/<rig>.env + secrets):
 #   mac              -> upload http://localhost:8091/upload via a Pi->MAC_HOST ssh tunnel
 #   gpu + SERVER_SSH -> upload http://localhost:8080/upload via a Pi->box ssh tunnel
 #                       (cloud box with only :22 open)
@@ -14,9 +14,9 @@
 # Per Pi it rewrites ROBOT_UMI_SERVER_URL in ~/robot-umi/.env, renders/enables (or
 # disables) umi-upload-tunnel.service, restarts umi-recorder, and verifies the target
 # answers through the tunnel. Requires the Pi's ssh key to already be trusted on the
-# tunnel endpoint — provision_pi.sh sets that up; this script only checks it.
+# tunnel endpoint — bin/provision-pi sets that up; this script only checks it.
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (script lives in bin/)
 die() { echo "switch_target: $*" >&2; exit 1; }
 
 TARGET=""; RIG=""; PIS=()
@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
     *) PIS+=("$1"); shift;;
   esac
 done
-[ -n "$TARGET" ] && [ "${#PIS[@]}" -gt 0 ] || die "usage: ./switch_target.sh --target mac|gpu [--rig <name>] <user@pi> [...]"
+[ -n "$TARGET" ] && [ "${#PIS[@]}" -gt 0 ] || die "usage: ./bin/switch-target --target mac|gpu [--rig <name>] <user@pi> [...]"
 
 SECRETS="$HERE/provisioning/secrets"
 [ -f "$SECRETS" ] && . "$SECRETS" || true
@@ -72,7 +72,7 @@ for PI in "${PIS[@]}"; do
 
     if [ "$TUNNEL" = 1 ]; then
       "${SSH[@]}" "ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new $TUN_SSH true" \
-        || die "$PI cannot ssh to $TUN_SSH — run provision_pi.sh once to install key trust"
+        || die "$PI cannot ssh to $TUN_SSH — run bin/provision-pi once to install key trust"
       sed -e "s#@USER@#$PI_USER#g" -e "s#@SSH_TARGET@#$TUN_SSH#g" \
           -e "s#@LOCAL_PORT@#$TUN_LOCAL#g" -e "s#@REMOTE_PORT@#$TUN_REMOTE#g" \
           "$HERE/config/systemd/umi-upload-tunnel.service" \

@@ -155,7 +155,7 @@ done
 
 echo
 if [ "$fail" = "0" ]; then
-  echo "server up. Point the Pis here: ./provision_pi.sh --target gpu <user@pi> with"
+  echo "server up. Point the Pis here: ./bin/provision-pi --target gpu <user@pi> with"
   echo "SERVER_URL (LAN box) or SERVER_SSH=$USER_NAME@<this-box> (cloud box, only :22 open"
   echo "— installs a boot-persistent Pi->box tunnel) in the rig env."
   echo "Bimanual (two-Pi) rigs: set ROBOT_UMI_RUNNER_ARGS=--pair in .env and restart"

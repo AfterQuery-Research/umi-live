@@ -16,7 +16,7 @@ which runs SLAM and publishes LeRobot datasets to the HuggingFace Hub.
 ```
 
 Everything is driven from **your workstation** (laptop/Mac). You never hand-edit files on a
-Pi: `provision_pi.sh` renders and pushes them. (Ignore any older instructions telling you to
+Pi: `bin/provision-pi` renders and pushes them. (Ignore any older instructions telling you to
 clone + configure on the Pi itself — that path skips the SSD mount, upload tunnel, chrony
 sync, and the required reboot.)
 
@@ -37,14 +37,14 @@ hand-edit a file on a Pi or the box.
 Concretely:
 
 - **The processing box's IP** appears in exactly two commands/fields:
-  `./provision_server.sh ubuntu@<box-ip>` (sets the box up), and the Pi rig file's
+  `./bin/provision-server ubuntu@<box-ip>` (sets the box up), and the Pi rig file's
   `SERVER_SSH="ubuntu@<box-ip>"` (cloud box where only port 22 is open — installs a
   boot-persistent SSH tunnel) **or** `SERVER_URL="http://<box-ip>:8080/upload"` (LAN box
   with 8080 reachable). Never both fields.
 - **The Mac's `user@host`** goes in the rig file as `MAC_HOST` (only for `RIG_TARGET=mac`).
 - **The follower Pi's IP** goes in the *leader's* rig file as `PEER_HOST`.
-- **The upload token is written once**, in `provisioning/secrets`; `provision_server.sh`
-  and `provision_pi.sh` deliver it to both sides, so they cannot mismatch. (If you ever
+- **The upload token is written once**, in `provisioning/secrets`; `bin/provision-server`
+  and `bin/provision-pi` deliver it to both sides, so they cannot mismatch. (If you ever
   bypass the provisioners and hand-edit a `.env`, a token mismatch fails *silently* —
   recording works, uploads 401-loop forever.)
 - **The HuggingFace token** also lives in `provisioning/secrets`; by design it is fanned
@@ -95,10 +95,10 @@ cp provisioning/secrets.example    provisioning/secrets      # UPLOAD_TOKEN (ope
                                                              # HF_TOKEN, PI_PASSWORD
 cp provisioning/server.env.example provisioning/server.env   # REPO_ID=<user>/<dataset>,
                                                              # RUNNER_ARGS="--pair" for bimanual
-./provision_server.sh ubuntu@<box-ip>
+./bin/provision-server ubuntu@<box-ip>
 ```
 
-`provision_server.sh` needs only SSH key access + passwordless sudo on the box (standard on
+`bin/provision-server` needs only SSH key access + passwordless sudo on the box (standard on
 cloud images). It rsyncs the repo (never the inventory — secrets stay on your workstation
 except the two values the box needs), renders the box's `.env` from the inventory, and runs
 `server/scripts/install_server.sh` remotely. The installer is idempotent and handles: Docker
@@ -108,8 +108,8 @@ NVIDIA container toolkit, the stage images, the host venv **including the align 
 `umi-runner` systemd service. It ends with a self-test.
 
 Changing a setting later (repo id, pair mode, rotating the token): edit the inventory and
-re-run `./provision_server.sh` — don't edit files on the box. A token rotation also needs
-`./provision_pi.sh` re-run per Pi (same single source).
+re-run `./bin/provision-server` — don't edit files on the box. A token rotation also needs
+`./bin/provision-pi` re-run per Pi (same single source).
 
 Sanity check:
 
@@ -124,7 +124,7 @@ The Mac host is usually this same workstation, so `--local` just renders `./.env
 inventory (same single-source token), then you run the pipeline in the foreground:
 
 ```sh
-./provision_server.sh --local
+./bin/provision-server --local
 uv sync --package robot-umi-server
 uv pip install --prerelease=allow "open3d>=0.18" "gtsam>=4.3a0"   # bimanual align
 PAIR=1 INGEST_HOST=0.0.0.0 mac/run_processing.sh
@@ -149,10 +149,10 @@ cp provisioning/rigs/example.env provisioning/rigs/<pi-host>.env
 # minimum edits: RIG_TARGET (+ SERVER_SSH / SERVER_URL / MAC_HOST), UMI_NAME, CAMERA_CALIB,
 # GRIPPER_TAGS. For a pair, also ROLE / PEER_HOST / TIME_REF (see below).
 
-./provision_pi.sh --target gpu <user>@<pi-host>
+./bin/provision-pi --target gpu <user>@<pi-host>
 ```
 
-`provision_pi.sh` does everything: rsyncs the repo, renders + validates `config/umi.yaml`
+`bin/provision-pi` does everything: rsyncs the repo, renders + validates `config/umi.yaml`
 and the Pi `.env`, mounts the SSD (fstab, `nofail`; exfat gets uid/gid mount options and
 `passno=0` so a dirty volume can't stall boot), runs the on-Pi installer (~20-40 min:
 apt/rust/venv/lidar network/PTP/systemd), installs the upload tunnel, then **reboots** (the
@@ -171,7 +171,7 @@ Give each Pi its own rig file, using the pair example configs:
 # follower:
 #   ROLE="follower"  TIME_REF="<same>"
 #   RIG_CONFIG_FILE="config/umi.pair-follower.example.yaml" # umi2, tags [2,3]
-./provision_pair.sh <user>@<leader> <user>@<follower>
+./bin/provision-pair <user>@<leader> <user>@<follower>
 ```
 
 The pair contract, spelled out once: the leader dials the follower on TCP `9140`
@@ -220,8 +220,8 @@ Pis and the processing host are decoupled: each Pi just uploads wherever its `.e
 To move already-provisioned Pis without a full re-provision:
 
 ```sh
-./switch_target.sh --target gpu <user>@<pi1> <user>@<pi2>   # → the box
-./switch_target.sh --target mac <user>@<pi1> <user>@<pi2>   # → the Mac
+./bin/switch-target --target gpu <user>@<pi1> <user>@<pi2>   # → the box
+./bin/switch-target --target mac <user>@<pi1> <user>@<pi2>   # → the Mac
 ```
 
 It rewrites the Pi's upload URL, flips the tunnel unit, restarts the recorder, and verifies
@@ -256,8 +256,8 @@ once confirmed on the Hub) and in the box's `data/raw_episodes` + `data/derived`
 |---|---|
 | No lidar packets | NetworkManager wiped eth0's static IP (`nmcli con show`; installer pins a `lidar` connection) or `rp_filter` drops unicast (`sysctl net.ipv4.conf.all.rp_filter` must be 0). Quick check: `sudo tcpdump -ni eth0 udp port 6699 -c 3` |
 | Recorder fails right after manual install (status=216/GROUP or GPIO EPERM) | You skipped the reboot. GPIO/SPI/video groups + the LCD overlay only apply at boot |
-| Recording works, nothing reaches the box, LCD shows pending | Token mismatch (silent 401 loop) — only possible if a `.env` was hand-edited out of sync with the inventory; re-run `./provision_server.sh` + `./provision_pi.sh` to re-fan the single `UPLOAD_TOKEN`. Verify from the Pi: `curl -m5 -s -o /dev/null -w '%{http_code}' -H "X-Upload-Token: $tok" -X POST http://localhost:8080/upload` → 400 good, 401 mismatch, 000 tunnel down |
-| Tunnel `activating`/restart-looping | Box host key changed (rebuilt box): clear `~/.ssh/known_hosts` on the Pi; or the Pi's key isn't in the box's `authorized_keys` (re-run `provision_pi.sh` or `switch_target.sh`) |
+| Recording works, nothing reaches the box, LCD shows pending | Token mismatch (silent 401 loop) — only possible if a `.env` was hand-edited out of sync with the inventory; re-run `./bin/provision-server` + `./bin/provision-pi` to re-fan the single `UPLOAD_TOKEN`. Verify from the Pi: `curl -m5 -s -o /dev/null -w '%{http_code}' -H "X-Upload-Token: $tok" -X POST http://localhost:8080/upload` → 400 good, 401 mismatch, 000 tunnel down |
+| Tunnel `activating`/restart-looping | Box host key changed (rebuilt box): clear `~/.ssh/known_hosts` on the Pi; or the Pi's key isn't in the box's `authorized_keys` (re-run `bin/provision-pi` or `bin/switch-target`) |
 | Pair never merges; episodes land as lone arms | Runner missing `--pair` (`ROBOT_UMI_RUNNER_ARGS=--pair` + `systemctl restart umi-runner`); or role/UMI-name misprovision → check `data/failed_pairs/`; or the mate never uploaded → `data/orphans/` after the timeout |
 | GLIM trajectory teleports / diverges | Lidar UDP capture gap mid-take (flaky cable/NIC): check the pcap for >200 ms holes. Also expected for episodes recorded <60 s after Pi boot (PTP not locked — manifest says `locked: false`) |
 | Bimanual arms are misaligned by ~a meter in the dataset | Cross-lidar map registration locked onto the wrong alias of a repetitive room. Set `alignment.workspace_bbox` in the pair config to crop registration to the shared workspace; verify with `mac/replay_compare.py` |

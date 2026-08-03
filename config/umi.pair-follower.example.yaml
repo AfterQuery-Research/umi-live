@@ -6,7 +6,7 @@
 # (umi1=[0,1] -> umi2=[2,3]). The server pair-merge relies on this so it can combine the
 # two arms with no stream renaming and pass config validation.
 #
-# Coordination is set in the Pi's .env (rendered by provision_pair.sh), not here:
+# Coordination is set in the Pi's .env (rendered by bin/provision-pair), not here:
 #   ROBOT_UMI_ROLE=follower   ROBOT_UMI_LISTEN_PORT=9140   ROBOT_UMI_TIME_REF=<ntp-ip>
 version: 1
 

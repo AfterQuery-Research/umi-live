@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# provision_pi.sh — ONE local command: take a freshly-flashed Pi (SSH key access already
+# bin/provision-pi — ONE local command: take a freshly-flashed Pi (SSH key access already
 # set up) to a running, boot-persistent UMI recorder you can immediately drive with the
 # buttons. Run this on your Mac/laptop, not on the Pi.
 #
 #   cp provisioning/secrets.example provisioning/secrets     # PI_PASSWORD + UPLOAD_TOKEN
 #   cp provisioning/rigs/example.env provisioning/rigs/<pi-host>.env   # target + rig params
-#   ./provision_pi.sh [--target mac|gpu|url] [--rig <name>] [--dry-run] [--no-reboot] <user@pi>
+#   ./bin/provision-pi [--target mac|gpu|url] [--rig <name>] [--dry-run] [--no-reboot] <user@pi>
 #
 # It drives the Pi over SSH: ephemeral passwordless-sudo bootstrap (removed at the end),
 # rsync the repo, render+push config/umi.yaml + .env, mount the SSD (fstab, nofail), run
 # install_pi.sh, wire the upload target, then reboot + verify. Idempotent; re-runnable.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (script lives in bin/)
 die() { echo "provision: $*" >&2; exit 1; }
 log() { echo; echo "=== $* ==="; }
 
@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$PI" ] || die "unexpected extra argument '$1'"; PI="$1"; shift;;
   esac
 done
-[ -n "$PI" ] || die "usage: ./provision_pi.sh [--target mac|gpu|url] [--rig <name>] [--dry-run] [--no-reboot] <user@pi>"
+[ -n "$PI" ] || die "usage: ./bin/provision-pi [--target mac|gpu|url] [--rig <name>] [--dry-run] [--no-reboot] <user@pi>"
 case "$PI" in *@*) : ;; *) die "target must be user@host (got '$PI')";; esac
 PI_USER="${PI%@*}"; PI_HOST="${PI#*@}"
 [ -n "$RIG" ] || RIG="$PI_HOST"
@@ -234,7 +234,7 @@ ROBOT_UMI_LISTEN_PORT=${CONTROL_PORT:-9140}"
 fi
 ENV_TMP="$(mktemp)"
 cat > "$ENV_TMP" <<ENV
-# Rendered by provision_pi.sh for rig '$RIG'. Edit the inventory + re-provision, not this.
+# Rendered by bin/provision-pi for rig '$RIG'. Edit the inventory + re-provision, not this.
 ROBOT_UMI_SERVER_URL=$SERVER_URL
 ROBOT_UMI_UPLOAD_TOKEN=$UPLOAD_TOKEN
 ROBOT_UMI_CONFIG=config/umi.yaml
