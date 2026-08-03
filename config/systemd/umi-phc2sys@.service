@@ -1,0 +1,21 @@
+# Tie the NIC's hardware clock (PHC) to the system clock so the PTP time ptp4l
+# serves equals CLOCK_REALTIME. Started conditionally: USB-GbE dongles usually
+# have NO PHC (software timestamping) — the ExecCondition probe makes this unit
+# a clean no-op there, and the manifest records timestamping_mode per interface.
+#
+#   sudo systemctl enable --now umi-phc2sys@eth0
+[Unit]
+Description=PHC<->system clock sync (phc2sys) for %i
+After=umi-ptp@%i.service
+BindsTo=umi-ptp@%i.service
+
+[Service]
+Type=simple
+ExecCondition=/bin/sh -c "ethtool -T %i | grep -q 'PTP Hardware Clock: [0-9]'"
+# -s CLOCK_REALTIME -c %i: system clock is the source, PHC follows (the Pi is master).
+ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c %i -O 0 -u 8
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

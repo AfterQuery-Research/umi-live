@@ -1,0 +1,41 @@
+[project]
+name = "robot-umi-device"
+version = "0.1.0"
+description = "Raspberry Pi recorder and uploader for Robot UMI episodes"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Floor kept at 2.2 so the workspace can co-resolve with lerobot's
+    # numpy<2.3 pin; the device only uses stable numpy core APIs.
+    "numpy>=2.2.6",
+    "pillow>=10.0",
+    "robot-umi-core",
+    "tyro>=1.0.15",
+]
+
+[project.optional-dependencies]
+# Pi-only hardware extras. lgpio is the pin-factory backend gpiozero needs on a
+# Pi 5 (the legacy RPi.GPIO backend has no Pi-5 support); without it the GPIO
+# buttons raise at import. spidev drives the ST7789 LCD panel.
+pi = [
+    "gpiozero>=2.0",
+    "lgpio>=0.2.2.0",
+    "spidev>=3.6",
+]
+
+[tool.uv.sources]
+robot-umi-core = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.21",
+    "ty>=0.0.57",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

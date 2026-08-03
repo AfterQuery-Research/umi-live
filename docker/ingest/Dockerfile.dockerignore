@@ -1,0 +1,13 @@
+# Per-Dockerfile ignore for docker/ingest/Dockerfile (BuildKit, docker >= 23:
+# a "<Dockerfile>.dockerignore" next to the Dockerfile overrides the context
+# root .dockerignore). Used because this build's context is the REPO ROOT and
+# we must not add a repo-root .dockerignore; keeps episode data and git
+# history out of the build context.
+.git
+data
+docker
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+_vendor

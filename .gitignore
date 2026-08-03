@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+target/
+robot_umi_spool/
+config/umi.yaml
+config/ee_calib.umi*.json
+data/
+*.log
+# Secrets: HF token, upload token, remote host. Compose auto-loads a root .env;
+# it must never be committed. Track only .env.example.
+.env
+!.env.example
+# Host-specific CPU/GPU compose override written by install_server.sh — must not
+# be committed (a CPU host's copy would silently downgrade a GPU box to CPU SLAM).
+docker-compose.override.yml
+# Provisioning inputs: the Pi/upload secrets + per-rig inventory the orchestrator
+# reads locally. Track only the .example templates.
+provisioning/secrets
+provisioning/rigs/*.env
+!provisioning/rigs/example.env

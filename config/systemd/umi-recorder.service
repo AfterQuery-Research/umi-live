@@ -1,0 +1,29 @@
+# UMI episode recorder. install_pi.sh substitutes @REPO@/@USER@ and installs this
+# to /etc/systemd/system/umi-recorder.service. Reads all deployment settings from
+# the repo-root .env (ROBOT_UMI_SERVER_URL / ROBOT_UMI_CONFIG / ROBOT_UMI_SPOOL_DIR
+# / ROBOT_UMI_UPLOAD_TOKEN). Enable to autostart on boot:
+#   sudo systemctl enable --now umi-recorder
+[Unit]
+Description=UMI episode recorder
+Wants=network-online.target
+# PTP (umi-ptp@<iface>) is not ordered here on purpose: it takes ~30-60s to lock
+# (longer than boot), the recorder probes PTP state at runtime and records it in
+# the manifest, and the lidar iface isn't fixed to eth0. network-online is enough.
+After=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+# Supplementary groups for GPIO buttons, SPI LCD, and the USB camera.
+SupplementaryGroups=video gpio spi dialout i2c
+WorkingDirectory=@REPO@
+EnvironmentFile=@REPO@/.env
+# server URL / config / spool all come from the EnvironmentFile above. The LCD kind +
+# all GPIO pins come from the rig config (controls:), so no --display here (--display
+# defaults to "auto" = use controls.display.kind).
+ExecStart=@REPO@/.venv/bin/python device/scripts/record.py --buttons gpio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+# Per-Dockerfile ignore for docker/dataset/Dockerfile (BuildKit, docker >= 23).
+# Same rationale as docker/ingest/Dockerfile.dockerignore: repo-root context,
+# no repo-root .dockerignore allowed. NOTE: `docker` is NOT excluded here —
+# this build COPYs docker/dataset/entrypoint.sh.
+.git
+data
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+_vendor

@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>umi_map_export</name>
+  <version>0.1.0</version>
+  <description>Export a GLIM offline dump to PLY (merged map + per-submap clouds/poses) for
+  the cross-lidar align stage.</description>
+  <maintainer email="noreply@example.com">robot-umi</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>glim</depend>
+  <depend>gtsam_points</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

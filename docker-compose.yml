@@ -1,0 +1,124 @@
+# docker-compose.yml — portable GPU processing server for Robot UMI.
+#
+# One box (Lambda GPU instance or on-prem NVIDIA machine) runs:
+#   * umi-ingest   — the ONLY long-running service: FastAPI upload endpoint
+#                    on :8080; Pi recorders push hermetic raw episodes here.
+#   * stage CLIs   — everything else is a one-shot container under the
+#                    `stages` profile. No idle GPU services: a pipeline
+#                    runner invokes each stage as
+#                        docker compose run --rm <stage> <in_dir> <out_dir>
+#                    (`compose run` activates a service's profile on its own;
+#                    `--profile stages` is only needed for `build`/`up`.)
+#
+# Containers meet ONLY at directories on the shared volume:
+#   ${DATA_DIR:-./data}  ->  /data in every container
+#     /data/raw_episodes/<id>/          hermetic episodes (manifest.json,
+#                                       config_snapshot/, umiN_lidar.pcap,
+#                                       umiN_camera.mjpeg.avi, umiN_vive.jsonl)
+#     /data/derived/<id>/<stage>/       stage outputs + COMPLETE marker
+#
+# Normal operation is via server/scripts/install_server.sh (builds the images,
+# starts umi-ingest, and runs server/scripts/runner.py as the umi-runner service,
+# which invokes the stages below per episode). The stage args, for reference /
+# manual runs (the runner writes derived/<id>/<umi>/<stage>/):
+#   docker compose run --rm umi-decode /data/raw_episodes/E /data/derived/E/umi1/decode
+#   docker compose run --rm umi-glim   /data/derived/E/umi1/decode /data/derived/E/umi1/glim
+# (dataset + gripper run in-process in the runner, not as compose stages.)
+#
+# Hardware-validated 2026-07-15/16 on a Lambda A100 box (build + GPU GLIM + the
+# full decode→glim→dataset chain). CPU hosts: install_server.sh writes a
+# docker-compose.override.yml (CPU GLIM base + no GPU reservation).
+
+services:
+  # ---------------------------------------------------------------- ingest --
+  # CPU, always-up. Refuses to start without ROBOT_UMI_UPLOAD_TOKEN (server
+  # won't bind 0.0.0.0 tokenless). Ingest only extracts + validates + publishes;
+  # dataset conversion/HF push happen later in the runner's dataset stage.
+  umi-ingest:
+    build:
+      context: .
+      dockerfile: docker/ingest/Dockerfile
+    image: umi-ingest
+    restart: unless-stopped
+    # Write uploaded episodes as the host user (not root) so the ubuntu runner can
+    # relocate/clean them — otherwise pair_stage can't move the paired sources out of
+    # raw_episodes/ and re-merges the same session every poll. HOST_UID/HOST_GID default
+    # to 1000 (typical first login user); install_server.sh can pin them per host.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports:
+      - "8080:8080"
+    environment:
+      ROBOT_UMI_UPLOAD_TOKEN: ${ROBOT_UMI_UPLOAD_TOKEN:-}
+      # No HF_TOKEN here: ingest never pushes to the Hub (that's the runner's
+      # dataset stage), and this is the only internet-facing container.
+      DATA_DIR: /data # informational; the mount below is what matters
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+
+  # ---------------------------------------------------------------- decode --
+  # CPU. pcap -> rosbag2 ("decoded_bag_v1") via rslidar_sdk pcap replay.
+  # args: <episode_dir> <out_dir>
+  umi-decode:
+    profiles: [stages]
+    build:
+      context: docker/decode
+    image: umi-decode
+    init: true # tini: clean signal fan-out to the ros2 child processes
+    # NOTE: must run as root — the ROS (rslidar_sdk) workspace is built under /root in the
+    # image, so a non-root `user:` fails with "package not found". derived/ decode outputs
+    # are therefore root-owned; only a re-decode of the SAME episode id needs sudo to clear.
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+
+  # ------------------------------------------------------------------ slam --
+  # GPU (GLIM, CUDA). args: <bag_dir> <out_dir>
+  # Requires nvidia-container-toolkit on the host. slam_mode=cpu fallback:
+  # rebuild with `--build-arg BASE_IMAGE=koide3/glim_ros2:jazzy` (CPU image)
+  # and comment out the `deploy:` block below (compose errors on hosts
+  # without the nvidia runtime while a device reservation is present).
+  umi-glim:
+    profiles: [stages]
+    build:
+      context: docker/slam-glim
+      # args: { BASE_IMAGE: koide3/glim_ros2:jazzy }   # <- CPU fallback
+    image: umi-slam
+    init: true
+    # NOTE: must run as root — the koide3 GLIM ROS workspace is built under /root, so a
+    # non-root `user:` fails with "Package 'glim_ros' not found" (verified 2026-08-03).
+    # derived/ glim outputs are root-owned; only a re-run of the SAME episode id needs
+    # sudo to clear. (GPU itself works fine non-root: /dev/nvidia* is world-rw.)
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # --------------------------------------------------------------- dataset --
+  # CPU. Raw episode + derived outputs -> LeRobot dataset. Present for manual/
+  # containerized runs; the runner currently invokes the dataset stage in-process
+  # (robot_umi_server.dataset_stage) rather than through this service.
+  umi-dataset:
+    profiles: [stages]
+    build:
+      context: .
+      dockerfile: docker/dataset/Dockerfile
+    image: umi-dataset
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+
+  # --------------------------------------------------------------- compare --
+  # CPU. Pairwise evo APE/RPE across every <engine>/trajectory.tum ->
+  # metrics.json + plots. args: <derived_dir> <out_dir>
+  umi-compare:
+    profiles: [stages]
+    build:
+      context: docker/compare
+    image: umi-compare
+    volumes:
+      - ${DATA_DIR:-./data}:/data

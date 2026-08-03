@@ -1,0 +1,75 @@
+# Rig config: TWO UMIs on one Pi. Copy to config/umi.yaml and point
+# $ROBOT_UMI_CONFIG at it. Delete the umi2 block for a 1-UMI rig — nothing else
+# changes (state dim, feature names, capture plan all derive from N).
+#
+# Two-lidar networking: the second RoboSense must be reprovisioned off the factory
+# 192.168.1.200 (both units default there) and each lidar gets its OWN interface
+# (eth0 + a USB3-GbE eth1) on its own subnet. See scripts/setup_lidar_net.sh.
+version: 1
+
+motion_source: "lidar+vive"
+
+task: "bimanual umi demo"
+
+# HMI wiring for THIS Pi (one button set + one status LCD, shared by both UMIs).
+# Omit to keep the historical defaults. Pins are BCM GPIO; all must be distinct.
+controls:
+  buttons: { record: 12, quit: 16, mode: 22 }
+  display: { kind: lcd, dc: 25, rst: 27, bl: 18 }
+
+umis:
+  umi1:                       # state slots 0-5; dataset timeline master
+    camera:
+      device: "/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1:1.0-video-index0"
+      width: 800
+      height: 600
+      fps: 30
+      exposure: 100
+      calib: "config/calib/umi1_calib.npz"
+    lidar:
+      type: "auto"
+      iface: "eth0"
+      host_ip: "192.168.1.102"
+      lidar_ip: "192.168.1.200"
+    vive:
+      serial: "LHR-AAAAAAAA"                    # this arm's tracker
+      ee_calib: "config/ee_calib.umi1.json"     # T(ee <- vive), per pair
+    gripper:
+      tag_ids: [0, 1]
+      stride: 2
+
+  umi2:                       # state slots 6-11
+    camera:
+      device: "/dev/v4l/by-path/platform-xhci-hcd.1-usb-0:2:1.0-video-index0"
+      width: 800
+      height: 600
+      fps: 30
+      exposure: 100
+      calib: "config/calib/umi2_calib.npz"
+    lidar:
+      type: "auto"
+      iface: "eth1"                             # second NIC — never share with umi1
+      host_ip: "192.168.2.102"
+      lidar_ip: "192.168.2.200"                 # reprovisioned off the factory IP
+    vive:
+      serial: "LHR-BBBBBBBB"
+      ee_calib: "config/ee_calib.umi2.json"
+    gripper:
+      tag_ids: [2, 3]                           # disjoint from umi1 — no cross-detect
+      stride: 2
+
+# Optional cross-lidar map alignment. OFF by default — OMIT this whole block to keep the two
+# lidars SLAM'd independently (the standard dual-UMI behavior). When enabled, a post-GLIM
+# `align` stage registers the two lidar maps into ONE common frame so cross-arm geometry is
+# metric (needed for accurate bimanual relative poses). Needs the server `align` extra
+# (open3d + gtsam): `uv sync --package robot-umi-server --extra align`.
+# alignment:
+#   enabled: true
+#   reference: umi1          # UMI whose frame is the shared world frame (default: first UMI)
+#   tier: 2                  # 1 = rigid map-to-map registration; 2 = joint pose graph (also
+#                            #     refines each trajectory via cross-agent constraints)
+#   gicp_voxel: 0.25         # metres; registration downsample resolution
+#   workspace_bbox: [-1.5, -1.5, -0.5, 1.5, 1.5, 1.5]  # crop to the shared workspace,
+#                            # excluding the moving arms from registration (optional)
+#   cross_agent_constraints: 8   # tier 2: number of cross-agent submap matches
+#   robust_threshold: 0.1        # tier 2: GNC/Huber inlier scale (metres)

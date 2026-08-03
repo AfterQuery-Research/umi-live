@@ -1,0 +1,22 @@
+# ptp4l as PTP MASTER on one lidar interface (%i = eth0/eth1). The lidar (PTP
+# slave-capable: RoboSense Airy, Livox Mid-360) disciplines its clock to Pi time,
+# so packet payload timestamps land on the same CLOCK_REALTIME axis as the camera
+# and Vive kernel stamps.
+#
+#   sudo systemctl enable --now umi-ptp@eth0
+[Unit]
+Description=PTP master (ptp4l) for lidar on %i
+After=network.target
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+
+[Service]
+Type=simple
+# gPTP-style profile (see config/ptp/umi-gptp.cfg) — hardware-validated on the
+# RoboSense Airy: L2 transport, P2P delay, transportSpecific 1, utc_offset 0.
+ExecStart=/usr/sbin/ptp4l -i %i -f /etc/linuxptp/umi-gptp.cfg
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

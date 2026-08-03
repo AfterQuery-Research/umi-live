@@ -1,0 +1,38 @@
+# Rig config: the FOLLOWER Pi of a two-Pi bimanual pair (records the RIGHT arm as umi2).
+#
+# The follower is headless (no buttons, no LCD): it records only when the leader signals
+# it over the control socket. It MUST be provisioned NATIVELY as "umi2" — its single UMI
+# is keyed umi2, its calib is umi2's, and its gripper tags are disjoint from the leader's
+# (umi1=[0,1] -> umi2=[2,3]). The server pair-merge relies on this so it can combine the
+# two arms with no stream renaming and pass config validation.
+#
+# Coordination is set in the Pi's .env (rendered by provision_pair.sh), not here:
+#   ROBOT_UMI_ROLE=follower   ROBOT_UMI_LISTEN_PORT=9140   ROBOT_UMI_TIME_REF=<ntp-ip>
+version: 1
+
+motion_source: "lidar"
+
+task: "bimanual umi demo"
+
+# Headless follower: no LCD. Button pins are irrelevant (never polled) but kept valid.
+controls:
+  display: { kind: none }
+
+umis:
+  umi2:                       # RIGHT arm; dataset state slots 6-11
+    camera:
+      device: "/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1:1.0-video-index0"
+      width: 800
+      height: 600
+      fps: 30
+      exposure: 100
+      calib: "config/calib/umi2_calib.npz"
+    lidar:
+      type: "auto"
+      iface: "eth0"           # its OWN Pi's eth0 (same subnet as the leader's is fine)
+      host_ip: "192.168.1.102"
+      lidar_ip: "192.168.1.200"
+      # t_lidar_imu: [x, y, z, qx, qy, qz, qw]   # optional; else auto-read from DIFOP
+    gripper:
+      tag_ids: [2, 3]         # disjoint from umi1's [0, 1]
+      stride: 2

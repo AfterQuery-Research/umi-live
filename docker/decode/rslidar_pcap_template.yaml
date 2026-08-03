@@ -1,0 +1,52 @@
+# docker/decode/rslidar_pcap_template.yaml — per-run rslidar_sdk config
+# template for PCAP REPLAY inside the umi-decode container.
+#
+# entrypoint.sh substitutes @PCAP_PATH@ and passes the result to
+# rslidar_sdk_node via `-p config_path:=...`. Keys verified against the
+# rslidar_sdk v1.5.20 sample config (2026-07-15).
+#
+# Based on the LIVE-capture config config/lidar/airy.yaml, with the offline
+# deltas called out inline:
+#   msg_source      1 -> 3     (packets come from a pcap file, not the LiDAR)
+#   use_lidar_clock false -> true  (live rig stamps with the Pi system clock
+#                                   to share a clock with the IMU; on replay
+#                                   the system clock is meaningless — use the
+#                                   timestamps embedded in the packets, which
+#                                   ARE the capture-time clock for both cloud
+#                                   and IMU)
+#   ts_first_point  false -> true  (stamp cloud msgs at the FIRST point;
+#                                   with XYZIRT per-point relative times this
+#                                   is the convention SLAM deskewing expects)
+#   dense_points    false -> true  (drop NaN returns; SLAM wants dense clouds,
+#                                   nobody is viewing this in RViz)
+
+common:
+  msg_source: 3               # 3 = packet source is a pcap file
+  send_packet_ros: false      # don't republish raw packets
+  send_point_cloud_ros: true  # publish PointCloud2 (and IMU) to ROS 2
+
+lidar:
+  - driver:
+      lidar_type: RSAIRY      # RoboSense Airy (192/96-beam hemispherical)
+      msop_port: 6699         # point cloud packets (filter within the pcap)
+      difop_port: 7788        # device info packets
+      imu_port: 6688          # built-in IMU (needs ENABLE_IMU_DATA_PARSE=ON)
+      start_angle: 0
+      end_angle: 360
+      min_distance: 0.1
+      max_distance: 60.0
+      use_lidar_clock: true   # replay: stamp from packet-embedded timestamps
+      dense_points: true      # drop NaN points for SLAM
+      ts_first_point: true    # stamp frame at first point (deskew convention)
+      # --- pcap replay (msg_source: 3 only) ---
+      pcap_path: "@PCAP_PATH@"  # substituted by entrypoint.sh
+      pcap_repeat: false        # play ONCE; end-of-file ends the stage
+      pcap_rate: 1.0            # real-time replay. Timestamps come from the
+                                # packets (use_lidar_clock: true), so a higher
+                                # rate would not corrupt stamps — bump only
+                                # after validating the recorder keeps up.
+    ros:
+      ros_frame_id: rslidar
+      ros_send_point_cloud_topic: /rslidar_points
+      ros_send_imu_data_topic: /rslidar_imu_data
+      ros_queue_length: 100

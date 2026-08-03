@@ -1,0 +1,24 @@
+common:
+  msg_source: 1              # 1 = packets from an online LiDAR
+  send_packet_ros: false     # don't republish raw packets
+  send_point_cloud_ros: true # publish PointCloud2 (and IMU) to ROS 2
+
+lidar:
+  - driver:
+      lidar_type: RSAIRY       # RoboSense Airy (192/96-beam hemispherical)
+      msop_port: 6699          # point cloud
+      difop_port: 7788         # device info
+      imu_port: 6688           # built-in IMU (needs ENABLE_IMU_DATA_PARSE=ON at build)
+      start_angle: 0
+      end_angle: 360
+      min_distance: 0.1
+      max_distance: 60.0
+      use_lidar_clock: false   # false = stamp msgs with system clock (no PTP master here);
+                               # keeps LiDAR + IMU on the SAME clock for FAST-LIO
+      dense_points: false      # keep NaN points (RViz ignores them); set true to drop
+      ts_first_point: false
+    ros:
+      ros_frame_id: rslidar
+      ros_send_point_cloud_topic: /rslidar_points
+      ros_send_imu_data_topic: /rslidar_imu_data
+      ros_queue_length: 100

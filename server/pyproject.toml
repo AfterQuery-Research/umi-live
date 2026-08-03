@@ -1,0 +1,58 @@
+[project]
+name = "robot-umi-server"
+version = "0.1.0"
+description = "HTTP ingest, pipeline runner, and GPU SLAM stages for Robot UMI episodes"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.139.0",
+    "huggingface-hub>=1.23.0",
+    "lerobot[dataset]>=0.6.0",
+    "numpy>=2.2.6",
+    # Headless build: the server renders no GUI, and the lab box / CI runners
+    # lack the GTK system libraries the default opencv-python wheel loads.
+    # Floor sits inside lerobot's opencv-python-headless>=4.9,<4.14 window.
+    "opencv-python-headless>=4.9.0",
+    "python-multipart>=0.0.32",
+    "robot-umi-core",
+    "scipy>=1.14",
+    "tyro>=1.0.15",
+    "uvicorn>=0.51.0",
+]
+
+[project.optional-dependencies]
+# Cross-lidar map alignment (the optional `align` stage). Heavy native wheels, needed
+# ONLY when rig.alignment.enabled — align_stage imports them lazily, so the base server
+# and the non-joint pipeline run without them. Install with `.[align]` to enable joint
+# alignment. open3d: cloud IO + FPFH/RANSAC + GICP; gtsam: the tier-2 pose graph.
+# gtsam 4.3a0 (prerelease) is the first build for numpy>=2 — stable 4.2.1 pins numpy<2,
+# which is unsatisfiable against the workspace's numpy>=2.2.6 (and ABI-segfaults at runtime).
+# The explicit prerelease bound opts in prereleases for gtsam ONLY.
+align = [
+    "open3d>=0.18",
+    "gtsam>=4.3a0",
+]
+# Debug viewers (mac/live_pose_plot.py, mac/plot_recording.py). matplotlib only; the
+# offline video also uses ffmpeg (system) for MP4, falling back to an animated GIF.
+viz = [
+    "matplotlib>=3.8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "robot-umi-device",
+    "ruff>=0.15.21",
+    "ty>=0.0.57",
+]
+
+[tool.uv.sources]
+robot-umi-device = { workspace = true }
+robot-umi-core = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
