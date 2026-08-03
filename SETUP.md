@@ -78,11 +78,20 @@ push time, after a full episode of processing).
 | Pi → internet | 443 | apt, uv, docker install |
 | box → internet | 443 | HF push, docker pulls |
 
-**Per-camera calibration:** each camera needs a fisheye calib `.npz` (keys `K`, `dist`,
-`image_size`, `model="fisheye"`) referenced by `CAMERA_CALIB` in the rig file. The repo ships
-calibs for the two original cameras only — for a new camera, calibrate with a checkerboard
-via `cv2.fisheye.calibrate` and save the same keys. Do **not** reuse another camera's file;
-it silently corrupts gripper geometry.
+**Per-camera calibration:** each camera needs its own fisheye calib `.npz`, referenced by
+`CAMERA_CALIB` in the rig file (the repo ships calibs for the two original cameras only).
+For a new camera, wave a checkerboard in front of it — covering the whole frame, especially
+edges/corners — and run:
+
+```sh
+uv run tools/calibrate_camera.py --video <recording.avi> --board 9x6 \
+    --out config/calib/<umiN>_calib.npz
+```
+
+The natural capture flow: record a throwaway episode while waving the board and point the
+tool at its `umiN_camera.mjpeg.avi` (`--images 'shots/*.jpg'` also works). Aim for 20+
+accepted views and RMS < 1 px; the tool warns otherwise. Do **not** reuse another camera's
+file; it silently corrupts gripper geometry.
 
 ---
 
