@@ -39,12 +39,13 @@ HuggingFace Hub.
 
 ## Setup
 
-Follow **[SETUP.md](SETUP.md)**. In brief: the processing host gets `.env` +
-`server/scripts/install_server.sh` (or `mac/run_processing.sh`); each Pi is
-provisioned **from your workstation** with `./provision_pi.sh <user@pi>`
-(`./provision_pair.sh` for a bimanual pair), driven by `provisioning/secrets` +
-`provisioning/rigs/<pi>.env`; already-provisioned Pis flip between processing
-hosts with `./switch_target.sh --target mac|gpu <user@pi>...`.
+Follow **[SETUP.md](SETUP.md)**. In brief: everything is driven from your
+workstation off one inventory (`provisioning/secrets` + `provisioning/server.env`
++ `provisioning/rigs/<pi>.env`) — `./provision_server.sh <user@box>` stands up the
+processing host (`--local` for a Mac host), `./provision_pi.sh <user@pi>` each Pi
+(`./provision_pair.sh` for a bimanual pair), and `./switch_target.sh --target
+mac|gpu <user@pi>...` flips provisioned Pis between processing hosts. Secrets are
+written once and fanned out; no machine is hand-configured.
 
 Do **not** hand-configure a Pi (clone + `install_pi.sh` + editing files on it) —
 that path is the provisioner's internal machinery and skips the SSD mount, upload

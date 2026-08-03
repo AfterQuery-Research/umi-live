@@ -18,5 +18,6 @@ docker-compose.override.yml
 # Provisioning inputs: the Pi/upload secrets + per-rig inventory the orchestrator
 # reads locally. Track only the .example templates.
 provisioning/secrets
+provisioning/server.env
 provisioning/rigs/*.env
 !provisioning/rigs/example.env
