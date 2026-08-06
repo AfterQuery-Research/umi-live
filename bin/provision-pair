@@ -1,31 +1,34 @@
 #!/usr/bin/env bash
-# bin/provision-pair <leader user@host> <follower user@host>
-#
-# Provision a coordinated two-Pi BIMANUAL pair by running bin/provision-pi for each Pi.
-# Each Pi needs its own provisioning/rigs/<host>.env (see provisioning/rigs/example.env):
-#   - the FOLLOWER's env: ROLE="follower", a umi2-native RIG_CONFIG_FILE
-#     (config/umi.pair-follower.example.yaml), TIME_REF="<shared-ntp-ip>"
-#   - the LEADER's env:   ROLE="leader",  a umi1 RIG_CONFIG_FILE
-#     (config/umi.pair-leader.example.yaml), PEER_HOST="<follower-ip>", TIME_REF="<same-ntp-ip>"
-#
-# The follower is provisioned first (so it's listening before the leader comes up), though
-# the leader retries the control channel at runtime, so order isn't load-bearing. On the
-# server, run the runner with --pair so the two single-arm episodes merge into one 12-D
-# bimanual dataset (server pair_stage).
+# Provision the fixed two-client leader/follower rig from provisioning/pair.env.
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (script lives in bin/)
 
-LEADER="${1:?usage: bin/provision-pair <leader user@host> <follower user@host>}"
-FOLLOWER="${2:?usage: bin/provision-pair <leader user@host> <follower user@host>}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAIR_CONFIG="${PAIR_CONFIG:-$ROOT/provisioning/pair.env}"
+[ -f "$PAIR_CONFIG" ] || {
+  echo "provision-pair: missing $PAIR_CONFIG (copy provisioning/pair.env.example)" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+. "$PAIR_CONFIG"
 
-echo "=== provisioning FOLLOWER  $FOLLOWER  (headless, records the umi2 arm) ==="
-"$HERE/bin/provision-pi" "$FOLLOWER"
+EXTRA_ARGS=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run|--no-reboot) EXTRA_ARGS="$EXTRA_ARGS $1"; shift ;;
+    -h|--help) echo "usage: bin/provision-pair [--dry-run] [--no-reboot]"; exit 0 ;;
+    *) echo "provision-pair: unknown argument '$1'" >&2; exit 1 ;;
+  esac
+done
+
+echo "=== follower: ${FOLLOWER:-<unset>} (right / umi2) ==="
+# EXTRA_ARGS contains only the two fixed flag literals accepted above.
+# shellcheck disable=SC2086
+PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role follower $EXTRA_ARGS
 
 echo
-echo "=== provisioning LEADER  $LEADER  (buttons + LCD, records the umi1 arm) ==="
-"$HERE/bin/provision-pi" "$LEADER"
+echo "=== leader: ${LEADER:-<unset>} (left / umi1) ==="
+# shellcheck disable=SC2086
+PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role leader $EXTRA_ARGS
 
 echo
-echo "pair provisioned. Press record on the LEADER — both Pis record the same take;"
-echo "each uploads its single-arm episode; the server (runner --pair) merges them into"
-echo "one 12-D bimanual dataset. Verify cross-Pi sync with 'chronyc tracking' on both."
+echo "pair ready; the leader record button controls both clients"

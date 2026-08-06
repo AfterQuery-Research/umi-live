@@ -6,10 +6,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
-
-from robot_umi_core.layout import COMPLETE_FILE
-
 import robot_umi_device.uploader as uploader_module
+from robot_umi_core.layout import COMPLETE_FILE
 from robot_umi_device.uploader import (
     DEFAULT_UPLOAD_TIMEOUT_SECONDS,
     AsyncUploader,
@@ -41,7 +39,9 @@ def test_upload_failure_leaves_episode_in_complete(tmp_path: Path):
     ) -> dict:
         raise RuntimeError("down")
 
-    assert not upload_episode(episode, "http://server/upload", sent, post=fail).success
+    assert not upload_episode(
+        episode, "http://127.0.0.1:8080/upload", sent, post=fail
+    ).success
     assert episode.exists()
     assert not (sent / episode.name).exists()
 
@@ -60,7 +60,7 @@ def test_tar_creation_failure_leaves_episode_in_complete(
 
     monkeypatch.setattr(uploader_module, "create_episode_tar", fail_archive)
 
-    result = upload_episode(episode, "http://server/upload", sent)
+    result = upload_episode(episode, "http://127.0.0.1:8080/upload", sent)
 
     assert not result.success
     assert result.size_bytes == 0
@@ -84,7 +84,12 @@ def test_retry_success_moves_episode_to_sent(tmp_path: Path):
         uploaded.append(episode_id)
         return {"status": "queued"}
 
-    assert retry_completed(complete, "http://server/upload", sent, post=ok) == 1
+    assert (
+        retry_completed(
+            complete, "http://127.0.0.1:8080/upload", sent, post=ok
+        )
+        == 1
+    )
     assert uploaded == [episode.name]
     assert not episode.exists()
     assert (sent / episode.name).exists()
@@ -105,7 +110,9 @@ def test_async_uploader_does_not_block_submit(tmp_path: Path):
         release_upload.wait(timeout=2)
         return {"status": "queued"}
 
-    uploader = AsyncUploader(complete, "http://server/upload", sent, post=slow_ok)
+    uploader = AsyncUploader(
+        complete, "http://127.0.0.1:8080/upload", sent, post=slow_ok
+    )
     uploader.submit(episode)
     assert episode.exists()
     assert upload_started.wait(timeout=2)
@@ -140,7 +147,9 @@ def test_async_uploader_survives_archive_failure(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(uploader_module, "create_episode_tar", flaky_archive)
 
-    uploader = AsyncUploader(complete, "http://server/upload", sent, post=ok)
+    uploader = AsyncUploader(
+        complete, "http://127.0.0.1:8080/upload", sent, post=ok
+    )
     uploader.submit(first)
     uploader.submit(second)
     uploader.close(wait=True)
@@ -167,7 +176,7 @@ def test_upload_timeout_is_passed_to_http_client(tmp_path: Path):
 
     result = upload_episode(
         episode,
-        "http://server/upload",
+        "http://127.0.0.1:8080/upload",
         sent,
         post=ok,
         upload_timeout_seconds=1.25,
@@ -182,12 +191,15 @@ def test_default_upload_timeout_is_shorter_than_old_timeout():
 
 
 def test_invalid_server_url_rejected_at_startup(tmp_path: Path):
-    with pytest.raises(ValueError, match="http"):
+    with pytest.raises(ValueError, match="SSH tunnel"):
         AsyncUploader(tmp_path / "complete", "ftp://server/upload", tmp_path / "sent")
-    with pytest.raises(ValueError, match="http"):
+    with pytest.raises(ValueError, match="SSH tunnel"):
         validate_server_url("server:8080/upload")  # no scheme
-    validate_server_url("http://server:8080/upload")  # valid: no raise
-    validate_server_url("https://server:8443/upload")  # https now accepted
+    with pytest.raises(ValueError, match="SSH tunnel"):
+        validate_server_url("http://server:8080/upload")
+    with pytest.raises(ValueError, match="SSH tunnel"):
+        validate_server_url("https://127.0.0.1:8080/upload")
+    validate_server_url("http://127.0.0.1:8080/upload")
 
 
 def test_staging_tar_built_once_and_removed_after_success(tmp_path: Path, monkeypatch):
@@ -214,13 +226,21 @@ def test_staging_tar_built_once_and_removed_after_success(tmp_path: Path, monkey
         return {"status": "queued"}
 
     first = upload_episode(
-        episode, "http://server/upload", sent, post=flaky, staging_dir=staging
+        episode,
+        "http://127.0.0.1:8080/upload",
+        sent,
+        post=flaky,
+        staging_dir=staging,
     )
     assert not first.success
     assert (staging / f"{episode.name}.tar").exists()  # kept for reuse
 
     second = upload_episode(
-        episode, "http://server/upload", sent, post=flaky, staging_dir=staging
+        episode,
+        "http://127.0.0.1:8080/upload",
+        sent,
+        post=flaky,
+        staging_dir=staging,
     )
     assert second.success
     assert tar_builds == 1  # reused, not rebuilt
@@ -240,7 +260,11 @@ def test_retry_scan_skips_tarring_while_server_unreachable(tmp_path: Path, monke
         return {"status": "queued"}
 
     uploader = AsyncUploader(
-        complete, "http://server/upload", sent, retry_seconds=999.0, post=ok
+        complete,
+        "http://127.0.0.1:8080/upload",
+        sent,
+        retry_seconds=999.0,
+        post=ok,
     )
     try:
         monkeypatch.setattr(
@@ -267,7 +291,10 @@ def test_orphan_staging_tars_are_cleaned(tmp_path: Path):
     (staging / "episode_gone.tar").write_bytes(b"stale")
 
     uploader = AsyncUploader(
-        complete, "http://server/upload", sent, retry_seconds=999.0
+        complete,
+        "http://127.0.0.1:8080/upload",
+        sent,
+        retry_seconds=999.0,
     )
     try:
         uploader._clean_orphan_tars()
@@ -307,7 +334,7 @@ def test_create_episode_tar_never_leaves_partial_tar(tmp_path: Path, monkeypatch
     assert list(tar_path.parent.iterdir()) == []  # no .tmp leftovers either
 
 
-class TokenCaptureHandler(BaseHTTPRequestHandler):
+class HeaderCaptureHandler(BaseHTTPRequestHandler):
     received_headers: dict[str, str] = {}
 
     def do_POST(self):
@@ -325,27 +352,22 @@ class TokenCaptureHandler(BaseHTTPRequestHandler):
         pass
 
 
-def test_post_tar_file_sends_upload_token_when_configured(tmp_path: Path, monkeypatch):
+def test_post_tar_file_needs_no_authentication_header(tmp_path: Path):
     complete = tmp_path / "complete"
     complete.mkdir()
     episode = make_episode(complete)
     tar_path = tmp_path / "episode_1.tar"
     uploader_module.create_episode_tar(episode, tar_path)
 
-    server = HTTPServer(("127.0.0.1", 0), TokenCaptureHandler)
+    server = HTTPServer(("127.0.0.1", 0), HeaderCaptureHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     url = f"http://127.0.0.1:{server.server_address[1]}/upload"
     try:
-        monkeypatch.delenv(uploader_module.UPLOAD_TOKEN_ENV, raising=False)
         response = post_tar_file(url, tar_path, episode.name, 5.0)
         assert response == {"status": "queued"}
-        assert "X-Upload-Token" not in TokenCaptureHandler.received_headers
-        assert TokenCaptureHandler.received_headers["X-Episode-Id"] == episode.name
-
-        monkeypatch.setenv(uploader_module.UPLOAD_TOKEN_ENV, "sekrit")
-        post_tar_file(url, tar_path, episode.name, 5.0)
-        assert TokenCaptureHandler.received_headers["X-Upload-Token"] == "sekrit"
+        assert "X-Upload-Token" not in HeaderCaptureHandler.received_headers
+        assert HeaderCaptureHandler.received_headers["X-Episode-Id"] == episode.name
     finally:
         server.shutdown()
         server.server_close()

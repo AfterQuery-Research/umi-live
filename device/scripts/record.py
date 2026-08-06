@@ -1,16 +1,10 @@
 """The Pi recorder session: rig config -> sensors -> button-driven episodes.
 
-Wires the whole device stack from ONE rig config (``--config`` or
-``$ROBOT_UMI_CONFIG``): per-UMI cameras (Rust V4L2), lidar pcap capture, Vive
-recording, the advisory lidar monitor + LCD, GPIO/keyboard buttons, and the
-resilient episode spool + uploader.
+Each client records one camera and one RoboSense Airy lidar. The ``umi1`` config is
+the button-driven leader; ``umi2`` is the headless follower. Solo recording and
+runtime sensor-mode selection are intentionally unsupported.
 
-Modes (the enable mask): the MODE button cycles lidar -> vive -> lidar+vive while
-idle; each episode arms the sensors its mode selects (cameras always). The episode
-manifest records the mode actually used — the config's motion_source is only the
-boot default.
-
-Keyboard: s=start e=stop c=cancel q=quit m=mode (or tap/hold GPIO buttons).
+Keyboard: s=start e=stop c=cancel q=quit (or tap/hold GPIO buttons).
 """
 
 from __future__ import annotations
@@ -24,11 +18,9 @@ from pathlib import Path
 from typing import Literal
 
 import tyro
-
 from robot_umi_core import config as core_config
 from robot_umi_core import layout
 from robot_umi_core.ports import bpf_filter
-
 from robot_umi_device import coordinator
 from robot_umi_device.buttons import Buttons, Event, GpioButtons, KeyboardButtons
 from robot_umi_device.camera import RustV4L2Camera
@@ -44,24 +36,12 @@ from robot_umi_device.episode import EpisodeRecorder
 from robot_umi_device.lidar_monitor import LidarMonitor
 from robot_umi_device.mock_lidar import MockLidarPcapRecorder
 from robot_umi_device.ptp import chrony_status, probe_ptp
-from robot_umi_device.sensors import (
-    CameraRecorder,
-    LidarPcapRecorder,
-    SensorRecorder,
-    ViveRecorder,
-)
+from robot_umi_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
 from robot_umi_device.uploader import DEFAULT_UPLOAD_TIMEOUT_SECONDS, AsyncUploader
-from robot_umi_device.vive import NetworkPoseSensor
 
-
-SERVER_URL_ENV = "ROBOT_UMI_SERVER_URL"
 SPOOL_DIR_ENV = "ROBOT_UMI_SPOOL_DIR"
-# Coordination knobs also accepted from the .env (so the generic systemd unit needs no
-# per-role edit — the provisioner just writes these into the Pi's .env).
-ROLE_ENV = "ROBOT_UMI_ROLE"
 PEER_ENV = "ROBOT_UMI_PEER"
-LISTEN_PORT_ENV = "ROBOT_UMI_LISTEN_PORT"
-TIME_REF_ENV = "ROBOT_UMI_TIME_REF"
+UPLOAD_URL = "http://127.0.0.1:8080/upload"
 
 # Follower watchdog: if a STOP is ever lost (leader crash / WiFi blip), auto-finish a take
 # that has run this long so the follower never records forever.
@@ -70,7 +50,6 @@ MAX_TAKE_S = 1800.0
 
 @dataclass
 class Args:
-    server_url: str | None = None  # upload endpoint; falls back to $ROBOT_UMI_SERVER_URL
     config: Path | None = None  # rig YAML; falls back to $ROBOT_UMI_CONFIG
     spool_dir: Path | None = None  # falls back to $ROBOT_UMI_SPOOL_DIR, else robot_umi_spool
     buttons: Literal["keyboard", "gpio"] = "keyboard"
@@ -79,18 +58,9 @@ class Args:
     # from controls.buttons.
     display: Literal["auto", "none", "lcd"] = "auto"
     mock_lidar: bool = False  # synthetic pcap instead of tcpdump (dev/CI)
-    vive_port: int = 9130
     retry_seconds: float = 5.0
     upload_timeout_seconds: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS
     wait_on_quit: bool = False
-    # Two-Pi bimanual coordination. solo = single-Pi (default, unchanged). leader has the
-    # buttons and signals the follower (needs --peer). follower runs headless, driven by
-    # the leader over the control socket. The manifest role is the rig's UMI name.
-    role: Literal["solo", "leader", "follower"] = "solo"
-    peer: str | None = None  # leader: follower host[:port]
-    listen_port: int = coordinator.DEFAULT_PORT  # follower: control port
-    require_peer: bool = True  # leader: abort a take if the follower is unreachable
-    time_ref: str | None = None  # shared NTP ref recorded in the clock_sync manifest block
 
 
 def device_root() -> Path:
@@ -107,30 +77,6 @@ def resolve_config_path(args: Args) -> Path:
     raise SystemExit(
         f"no rig config: pass --config or set ${core_config.CONFIG_ENV_VAR}"
     )
-
-
-def resolve_server_url(args: Args) -> str:
-    url = args.server_url or os.environ.get(SERVER_URL_ENV)
-    if not url:
-        raise SystemExit(f"no server URL: pass --server-url or set ${SERVER_URL_ENV}")
-    return url
-
-
-def apply_env_coordination(args: Args) -> None:
-    """Fill coordination knobs from the .env when not given on the CLI, so the generic
-    ``umi-recorder`` unit (which just runs ``record.py --buttons gpio``) can drive a
-    leader/follower pair purely from the provisioned .env."""
-    if args.role == "solo":
-        env_role = os.environ.get(ROLE_ENV)
-        if env_role in ("leader", "follower"):
-            args.role = env_role  # type: ignore[assignment]
-    if args.peer is None:
-        args.peer = os.environ.get(PEER_ENV) or None
-    if args.time_ref is None:
-        args.time_ref = os.environ.get(TIME_REF_ENV) or None
-    env_listen = os.environ.get(LISTEN_PORT_ENV)
-    if env_listen:
-        args.listen_port = int(env_listen)
 
 
 def resolve_spool_dir(path: Path | None) -> Path:
@@ -174,16 +120,10 @@ def confirm_existing_spool(path: Path) -> None:
 
 def build_sensors(
     rig: core_config.RigConfig, args: Args, device_dir: Path
-) -> tuple[dict[str, SensorRecorder], NetworkPoseSensor | None, dict[str, LidarMonitor]]:
-    """One recorder per configured sensor (all modes' union), a shared Vive
-    receiver, and one advisory monitor per lidar."""
+) -> tuple[dict[str, SensorRecorder], dict[str, LidarMonitor]]:
+    """Build the fixed camera and lidar recorders plus advisory lidar monitoring."""
     sensors: dict[str, SensorRecorder] = {}
     monitors: dict[str, LidarMonitor] = {}
-    receiver: NetworkPoseSensor | None = None
-
-    if any(u.vive for u in rig.umis):
-        receiver = NetworkPoseSensor(port=args.vive_port)
-        receiver.start()
 
     for u in rig.umis:
         cam_key = layout.sensor_key(u.name, layout.KIND_CAMERA)
@@ -199,42 +139,37 @@ def build_sensors(
         cam.prepare()
         sensors[cam_key] = cam
 
-        if u.lidar is not None:
-            lidar_key = layout.sensor_key(u.name, layout.KIND_LIDAR)
-            if args.mock_lidar:
-                sensors[lidar_key] = MockLidarPcapRecorder(lidar_key)
-            else:
-                sensors[lidar_key] = LidarPcapRecorder(
-                    lidar_key, u.lidar.iface, bpf_filter(u.lidar.host_ip)
-                )
-            monitor = LidarMonitor()
-            monitor.start()
-            monitors[u.name] = monitor
+        lidar_key = layout.sensor_key(u.name, layout.KIND_LIDAR)
+        if args.mock_lidar:
+            sensors[lidar_key] = MockLidarPcapRecorder(lidar_key)
+        else:
+            sensors[lidar_key] = LidarPcapRecorder(
+                lidar_key, u.lidar.iface, bpf_filter(u.lidar.host_ip)
+            )
+        monitor = LidarMonitor()
+        monitor.start()
+        monitors[u.name] = monitor
 
-        if u.vive is not None and receiver is not None:
-            vive_key = layout.sensor_key(u.name, layout.KIND_VIVE)
-            sensors[vive_key] = ViveRecorder(vive_key, receiver, u.name)
-
-    return sensors, receiver, monitors
+    return sensors, monitors
 
 
 def make_buttons(rig: core_config.RigConfig, args: Args) -> Buttons:
     if args.buttons == "gpio":
         b = rig.controls.buttons
-        return GpioButtons(b.record, b.quit, b.mode)
+        return GpioButtons(b.record, b.quit)
     return KeyboardButtons()
 
 
-def make_display(rig: core_config.RigConfig, args: Args) -> Display:
+def make_display(rig: core_config.RigConfig, args: Args, role: str) -> Display:
     kind = rig.controls.display.kind if args.display == "auto" else args.display
     if kind != "lcd":
         return NullDisplay()
     d = rig.controls.display
     # A follower's LCD is a lidar-health monitor only (the operator drives recording
     # from the leader), so hide the REC/IDLE box + episode count there.
-    title = {"leader": "Leader", "follower": "Follower"}.get(args.role, "robot-umi")
+    title = "Leader" if role == "leader" else "Follower"
     return StatusDisplay(driver=ST7789(dc=d.dc, rst=d.rst, bl=d.bl),
-                         show_status=args.role != "follower", title=title)
+                         show_status=role != "follower", title=title)
 
 
 def pending_episodes(spool_dir: Path) -> int:
@@ -268,28 +203,24 @@ def _refresh_status(display, monitors, spool_dir, uploader, state) -> None:
         display.notify_upload(UPLOAD_OK if results[-1].success else UPLOAD_FAIL)
 
 
-def _leader_start(leader, session_id, mode, require_peer, handshake, display) -> bool:
-    """Signal the follower to start; return True if we should start our own take.
-
-    Unreachable follower: abort (require_peer) so we never record a useless half-pair,
-    else proceed (the server orphan policy handles the missing mate). On success, stash
-    the rough handshake offset for the clock_sync manifest block."""
-    if leader is None:
-        return True  # solo
-    ack = leader.start_take(session_id, mode)
-    if ack is None:
+def _leader_start(leader, session_id, handshake, display) -> bool:
+    """Start the follower first; never record a useless unpaired half."""
+    ack = leader.start_take(session_id)
+    if ack is None or not ack.get("ok"):
         display.notify_upload(UPLOAD_FAIL)
-        print("follower unreachable" + ("; take aborted" if require_peer else "; recording solo half"))
-        return not require_peer
+        reason = ack.get("error", "unreachable") if ack else "unreachable"
+        print(f"follower unavailable ({reason}); take aborted")
+        return False
     fu = ack.get("follower_unix_ns")
     if fu is not None:
         handshake["v"] = time.time_ns() - int(fu)
     return True
 
 
-def button_loop(recorder, uploader, monitors, display, spool_dir, buttons, leader,
-                role, handshake, mode, require_peer) -> None:
-    """The leader/solo loop: buttons drive episodes; a leader also signals the follower."""
+def button_loop(
+    recorder, uploader, monitors, display, spool_dir, buttons, leader, role, handshake
+) -> None:
+    """The leader buttons drive synchronized two-client episodes."""
     state = {"last_monitor": 0.0, "last_result_count": 0}
     while True:
         event = buttons.poll()
@@ -309,22 +240,14 @@ def button_loop(recorder, uploader, monitors, display, spool_dir, buttons, leade
             continue
 
         recording = recorder.active is not None
-        if event is Event.MODE:
-            if recording:
-                print("mode locked while recording")
-            else:
-                mode = core_config.cycle_mode(mode)
-                display.set_mode(mode)
-                print(f"mode -> {mode}")
-        elif event in (Event.TOGGLE, Event.START) and not recording:
-            session_id = f"sess_{layout.unix_ns()}" if role is not None else None
-            if not _leader_start(leader, session_id, mode, require_peer, handshake, display):
+        if event in (Event.TOGGLE, Event.START) and not recording:
+            session_id = f"sess_{layout.unix_ns()}"
+            if not _leader_start(leader, session_id, handshake, display):
                 continue
             try:
-                active = recorder.start(mode, session_id=session_id, role=role)
+                active = recorder.start(session_id=session_id, role=role)
                 display.set_recording(True)
-                print(f"recording {active.episode_id} (mode {mode}"
-                      + (f", session {session_id})" if session_id else ")"))
+                print(f"recording {active.episode_id} (session {session_id})")
             except Exception as exc:
                 print(f"failed to start: {exc}")
                 if leader is not None:
@@ -344,8 +267,9 @@ def button_loop(recorder, uploader, monitors, display, spool_dir, buttons, leade
             break
 
 
-def follower_loop(recorder, uploader, monitors, display, spool_dir, follower,
-                  role, handshake, boot_mode) -> None:
+def follower_loop(
+    recorder, uploader, monitors, display, spool_dir, follower, role, handshake
+) -> None:
     """The headless follower loop: leader commands (not buttons) drive episodes."""
     state = {"last_monitor": 0.0, "last_result_count": 0, "started_at": 0.0}
     while True:
@@ -371,44 +295,57 @@ def follower_loop(recorder, uploader, monitors, display, spool_dir, follower,
             if cmd.leader_unix_ns is not None:
                 handshake["v"] = time.time_ns() - int(cmd.leader_unix_ns)
             try:
-                active = recorder.start(cmd.mode or boot_mode, session_id=cmd.session_id, role=role)
+                active = recorder.start(session_id=cmd.session_id or "", role=role)
                 state["started_at"] = time.monotonic()
                 display.set_recording(True)
                 print(f"follower recording {active.episode_id} (session {cmd.session_id})")
             except Exception as exc:
                 print(f"follower failed to start: {exc}")
+                cmd.respond(False, str(exc))
+            else:
+                cmd.respond(True)
         elif cmd.cmd == coordinator.CMD_STOP and recorder.active is not None:
-            finish_active(recorder, uploader)
-            display.set_recording(False)
+            try:
+                finish_active(recorder, uploader)
+            except Exception as exc:
+                cmd.respond(False, str(exc))
+                print(f"follower failed to stop: {exc}")
+            else:
+                display.set_recording(False)
+                cmd.respond(True)
         elif cmd.cmd == coordinator.CMD_CANCEL and recorder.active is not None:
-            recorder.cancel()
-            display.set_recording(False)
-            print("follower cancelled (episode discarded)")
+            try:
+                recorder.cancel()
+            except Exception as exc:
+                cmd.respond(False, str(exc))
+                print(f"follower failed to cancel: {exc}")
+            else:
+                display.set_recording(False)
+                print("follower cancelled (episode discarded)")
+                cmd.respond(True)
+        else:
+            cmd.respond(False, "command is invalid for the current recorder state")
 
 
 def main(args: Args) -> None:
-    apply_env_coordination(args)
-    server_url = resolve_server_url(args)
     config_path = resolve_config_path(args)
     rig = core_config.load_rig_config(config_path)
+    role = core_config.client_role(rig)
     dev_dir = device_root()
     spool_dir = resolve_spool_dir(args.spool_dir)
     confirm_existing_spool(spool_dir)
 
-    # The manifest role (the pairing key's arm) is the rig's single UMI name; solo = none.
-    manifest_role = None if args.role == "solo" else rig.umis[0].name
+    manifest_role = rig.umis[0].name
     handshake: dict[str, int | None] = {"v": None}
 
     def clock_sync_probe():
-        if args.role == "solo":
-            return None
-        cs = chrony_status(args.time_ref or "")
+        cs = chrony_status("system-chrony")
         if cs is not None and handshake["v"] is not None:
             cs = replace(cs, handshake_offset_ns=handshake["v"])
         return cs
 
-    sensors, receiver, monitors = build_sensors(rig, args, dev_dir)
-    lidar_ifaces = sorted({u.lidar.iface for u in rig.umis if u.lidar is not None})
+    sensors, monitors = build_sensors(rig, args, dev_dir)
+    lidar_ifaces = sorted({u.lidar.iface for u in rig.umis})
     recorder = EpisodeRecorder(
         rig,
         config_path,
@@ -418,14 +355,11 @@ def main(args: Args) -> None:
         clock_sync_probe=clock_sync_probe,
     )
 
-    display = make_display(rig, args)
+    display = make_display(rig, args, role)
     display.start()
-    mode = rig.motion_source
-    display.set_mode(mode)
-
     uploader = AsyncUploader(
         recorder.complete_dir,
-        server_url,
+        UPLOAD_URL,
         recorder.sent_dir,
         retry_seconds=args.retry_seconds,
         upload_timeout_seconds=args.upload_timeout_seconds,
@@ -435,27 +369,30 @@ def main(args: Args) -> None:
     buttons: Buttons | None = None
     leader: coordinator.Leader | None = None
     follower: coordinator.Follower | None = None
-    if args.role == "follower":
-        follower = coordinator.Follower(listen_port=args.listen_port)
+    if role == "follower":
+        follower = coordinator.Follower()
         follower.start()
-        print(f"rig: {rig.n_umis} UMI(s) FOLLOWER role={manifest_role}; awaiting leader on :{args.listen_port}")
+        print(
+            f"rig: {rig.n_umis} UMI(s) FOLLOWER role={manifest_role}; "
+            f"awaiting leader on :{coordinator.DEFAULT_PORT}"
+        )
     else:
         buttons = make_buttons(rig, args)
-        if args.role == "leader":
-            if not args.peer:
-                raise SystemExit("--role leader requires --peer host[:port]")
-            leader = coordinator.Leader(args.peer)
-        print(f"rig: {rig.n_umis} UMI(s), boot mode {mode}, role {args.role}; s/e/c/q/m or buttons")
+        peer = os.environ.get(PEER_ENV)
+        if not peer:
+            raise SystemExit(f"leader config requires ${PEER_ENV}")
+        leader = coordinator.Leader(peer)
+        print(f"rig: {rig.n_umis} UMI, role leader; s/e/c/q or buttons")
 
     try:
-        if args.role == "follower":
+        if role == "follower":
             assert follower is not None
             follower_loop(recorder, uploader, monitors, display, spool_dir, follower,
-                          manifest_role, handshake, mode)
+                          manifest_role, handshake)
         else:
-            assert buttons is not None
+            assert buttons is not None and leader is not None
             button_loop(recorder, uploader, monitors, display, spool_dir, buttons, leader,
-                        manifest_role, handshake, mode, args.require_peer)
+                        manifest_role, handshake)
     except KeyboardInterrupt:
         print("\ninterrupted")
     finally:
@@ -467,8 +404,6 @@ def main(args: Args) -> None:
             uploader.close(wait=args.wait_on_quit)
         if follower is not None:
             follower.close()
-        if receiver is not None:
-            receiver.stop()
         for monitor in monitors.values():
             monitor.close()
         display.close()

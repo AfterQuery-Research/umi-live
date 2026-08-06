@@ -2,7 +2,6 @@
 name = "robot-umi-device"
 version = "0.1.0"
 description = "Raspberry Pi recorder and uploader for Robot UMI episodes"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     # Floor kept at 2.2 so the workspace can co-resolve with lerobot's

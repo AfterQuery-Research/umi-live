@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # Configure ONE Pi interface for ONE lidar. Run as root, once per lidar:
 #   sudo device/scripts/setup_lidar_net.sh eth0 192.168.1.102/24 192.168.1.200
-#   sudo device/scripts/setup_lidar_net.sh eth1 192.168.2.102/24 192.168.2.200
-#
-# Two-lidar rigs: each lidar gets its OWN interface + subnet (a USB3-GbE dongle
-# for the second). RoboSense units all ship at 192.168.1.200 — reprovision the
-# second unit's IP via its web UI before wiring it to eth1.
 #
 # Two silent failure modes this handles (both proven on hardware):
 #   1. A network manager wipes a manual `ip addr add`, so we write a PERSISTENT
@@ -14,7 +9,7 @@
 #      default route is set, so internet stays on wlan0.
 #   2. rp_filter drops the lidar's unicast on a multi-homed Pi. Note: pcap
 #      capture (AF_PACKET) taps pre-routing and would see packets anyway, but
-#      the advisory monitor + Livox waker use UDP sockets, which do not.
+#      the advisory monitor uses UDP sockets, which do not.
 set -eo pipefail
 
 IFACE="${1:?usage: setup_lidar_net.sh <iface> <host_cidr> <lidar_ip>}"

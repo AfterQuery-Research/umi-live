@@ -2,12 +2,12 @@
 
 The leader Pi keeps the buttons; on each start/stop/cancel it signals the follower over a
 tiny newline-delimited JSON socket so both Pis record the SAME take, tagged with a shared
-``session_id`` (the key the server merges the two single-arm episodes on). The follower
+``session_id`` (the key the server merges the two one-arm transport episodes on). The follower
 runs headless, driving its own ``EpisodeRecorder`` from the commands it receives.
 
 The reply to every command carries the follower's ``time.time_ns()`` — an independent
 leader<->follower clock-offset estimate that rides into the manifests alongside chrony's
-self-report (see ``ptp.chrony_status``). Solo (single-Pi) capture uses neither side.
+self-report (see ``ptp.chrony_status``).
 
 stdlib sockets only (matches ``uploader``'s dependency-free style); the leader opens a
 fresh short-lived connection per command, so a dropped link fails that one command
@@ -20,11 +20,12 @@ import json
 import socket
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from queue import Empty, Queue
 
 DEFAULT_PORT = 9140
 _TIMEOUT_S = 5.0
+_COMMAND_ACK_TIMEOUT_S = 15.0
 _MAX_LINE = 65536
 
 CMD_START = "start"
@@ -37,8 +38,17 @@ CMD_PING = "ping"
 class Command:
     cmd: str
     session_id: str | None = None
-    mode: str | None = None
     leader_unix_ns: int | None = None
+    _reply: Queue[dict] | None = field(default=None, repr=False)
+
+    def respond(self, ok: bool, error: str = "") -> None:
+        """Complete the command after the follower recorder applied it."""
+        if self._reply is None:
+            return
+        reply: dict = {"ok": ok, "follower_unix_ns": time.time_ns()}
+        if error:
+            reply["error"] = error
+        self._reply.put_nowait(reply)
 
 
 def _read_line(sock: socket.socket) -> bytes:
@@ -74,14 +84,11 @@ class Leader:
         except (OSError, ValueError):
             return None
 
-    def start_take(
-        self, session_id: str, mode: str, leader_unix_ns: int | None = None
-    ) -> dict | None:
+    def start_take(self, session_id: str, leader_unix_ns: int | None = None) -> dict | None:
         return self._send(
             {
                 "cmd": CMD_START,
                 "session_id": session_id,
-                "mode": mode,
                 "leader_unix_ns": leader_unix_ns if leader_unix_ns is not None else time.time_ns(),
             }
         )
@@ -125,7 +132,7 @@ class Follower:
         while not self._stop.is_set():
             try:
                 conn, _addr = self._srv.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -138,21 +145,37 @@ class Follower:
                     obj = json.loads(line)
                 except ValueError:
                     continue
-                # Reply first (the ack IS the time handshake), then enqueue non-ping cmds.
-                try:
-                    conn.sendall((json.dumps({"ok": True, "follower_unix_ns": time.time_ns()}) + "\n").encode())
-                except OSError:
-                    pass
                 cmd = str(obj.get("cmd", ""))
-                if cmd and cmd != CMD_PING:
+                if cmd == CMD_PING:
+                    reply = {"ok": True, "follower_unix_ns": time.time_ns()}
+                elif cmd in {CMD_START, CMD_STOP, CMD_CANCEL}:
+                    replies: Queue[dict] = Queue(maxsize=1)
                     self._q.put(
                         Command(
                             cmd=cmd,
                             session_id=obj.get("session_id"),
-                            mode=obj.get("mode"),
                             leader_unix_ns=obj.get("leader_unix_ns"),
+                            _reply=replies,
                         )
                     )
+                    try:
+                        reply = replies.get(timeout=_COMMAND_ACK_TIMEOUT_S)
+                    except Empty:
+                        reply = {
+                            "ok": False,
+                            "error": "follower recorder did not apply command",
+                            "follower_unix_ns": time.time_ns(),
+                        }
+                else:
+                    reply = {
+                        "ok": False,
+                        "error": f"unknown command {cmd!r}",
+                        "follower_unix_ns": time.time_ns(),
+                    }
+                try:
+                    conn.sendall((json.dumps(reply) + "\n").encode())
+                except OSError:
+                    pass
 
     def poll(self) -> Command | None:
         try:

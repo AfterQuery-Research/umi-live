@@ -1,8 +1,7 @@
 """LCD status monitor (Waveshare 2" ST7789, 240x320, SPI0, DC=25/RST=4/BL=18).
 
-Shows, per configured UMI: lidar presence + detected type + TEMPERATURE (from the
-advisory monitor), plus the current record MODE, REC/IDLE, pending episode count,
-and the last upload result (transient banner on success, persistent on failure).
+Shows lidar presence and temperature, REC/IDLE, pending episode count, and the last
+upload result (transient banner on success, persistent on failure).
 
 `StatusDisplay` keeps lock-guarded state updated from several threads (monitor
 poller, App loop, uploader) and a background render thread redraws the LCD.
@@ -37,9 +36,6 @@ class Display(ABC):
     def set_lidar_health(self, umi: str, health: LidarHealth) -> None: ...
 
     @abstractmethod
-    def set_mode(self, mode: str) -> None: ...
-
-    @abstractmethod
     def set_recording(self, recording: bool) -> None: ...
 
     @abstractmethod
@@ -62,7 +58,6 @@ class NullDisplay(Display):
     """No-op display: used when no LCD is attached (the default off-Pi)."""
 
     def set_lidar_health(self, umi: str, health: LidarHealth) -> None: ...
-    def set_mode(self, mode: str) -> None: ...
     def set_recording(self, recording: bool) -> None: ...
     def set_episodes(self, count: int) -> None: ...
     def notify_upload(self, state: str) -> None: ...
@@ -231,7 +226,6 @@ class StatusDisplay(Display):
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lidars: dict[str, LidarHealth] = {}
-        self._mode = "?"
         self._recording = False
         self._episodes = 0
         self._upload_state: str | None = None
@@ -242,10 +236,6 @@ class StatusDisplay(Display):
     def set_lidar_health(self, umi: str, health: LidarHealth) -> None:
         with self._lock:
             self._lidars[umi] = health
-
-    def set_mode(self, mode: str) -> None:
-        with self._lock:
-            self._mode = mode
 
     def set_recording(self, recording: bool) -> None:
         with self._lock:
@@ -306,7 +296,6 @@ class StatusDisplay(Display):
         now = self._now()
         with self._lock:
             lidars = dict(self._lidars)
-            mode = self._mode
             recording = self._recording
             episodes = self._episodes
             banner = self._upload_banner(now)
@@ -316,7 +305,6 @@ class StatusDisplay(Display):
         img = Image.new("RGB", (w, h), _BG)
         d = ImageDraw.Draw(img)
         d.text((10, 4), self._title, fill=_BLUE, font=_font(18))
-        d.text((w - 130, 4), f"mode {mode}", fill=_AMBER, font=_font(16))
 
         # one row per configured lidar: dot + name + type + temperature
         y = 36
@@ -335,7 +323,7 @@ class StatusDisplay(Display):
             y += 28
 
         # recording box (left) + episode count (right) + upload banner: only on a
-        # full-status display (leader/solo). A follower shows lidar health only.
+        # full-status display (leader). A follower shows lidar health only.
         if self._show_status:
             top = max(y + 6, 118)
             d.rectangle([14, top, 156, top + 66], fill=_RED if recording else (30, 34, 40))

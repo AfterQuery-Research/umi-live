@@ -1,6 +1,4 @@
-"""Two single-UMI episodes -> one merged bimanual episode, consumed by the EXISTING
-runner + 12-D dataset stage unchanged. This is the reuse thesis for the two-Pi topology,
-proven entirely on fixtures (no hardware, no real GLIM)."""
+"""Two arm uploads merge into the only processable 12-D bimanual episode."""
 
 from __future__ import annotations
 
@@ -8,7 +6,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from robot_umi_core import config as core_config
 from robot_umi_core import layout, manifest
 from robot_umi_device.episode import EpisodeRecorder
@@ -23,10 +20,11 @@ def _write_arm_config(
     config_root: Path, umi_name: str, tag_ids: tuple[int, int], alignment: dict | None = None
 ) -> Path:
     (config_root / "config" / "calib").mkdir(parents=True, exist_ok=True)
-    (config_root / "config" / "calib" / f"{umi_name}_calib.npz").write_bytes(b"npz-" + umi_name.encode())
+    (config_root / "config" / "calib" / f"{umi_name}_calib.npz").write_bytes(
+        b"npz-" + umi_name.encode()
+    )
     raw = {
         "version": 1,
-        "motion_source": "lidar",
         "task": "test task",
         "umis": {
             umi_name: {
@@ -66,7 +64,7 @@ def _record_arm(
         },
         clock_sync_probe=(lambda cs=clock_sync: cs),
     )
-    recorder.start(core_config.MODE_LIDAR, session_id=session_id, role=role)
+    recorder.start(session_id=session_id, role=role)
     return recorder.stop()
 
 
@@ -81,8 +79,23 @@ def _publish_pair(
     data_dir = tmp_path / "data"
     raw = data_dir / "raw_episodes"
     raw.mkdir(parents=True)
-    leader = _record_arm(tmp_path, "umi1", session_id=session_id, role="umi1", tag_ids=(0, 1), clock_sync=leader_cs, alignment=alignment)
-    follower = _record_arm(tmp_path, "umi2", session_id=session_id, role="umi2", tag_ids=(2, 3), clock_sync=follower_cs)
+    leader = _record_arm(
+        tmp_path,
+        "umi1",
+        session_id=session_id,
+        role="umi1",
+        tag_ids=(0, 1),
+        clock_sync=leader_cs,
+        alignment=alignment,
+    )
+    follower = _record_arm(
+        tmp_path,
+        "umi2",
+        session_id=session_id,
+        role="umi2",
+        tag_ids=(2, 3),
+        clock_sync=follower_cs,
+    )
     for ep in (leader, follower):
         ep.rename(raw / ep.name)
     return data_dir
@@ -106,7 +119,7 @@ def _fake_runner(data_dir: Path, calls: list[tuple[str, str]]) -> Runner:
     for s in stages:
         if s.fn is None:
             s.fn = fake(s.name)
-    return Runner(data_dir=data_dir, stages=stages, executor=Executor(data_dir), pair_sessions=True)
+    return Runner(data_dir=data_dir, stages=stages, executor=Executor(data_dir))
 
 
 def test_merge_produces_valid_bimanual_episode(tmp_path: Path):
@@ -123,13 +136,19 @@ def test_merge_produces_valid_bimanual_episode(tmp_path: Path):
     m = manifest.read_manifest(merged / layout.MANIFEST_FILE)
     assert manifest.present_streams(m, layout.KIND_LIDAR) == ["umi1/lidar", "umi2/lidar"]
     assert manifest.present_streams(m, layout.KIND_CAMERA) == ["umi1/camera", "umi2/camera"]
+    assert m["episode_id"] == merged.name
     assert m["device_id"] == "paired" and m["session_id"] == "s1" and "role" not in m
 
     rig = core_config.load_rig_config(
         merged / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
     )
     assert core_config.derive(rig).state_dim == 12
-    for f in ("umi1_lidar.pcap", "umi2_lidar.pcap", "umi1_camera.mjpeg.avi", "umi2_camera.mjpeg.avi"):
+    for f in (
+        "umi1_lidar.pcap",
+        "umi2_lidar.pcap",
+        "umi1_camera.mjpeg.avi",
+        "umi2_camera.mjpeg.avi",
+    ):
         assert (merged / f).is_file()
     # calib blobs for both arms rode along.
     assert (merged / layout.CONFIG_SNAPSHOT_DIR / "config" / "calib" / "umi2_calib.npz").is_file()
@@ -140,11 +159,7 @@ def test_runner_processes_merged_as_bimanual(tmp_path: Path):
     calls: list[tuple[str, str]] = []
     runner = _fake_runner(data_dir, calls)
 
-    # Before pairing: the two role-tagged arms are skipped (never run alone).
-    assert runner.scan_once() == 0
-    assert calls == []
-
-    pair_stage.pair_once(data_dir)
+    # The runner pairs first; a role-tagged arm is never processed alone.
     runner.scan_once()
     assert ("glim", "umi1") in calls
     assert ("glim", "umi2") in calls
@@ -229,7 +244,11 @@ def test_merge_rejects_non_native_arm(tmp_path: Path):
     # A follower mistakenly provisioned as umi1 (role umi2 but config umi named umi1)
     # fails loud with PairError, not a silent collision.
     leader = _record_arm(tmp_path, "umi1", session_id="s1", role="umi1", tag_ids=(0, 1))
-    bad = _record_arm(tmp_path, "umi1", session_id="s1", role="umi2", tag_ids=(2, 3))
+    bad = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(2, 3))
+    snapshot = bad / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
+    raw = yaml.safe_load(snapshot.read_text())
+    raw["umis"] = {"umi1": raw["umis"].pop("umi2")}
+    snapshot.write_text(yaml.safe_dump(raw))
     with pytest.raises(pair_stage.PairError):
         pair_stage.merge_pair(leader, bad, tmp_path / "dest", "s1")
 
@@ -242,7 +261,11 @@ def test_bad_pair_is_quarantined_not_crashed(tmp_path: Path):
     raw = data_dir / "raw_episodes"
     raw.mkdir(parents=True)
     leader = _record_arm(tmp_path, "umi1", session_id="s1", role="umi1", tag_ids=(0, 1))
-    follower = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(0, 1))  # collide
+    follower = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(2, 3))
+    snapshot = follower / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
+    follower_raw = yaml.safe_load(snapshot.read_text())
+    follower_raw["umis"]["umi2"]["gripper"]["tag_ids"] = [0, 1]
+    snapshot.write_text(yaml.safe_dump(follower_raw))
     leader.rename(raw / leader.name)
     follower.rename(raw / follower.name)
 

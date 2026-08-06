@@ -10,7 +10,7 @@
 {
   "sensors": {
     // IMU noise (stock defaults — retune on the GPU box if the Airy IMU
-    // proves noisier; drift vs Vive is the metric that will show it)
+    // proves noisier)
     "imu_acc_noise": 0.05,
     "imu_gyro_noise": 0.02,
     "imu_int_noise": 0.001,

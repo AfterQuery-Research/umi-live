@@ -1,10 +1,8 @@
-"""Button input: emits TOGGLE / CANCEL / QUIT / MODE events.
+"""Button input: emits TOGGLE / CANCEL / QUIT events.
 
-Three physical Pi buttons (BCM pin -> ground; gpiozero's pull-up handles idle):
-- record (default 17): tap = TOGGLE (start/stop), hold = CANCEL
-- quit   (default 27): hold = QUIT
-- mode   (default 22): tap = MODE (cycle lidar -> vive -> lidar+vive; idle only —
-  the App ignores MODE while recording so an episode's sensor set is fixed at start)
+Two physical Pi buttons (BCM pin -> ground; gpiozero's pull-up handles idle):
+- record (default 12): tap = TOGGLE (start/stop), hold = CANCEL
+- quit   (default 16): hold = QUIT
 
 The debounce logic is battle-tested from the previous rig: contact bounce on release
 fires press+release twice within ~10 ms, which without guards turns one tap into
@@ -29,7 +27,6 @@ class Event(Enum):
     TOGGLE = auto()
     CANCEL = auto()
     QUIT = auto()
-    MODE = auto()
 
 
 class Buttons(ABC):
@@ -39,7 +36,7 @@ class Buttons(ABC):
 
 
 class KeyboardButtons(Buttons):
-    """Dev buttons: type a key then Enter. s=start e=stop c=cancel q=quit m=mode.
+    """Dev buttons: type a key then Enter. s=start e=stop c=cancel q=quit.
 
     POSIX-only (select() on stdin) — fine on Mac and the Pi.
     """
@@ -49,7 +46,6 @@ class KeyboardButtons(Buttons):
         "e": Event.STOP,
         "c": Event.CANCEL,
         "q": Event.QUIT,
-        "m": Event.MODE,
     }
 
     def poll(self) -> Event | None:
@@ -63,13 +59,12 @@ class KeyboardButtons(Buttons):
 
 
 class GpioButtons(Buttons):
-    """Three physical Pi buttons (record / quit / mode), dual-debounced."""
+    """Two physical Pi buttons (record / quit), dual-debounced."""
 
     def __init__(
         self,
         record_pin: int = 17,
         quit_pin: int = 27,
-        mode_pin: int = 22,
         hold_s: float = 2.0,
         bounce_s: float = 0.05,
         toggle_debounce_s: float = 0.4,
@@ -88,15 +83,12 @@ class GpioButtons(Buttons):
         # spurious TOGGLE and restart recording right after a cancel. Suppress toggles
         # for the debounce window after any hold-release.
         self._hold_released_at = 0.0
-        self._last_mode = 0.0
         self._record = Button(record_pin, bounce_time=bounce_s, hold_time=hold_s)
         self._quit = Button(quit_pin, hold_time=hold_s)
-        self._mode = Button(mode_pin, bounce_time=bounce_s)
         self._record.when_pressed = self._on_record_pressed
         self._record.when_held = self._on_record_held
         self._record.when_released = self._on_record_released
         self._quit.when_held = lambda: self._events.put(Event.QUIT)
-        self._mode.when_released = self._on_mode_released
 
     def _on_record_pressed(self) -> None:
         self._record_held = False
@@ -117,13 +109,6 @@ class GpioButtons(Buttons):
         self._last_toggle = now
         self._events.put(Event.TOGGLE)
 
-    def _on_mode_released(self) -> None:
-        now = time.monotonic()
-        if now - self._last_mode < self._toggle_debounce_s:
-            return  # bounce: one tap = one mode step
-        self._last_mode = now
-        self._events.put(Event.MODE)
-
     def poll(self) -> Event | None:
         try:
             return self._events.get_nowait()
@@ -133,7 +118,6 @@ class GpioButtons(Buttons):
     def close(self) -> None:
         self._record.close()
         self._quit.close()
-        self._mode.close()
 
 
 class ScriptedButtons(Buttons):

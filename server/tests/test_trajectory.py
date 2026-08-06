@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pytest
-from scipy.spatial.transform import Rotation
-
 from robot_umi_server.trajectory import (
     PoseTrack,
     actions_from_states,
     read_tum,
-    read_vive_track,
     resample,
     states_from_track,
     write_tum,
 )
+from scipy.spatial.transform import Rotation
 
 
 def straight_track(n: int = 11, t0: float = 100.0) -> PoseTrack:
@@ -108,20 +104,3 @@ def test_actions_are_deltas_with_zero_tail():
     assert np.allclose(actions[0], 1.0)
     assert np.allclose(actions[1], 2.0)
     assert np.allclose(actions[2], 0.0)
-
-
-def test_read_vive_track_applies_ee_calib(tmp_path):
-    poses = tmp_path / "umi1_vive.jsonl"
-    rows = [
-        {"name": "umi1", "recv_unix_ns": 1_000_000_000 + i * 5_000_000,
-         "sender_ts": 0.0, "data": [0.1 * i, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]}
-        for i in range(4)
-    ]
-    poses.write_text("\n".join(json.dumps(r) for r in rows))
-    calib = tmp_path / "ee.json"
-    calib.write_text('{"translation_mm": [0, 0, -100], "quat_xyzw": [0, 0, 0, 1]}')
-    track = read_vive_track(poses, calib)
-    assert len(track) == 4
-    # T(ee<-vive) translation (0,0,-0.1) => vive_T_ee = (0,0,+0.1): EE sits +0.1 in z.
-    assert track.pos[0, 2] == pytest.approx(0.1)
-    assert track.pos[1, 0] == pytest.approx(0.1)

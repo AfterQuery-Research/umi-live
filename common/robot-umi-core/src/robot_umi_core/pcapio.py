@@ -1,7 +1,7 @@
 """Minimal classic-pcap READER, shared by device and server.
 
 The reader half of the pcap plumbing lives in core so both the device (capture-side
-stats/tests) and the server (offline DIFOP/Livox parsing) can iterate a pcap's UDP
+stats/tests) and the server's offline DIFOP parsing can iterate a pcap's UDP
 packets without a device->server dependency. The device's ``pcap.py`` re-exports these
 names for back-compat and keeps the capture/writer halves (``PcapCapture``/``PcapWriter``),
 which are device-only.

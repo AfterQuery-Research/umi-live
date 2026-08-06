@@ -15,10 +15,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
-
 from robot_umi_core import config as core_config
 from robot_umi_core import layout, manifest
-
 from robot_umi_device.episode import EpisodeRecorder
 from robot_umi_device.mock_lidar import MockLidarPcapRecorder
 from robot_umi_device.sensors import SensorStats
@@ -80,37 +78,44 @@ class CvCameraRecorder:
         return None
 
 
-def write_rig_config(config_root: Path, n_umis: int = 1, with_gripper: bool = False) -> Path:
+def write_client_config(config_root: Path, umi_name: str) -> Path:
     (config_root / "config" / "calib").mkdir(parents=True, exist_ok=True)
-    umis = {}
-    for i in range(1, n_umis + 1):
-        calib = config_root / "config" / "calib" / f"umi{i}_calib.npz"
-        calib.write_bytes(b"fake-npz-" + str(i).encode())
-        umi: dict = {
-            "camera": {
-                "device": f"/dev/fake{i}",
-                "width": 64,
-                "height": 48,
-                "fps": 30,
-                "calib": f"config/calib/umi{i}_calib.npz",
-            },
-            "lidar": {"iface": f"eth{i - 1}", "host_ip": f"192.168.{i}.102"},
-        }
-        if with_gripper:
-            umi["gripper"] = {"tag_ids": [2 * (i - 1), 2 * i - 1]}
-        umis[f"umi{i}"] = umi
-    raw = {"version": 1, "motion_source": "lidar", "task": "test task", "umis": umis}
+    index = 1 if umi_name == "umi1" else 2
+    calib = config_root / "config" / "calib" / f"{umi_name}_calib.npz"
+    calib.write_bytes(b"fake-npz-" + str(index).encode())
+    raw = {
+        "version": 1,
+        "task": "test task",
+        "umis": {
+            umi_name: {
+                "camera": {
+                    "device": f"/dev/fake{index}",
+                    "width": 64,
+                    "height": 48,
+                    "fps": 30,
+                    "calib": f"config/calib/{umi_name}_calib.npz",
+                },
+                "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
+                "gripper": {"tag_ids": [0, 1] if umi_name == "umi1" else [2, 3]},
+            }
+        },
+    }
     config_path = config_root / "config" / "umi.yaml"
     config_path.write_text(yaml.safe_dump(raw))
     return config_path
 
 
-def make_v2_episode(
-    tmp_path: Path, n_umis: int = 1, frames: int = 6, ptp_locked: bool = True
+def make_arm_episode(
+    tmp_path: Path,
+    umi_name: str,
+    *,
+    frames: int = 6,
+    ptp_locked: bool = True,
+    session_id: str = "session_test",
 ) -> Path:
-    """Record one complete episode through the real device recorder."""
-    config_root = tmp_path / "repo"
-    config_path = write_rig_config(config_root, n_umis=n_umis)
+    """Record one arm transport episode through the real device recorder."""
+    config_root = tmp_path / f"repo_{umi_name}"
+    config_path = write_client_config(config_root, umi_name)
     rig = core_config.load_rig_config(config_path)
 
     sensors = {}
@@ -123,7 +128,7 @@ def make_v2_episode(
     recorder = EpisodeRecorder(
         rig,
         config_path,
-        tmp_path / "spool",
+        tmp_path / f"spool_{umi_name}",
         sensors,
         config_root=config_root,
         ptp_probe=lambda: {
@@ -135,9 +140,28 @@ def make_v2_episode(
             for u in rig.umis
             if u.lidar is not None
         },
+        clock_sync_probe=lambda: manifest.ClockSyncStatus(
+            synced=True, ref="system-chrony", offset_to_ref_ns=1_000
+        ),
     )
-    recorder.start(core_config.MODE_LIDAR)
+    recorder.start(session_id=session_id, role=umi_name)
     return recorder.stop()
+
+
+def make_v2_episode(tmp_path: Path, frames: int = 6, ptp_locked: bool = True) -> Path:
+    """Compatibility name for an ingest-ready leader arm episode."""
+    return make_arm_episode(tmp_path, "umi1", frames=frames, ptp_locked=ptp_locked)
+
+
+def make_paired_episode(tmp_path: Path, frames: int = 6) -> Path:
+    """Build the only processable input: a merged umi1+umi2 episode."""
+    from robot_umi_server.pair_stage import merge_pair
+
+    leader = make_arm_episode(tmp_path, "umi1", frames=frames)
+    follower = make_arm_episode(tmp_path, "umi2", frames=frames)
+    paired = tmp_path / "paired_session_test"
+    merge_pair(leader, follower, paired, "session_test")
+    return paired
 
 
 def make_episode_tar(episode_dir: Path, out_dir: Path) -> Path:

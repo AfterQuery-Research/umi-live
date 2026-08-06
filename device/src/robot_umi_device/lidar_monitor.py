@@ -47,7 +47,7 @@ def parse_robosense_temp_c(msop_payload: bytes) -> float | None:
 @dataclass
 class LidarHealth:
     present: bool
-    lidar_type: str | None  # "robosense" | "livox" | None
+    lidar_type: str | None  # "robosense" or None
     temp_c: float | None
     last_seen_unix_ns: int | None
     packets_seen: int
@@ -56,12 +56,10 @@ class LidarHealth:
 class LidarMonitor:
     """Per-lidar-interface health monitor. One instance per configured lidar."""
 
-    # Ports we listen on: RoboSense MSOP (temp lives there) + DIFOP, Livox point+push.
+    # Ports we listen on: RoboSense MSOP (temperature lives there) + DIFOP.
     _PORTS = (
         ports.ROBOSENSE_MSOP_PORT,
         ports.ROBOSENSE_DIFOP_PORT,
-        ports.LIVOX_POINT_PORT + 1,  # our configs use host port 56301
-        ports.LIVOX_PUSH_PORT,
     )
     _RCVBUF = 16 * 1024  # a handful of datagrams; kernel discards the rest for free
 

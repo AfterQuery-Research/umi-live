@@ -1,17 +1,17 @@
-"""Server-side pair-merge: two single-UMI episodes -> one bimanual episode.
+"""Server-side pair merge for the fixed two-client bimanual system.
 
 In the two-Pi topology each Pi records ONE arm (leader = role ``umi1``, follower =
-role ``umi2``) as an independent single-UMI episode; the two upload separately, each
+role ``umi2``) as an independent arm transport episode; the two upload separately, each
 tagged with a shared ``session_id``. This pre-pass buckets ingested episodes by
 ``session_id`` and, once both arms are present, fabricates ONE combined episode in
-``raw_episodes/`` that the EXISTING runner + 12-D dataset stage consume UNCHANGED — the
+``raw_episodes/`` that the runner and 12-D dataset stage consume — the
 follower is provisioned natively as ``umi2`` so this is a pure copy of both arms' streams
 plus a synthesized 2-UMI config + merged manifest (no file renames).
 
 The two source episodes are then relocated OUT of ``raw_episodes/`` (into
 ``paired_sources/``) so a lone arm is never processed alone into a stray 6-D dataset.
-The runner (with ``pair_sessions=True``) also skips any still-unpaired role-tagged
-episode until this merge consumes it or the orphan timeout fires.
+The runner always skips any still-unpaired arm until this merge consumes it or the
+orphan timeout fires.
 
 Idempotent: the merged dir is named deterministically from the session; a crash between
 writing it and relocating the sources is repaired on the next pass.
@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 from robot_umi_core import config as core_config
 from robot_umi_core import layout, manifest
 
@@ -96,7 +95,7 @@ def _copy_streams(src_dir: Path, dest_dir: Path, m: dict[str, Any]) -> None:
 
 
 def _synthesize_config(leader_dir: Path, follower_dir: Path, dest_dir: Path) -> None:
-    """Merge the two single-UMI snapshots into one 2-UMI config + copy calib blobs.
+    """Merge the two arm snapshots into one bimanual config and copy calibrations.
 
     Requires each arm to be provisioned NATIVELY (leader's only UMI is ``umi1``, the
     follower's is ``umi2``) so keys are disjoint and no stream renaming is needed."""
@@ -109,20 +108,10 @@ def _synthesize_config(leader_dir: Path, follower_dir: Path, dest_dir: Path) -> 
         raise PairError(f"follower must be a single '{FOLLOWER_ROLE}' rig, got umis {fkeys}")
 
     leader_umi = leader_yaml["umis"][LEADER_ROLE]
-    follower_umi = dict(follower_yaml["umis"][FOLLOWER_ROLE])
-    # The two arms came from two separate Pis, so both legitimately captured on their own
-    # eth0. The single-DEVICE schema forbids two lidars sharing an interface, so give the
-    # follower a synthetic distinct iface in the MERGED config. iface/host_ip/lidar_ip are
-    # capture-time device concerns unused by any server stage, so this is purely to satisfy
-    # validation — the pcaps are addressed by filename, not by these fields.
-    lidar1, lidar2 = leader_umi.get("lidar"), follower_umi.get("lidar")
-    if lidar1 and lidar2 and lidar2.get("iface", "eth0") == lidar1.get("iface", "eth0"):
-        follower_umi["lidar"] = {**lidar2, "iface": f"{lidar2.get('iface', 'eth0')}@{FOLLOWER_ROLE}"}
-
-    merged = dict(leader_yaml)  # version, motion_source, task, controls from the leader
+    follower_umi = follower_yaml["umis"][FOLLOWER_ROLE]
+    merged = dict(leader_yaml)
     merged["umis"] = {LEADER_ROLE: leader_umi, FOLLOWER_ROLE: follower_umi}
-    # Validate the combined rig (disjoint gripper tags, distinct ifaces, realizable mode)
-    # BEFORE writing — a bad pair fails loud here, not deep in the dataset stage.
+    # Validate before writing so a bad pair fails here, not in the dataset stage.
     core_config.parse_rig_config(merged, source="<pair-merge>")
 
     snap = dest_dir / layout.CONFIG_SNAPSHOT_DIR
@@ -140,16 +129,12 @@ def _synthesize_config(leader_dir: Path, follower_dir: Path, dest_dir: Path) -> 
                 break
 
 
-def _merge_clock_sync(lm: dict, fm: dict) -> dict[str, Any] | None:
+def _merge_clock_sync(lm: dict, fm: dict) -> dict[str, Any]:
     """Fold the two per-Pi clock_sync blocks into the merged one, deriving the cross-Pi
     offset estimate that ``clock_sync_acceptable`` gates on."""
     lcs, fcs = lm.get("clock_sync"), fm.get("clock_sync")
-    if not lcs and not fcs:
-        return None  # neither Pi instrumented cross-Pi sync -> opt-out, not gated
     if not lcs or not fcs:
-        # Only one arm reported clock sync: the pair is half-instrumented and its
-        # cross-Pi offset is unknowable. Mark unsynced so the gate rejects it rather
-        # than the merge silently passing an unverified pair.
+        # Missing clock evidence from either arm must fail the paired dataset gate.
         return manifest.ClockSyncStatus(synced=False, ref="").to_dict()
     lo, fo = lcs.get("offset_to_ref_ns"), fcs.get("offset_to_ref_ns")
     # Both offsets are SIGNED (same convention on both Pis), so leader - follower is the
@@ -169,9 +154,9 @@ def _synthesize_manifest(leader_dir: Path, follower_dir: Path, dest_dir: Path, s
     assert lm is not None and fm is not None  # scan_sources already read them
     merged: dict[str, Any] = {
         "manifest_version": manifest.MANIFEST_VERSION,
-        "episode_id": dest_dir.name,
+        # Never leak the private atomic-staging name into the durable data contract.
+        "episode_id": f"paired_{sid}",
         "device_id": "paired",
-        "mode": lm["mode"],
         "task": lm.get("task", ""),
         # umi1/* from the leader + umi2/* from the follower -> the runner sees both scopes.
         "sensors": {**lm.get("sensors", {}), **fm.get("sensors", {})},
@@ -188,9 +173,7 @@ def _synthesize_manifest(leader_dir: Path, follower_dir: Path, dest_dir: Path, s
         "session_id": sid,
         "files": {},  # the runner never re-hashes; this internal artifact skips checksums
     }
-    cs = _merge_clock_sync(lm, fm)
-    if cs is not None:
-        merged["clock_sync"] = cs
+    merged["clock_sync"] = _merge_clock_sync(lm, fm)
     problems = manifest.validate_manifest(merged)
     if problems:
         raise PairError(f"merged manifest invalid: {problems}")

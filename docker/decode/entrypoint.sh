@@ -18,9 +18,6 @@
 # A hard DECODE_MAX_SECS cap (default 7200s; episodes are minutes long at
 # 1x replay) backstops both. Idle/timeout values need on-GPU-box validation.
 #
-# TODO(livox): only the RoboSense parser is implemented. Livox (mid360)
-# episodes need a different replay path — we detect and refuse them below.
-
 # no -u: ROS/colcon setup.bash reference unset vars (AMENT_TRACE_SETUP_FILES,
 # COLCON_TRACE, ...) and are sourced repeatedly below.
 set -eo pipefail
@@ -37,12 +34,6 @@ START_TIMEOUT="${DECODE_START_TIMEOUT:-120}"
 
 [[ -d "$EPISODE_DIR" ]] || { echo "error: episode dir not found: $EPISODE_DIR" >&2; exit 66; }
 
-# --- refuse what we can't parse yet -----------------------------------------
-if [[ -f "$EPISODE_DIR/manifest.json" ]] && grep -qi livox "$EPISODE_DIR/manifest.json"; then
-    echo "error: episode manifest mentions Livox — Livox pcap replay is not implemented (TODO)" >&2
-    exit 65
-fi
-
 # --- locate the pcap ---------------------------------------------------------
 shopt -s nullglob
 if [[ -n "$SCOPE" ]]; then pcaps=("$EPISODE_DIR/${SCOPE}_lidar.pcap"); else pcaps=("$EPISODE_DIR"/umi*_lidar.pcap); fi
@@ -53,8 +44,8 @@ if [[ ${#pcaps[@]} -eq 0 ]]; then
 fi
 PCAP="${pcaps[0]}"
 if [[ ${#pcaps[@]} -gt 1 ]]; then
-    # TODO(multi-rig): decode each pcap into its own bag; single-rig for now.
-    echo "warning: ${#pcaps[@]} lidar pcaps found; using only $PCAP" >&2
+    echo "error: decode scope resolved more than one lidar pcap" >&2
+    exit 65
 fi
 echo "decode: pcap = $PCAP"
 

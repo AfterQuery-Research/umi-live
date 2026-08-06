@@ -28,7 +28,7 @@ from robot_umi_core.pcapio import read_udp_packets
 
 # The hardcoded fallback (a known-good unit's extrinsic), used when a pcap carries no
 # parseable DIFOP (old captures, mock data) and no config override is set. This is the
-# single source of truth for that literal — docker/slam-glim + mac/glim_config
+# single source of truth for that literal and the GLIM container configuration
 # config_sensors.json ``T_lidar_imu`` must match it.
 DEFAULT_AIRY_T_LIDAR_IMU: tuple[float, ...] = (
     0.00425, 0.00418, -0.00446, 0.707999, -0.706198, 0.003362, 0.003284,
@@ -60,7 +60,7 @@ def parse_difop_extrinsic(payload: bytes) -> tuple[float, ...] | None:
 def extract_t_lidar_imu(pcap_path: Path) -> tuple[float, ...] | None:
     """The first parseable RoboSense DIFOP extrinsic in ``pcap_path``, or None.
 
-    None means "no usable DIFOP" (mock pcaps, Livox, truncated/corrupt/unreadable files) —
+    None means "no usable DIFOP" (mock, truncated, corrupt, or unreadable pcaps) —
     the resolver then falls back to a config override or the hardcoded default. File-level
     errors (bad pcap magic, unsupported linktype, permission denied) degrade to None here,
     not an exception, so a bad capture can never block the SLAM stage."""

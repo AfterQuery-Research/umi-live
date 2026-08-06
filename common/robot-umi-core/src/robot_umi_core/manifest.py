@@ -1,12 +1,10 @@
-"""The versioned episode manifest (v2): written by the device, validated by the server.
+"""The versioned episode manifest (v3): written by the device, validated by the server.
 
-v2 replaces the flat ``camera_*``/``lidar_*`` field namespace (which cannot hold
-N UMIs x M sensors) with a nested ``sensors`` mapping keyed by sensor key
-(``"umi1/camera"``), plus first-class ``ptp``, ``mode`` and ``config_sha256`` blocks.
+The nested ``sensors`` mapping is keyed by sensor key (for example,
+``"umi1/camera"``), with first-class ``ptp`` and ``config_sha256`` blocks.
 
-The manifest is the per-episode authority: the requested mode, the realized stream
-inventory, and eligibility live HERE, not in any live config file. Both sides import
-this module — the schema exists exactly once.
+The manifest is the per-episode authority for the realized stream inventory and
+eligibility. Both sides import this module, so the schema exists exactly once.
 """
 
 from __future__ import annotations
@@ -16,14 +14,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from robot_umi_core import config as core_config
 from robot_umi_core import layout
 
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 3
 
 PTP_MODE_HARDWARE = "hardware"
 PTP_MODE_SOFTWARE = "software"
-PTP_MODE_NONE = "none"  # no PTP running (e.g. vive-only rig, or bring-up)
+PTP_MODE_NONE = "none"  # no PTP running during bring-up
 PTP_MODES = (PTP_MODE_HARDWARE, PTP_MODE_SOFTWARE, PTP_MODE_NONE)
 
 # Episodes whose PTP residual exceeds this are rejected for lidar SLAM processing
@@ -31,9 +28,7 @@ PTP_MODES = (PTP_MODE_HARDWARE, PTP_MODE_SOFTWARE, PTP_MODE_NONE)
 MAX_PTP_RESIDUAL_NS = 5_000_000  # 5 ms
 
 # Merged bimanual episodes whose estimated cross-Pi clock offset exceeds this are
-# rejected: at 30 fps a >5 ms skew shifts the follower arm past a half-frame, corrupting
-# the resample/nearest-past alignment. Single-Pi episodes carry no clock_sync block and
-# are never gated by this.
+# rejected: at 30 fps a >5 ms skew corrupts cross-client frame alignment.
 MAX_CROSS_PI_OFFSET_NS = 5_000_000  # 5 ms (< one 30 fps frame)
 
 
@@ -57,9 +52,8 @@ class PtpStatus:
 class ClockSyncStatus:
     """Per-episode cross-Pi clock discipline quality (chrony to a common NTP reference).
 
-    Only meaningful for coordinated multi-Pi (leader/follower) captures — single-Pi
-    episodes omit the block entirely, so their manifests are unaffected. ``ref`` is the
-    shared time source both Pis discipline to; ``offset_to_ref_ns`` is THIS Pi's last
+    ``ref`` is the shared time source both Pis discipline to; ``offset_to_ref_ns`` is
+    this Pi's last
     SIGNED offset to it (same sign convention on both Pis, so leader.offset -
     follower.offset gives the true signed cross-Pi skew). ``estimated_cross_pi_offset_ns``
     is set only on a MERGED bimanual manifest (computed by the pair-merge)."""
@@ -87,7 +81,7 @@ class SensorEntry:
     """One realized sensor stream in the episode."""
 
     kind: str  # layout.SENSOR_KINDS
-    armed: bool  # was this sensor required by the episode's mode?
+    armed: bool  # was this fixed sensor expected to produce data?
     files: dict[str, str]  # role -> filename (layout.sensor_files)
     stats: dict[str, Any] = field(default_factory=dict)  # kind-specific counters
     error: str | None = None  # non-None => the stream failed mid-episode
@@ -106,7 +100,6 @@ def build_manifest(
     *,
     episode_id: str,
     device_id: str,
-    mode: str,
     task: str,
     sensors: dict[str, SensorEntry],
     ptp: dict[str, PtpStatus],
@@ -121,12 +114,8 @@ def build_manifest(
     """Assemble the manifest dict. Eligibility: every ARMED sensor must have produced
     a stream without error. Unarmed/absent sensors never affect eligibility.
 
-    ``session_id``/``role``/``clock_sync`` are the coordinated multi-Pi (leader/follower)
-    fields — the pairing key, this Pi's arm, and its cross-Pi clock quality. They are
-    OMITTED from the dict when ``None`` so a single-Pi manifest is byte-identical to
-    before these fields existed."""
-    if mode not in core_config.RECORD_MODES:
-        raise ValueError(f"unknown mode {mode!r}")
+    ``session_id``/``role``/``clock_sync`` carry the pair key, this Pi's arm, and its
+    cross-Pi clock quality."""
     for key, entry in sensors.items():
         layout.sensor_key(*key.split("/"))  # validates shape + kind
         if entry.kind not in layout.SENSOR_KINDS:
@@ -142,7 +131,6 @@ def build_manifest(
         "manifest_version": MANIFEST_VERSION,
         "episode_id": episode_id,
         "device_id": device_id,
-        "mode": mode,
         "task": task,
         "sensors": {k: v.to_dict() for k, v in sensors.items()},
         "ptp": {iface: s.to_dict() for iface, s in ptp.items()},
@@ -165,7 +153,6 @@ REQUIRED_TOP_LEVEL = (
     "manifest_version",
     "episode_id",
     "device_id",
-    "mode",
     "sensors",
     "ptp",
     "config_sha256",
@@ -184,8 +171,6 @@ def validate_manifest(d: dict[str, Any]) -> list[str]:
         problems.append(
             f"manifest_version {d.get('manifest_version')!r} != {MANIFEST_VERSION}"
         )
-    if d.get("mode") not in core_config.RECORD_MODES:
-        problems.append(f"unknown mode {d.get('mode')!r}")
     sensors = d.get("sensors")
     if not isinstance(sensors, dict) or not sensors:
         problems.append("'sensors' must be a non-empty mapping")
@@ -200,9 +185,7 @@ def validate_manifest(d: dict[str, Any]) -> list[str]:
 
 
 def present_streams(d: dict[str, Any], kind: str) -> list[str]:
-    """Sensor keys of the given kind that actually produced data (presence over mode).
-
-    Server stages dispatch on THIS — never on the mode label."""
+    """Sensor keys of the given kind that actually produced data."""
     out = []
     for key, entry in d.get("sensors", {}).items():
         if entry.get("kind") == kind and entry.get("error") is None:
@@ -229,17 +212,14 @@ def lidar_ptp_acceptable(d: dict[str, Any], max_residual_ns: int = MAX_PTP_RESID
 def clock_sync_acceptable(
     d: dict[str, Any], max_cross_pi_ns: int = MAX_CROSS_PI_OFFSET_NS
 ) -> bool:
-    """The cross-Pi clock gate, in one place. A no-op for episodes without a
-    ``clock_sync`` block (single-Pi captures always pass). When present, the shared
-    clock must be synced and, if the merged cross-Pi offset estimate is known, within
-    ``max_cross_pi_ns``."""
+    """Require synchronized cross-Pi clock evidence within ``max_cross_pi_ns``."""
     cs = d.get("clock_sync")
     if not cs:
-        return True
+        return False
     if not cs.get("synced", False):
         return False
     est = cs.get("estimated_cross_pi_offset_ns")
-    if est is not None and abs(est) > max_cross_pi_ns:
+    if est is None or abs(est) > max_cross_pi_ns:
         return False
     return True
 

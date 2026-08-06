@@ -59,8 +59,7 @@ COPY export_tum.py /export_tum.py
 # --- our GLIM map exporter: offline dump -> PLY, for the cross-lidar align stage ---
 # The koide3 base ships GLIM prebuilt in the workspace recorded at /etc/glim_ws_path; build
 # our small ament overlay against it. Invoked by entrypoint.sh ONLY when EXPORT_MAP=1 (so
-# the non-joint pipeline is unchanged). Keep map_export/ in sync with mac/map_export/.
-# NOTE: unlike the arm64 mac/ image (GLIM built from source with a clean cmake config),
+# the non-joint pipeline is unchanged).
 # this links the prebuilt base's glim/gtsam_points — build verification pending on a GPU host.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake python3-colcon-common-extensions \

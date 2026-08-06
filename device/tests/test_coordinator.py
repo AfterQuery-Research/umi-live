@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 import time
 
 from robot_umi_device import coordinator
@@ -25,18 +26,36 @@ def test_leader_follower_roundtrip():
     try:
         leader = coordinator.Leader(f"127.0.0.1:{f.port}")
 
-        ack = leader.start_take("sess_1", "lidar")
-        assert ack is not None and "follower_unix_ns" in ack
+        result: list[dict | None] = []
+        request = threading.Thread(target=lambda: result.append(leader.start_take("sess_1")))
+        request.start()
         cmd = _drain(f)
+        assert request.is_alive()  # no ack until the recorder applies START
+        cmd.respond(True)
+        request.join(timeout=1)
+        ack = result[0]
+        assert ack is not None and "follower_unix_ns" in ack
         assert cmd.cmd == coordinator.CMD_START
-        assert cmd.session_id == "sess_1" and cmd.mode == "lidar"
+        assert cmd.session_id == "sess_1"
         assert cmd.leader_unix_ns is not None  # the time handshake rode along
 
-        assert leader.stop_take() is not None
-        assert _drain(f).cmd == coordinator.CMD_STOP
+        result.clear()
+        request = threading.Thread(target=lambda: result.append(leader.stop_take()))
+        request.start()
+        cmd = _drain(f)
+        assert cmd.cmd == coordinator.CMD_STOP
+        cmd.respond(True)
+        request.join(timeout=1)
+        assert result[0] is not None
 
-        assert leader.cancel_take() is not None
-        assert _drain(f).cmd == coordinator.CMD_CANCEL
+        result.clear()
+        request = threading.Thread(target=lambda: result.append(leader.cancel_take()))
+        request.start()
+        cmd = _drain(f)
+        assert cmd.cmd == coordinator.CMD_CANCEL
+        cmd.respond(True)
+        request.join(timeout=1)
+        assert result[0] is not None
 
         # ping acks but does NOT enqueue a command.
         assert leader.ping() is True
@@ -53,6 +72,6 @@ def test_leader_unreachable_returns_none():
     port = s.getsockname()[1]
     s.close()
     leader = coordinator.Leader(f"127.0.0.1:{port}", timeout_s=0.5)
-    assert leader.start_take("s", "lidar") is None
+    assert leader.start_take("s") is None
     assert leader.stop_take() is None
     assert leader.ping() is False

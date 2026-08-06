@@ -9,8 +9,7 @@ Layout of one episode directory::
     episode_<UTC>_<host>_<ns9>/
       umi1_camera.mjpeg.avi        umi1_camera_frames.jsonl   umi1_camera_stats.json
       umi1_lidar.pcap              umi1_lidar_stats.json
-      umi1_vive.jsonl
-      umi2_...                     (present only on 2-UMI rigs, per the enable mask)
+      umi2_...                     (present after the server pairs both clients)
       config_snapshot/             resolved umi.yaml + referenced calib blobs
       events.jsonl                 start/stop/cancel with both clocks
       manifest.json                versioned manifest (see robot_umi_core.manifest)
@@ -40,8 +39,7 @@ CAMERA_SYNC_MODE = "v4l2_monotonic_start_of_exposure_v1"
 # --- sensor kinds ------------------------------------------------------------------
 KIND_CAMERA = "camera"
 KIND_LIDAR = "lidar"
-KIND_VIVE = "vive"
-SENSOR_KINDS = (KIND_CAMERA, KIND_LIDAR, KIND_VIVE)
+SENSOR_KINDS = (KIND_CAMERA, KIND_LIDAR)
 
 
 def sensor_key(umi: str, kind: str) -> str:
@@ -74,7 +72,7 @@ def sensor_files(key: str) -> dict[str, str]:
             "pcap": f"{stem}.pcap",
             "stats": f"{stem}_stats.json",
         }
-    return {"poses": f"{stem}.jsonl"}  # KIND_VIVE
+    raise ValueError(f"unknown sensor kind {kind!r}")
 
 
 # --- clocks + ids ------------------------------------------------------------------

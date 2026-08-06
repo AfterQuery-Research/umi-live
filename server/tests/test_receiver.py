@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-
 from robot_umi_server.server import ServerConfig, create_app
 
 from tests.helpers import make_episode_tar, make_v2_episode
@@ -25,10 +24,8 @@ def wait_results(app, n: int = 1, timeout_s: float = 10.0):
     raise AssertionError("ingest worker produced no result in time")
 
 
-def upload(client: TestClient, tar_path: Path, episode_id: str, token: str | None = None):
+def upload(client: TestClient, tar_path: Path, episode_id: str):
     headers = {"X-Episode-Id": episode_id}
-    if token is not None:
-        headers["X-Upload-Token"] = token
     return client.post("/upload", content=tar_path.read_bytes(), headers=headers)
 
 
@@ -64,14 +61,12 @@ def test_bad_checksum_rejected_and_cleaned(tmp_path: Path):
     assert not (data_dir / "raw_episodes" / episode.name).exists()
 
 
-def test_upload_token_enforced(tmp_path: Path):
+def test_upload_requires_no_authentication_header(tmp_path: Path):
     episode = make_v2_episode(tmp_path)
     tar_path = make_episode_tar(episode, tmp_path / "out")
-    app = create_app(ServerConfig(data_dir=tmp_path / "data", upload_token="sekrit"))
+    app = create_app(ServerConfig(data_dir=tmp_path / "data"))
     with TestClient(app) as client:
-        assert upload(client, tar_path, episode.name).status_code == 401
-        assert upload(client, tar_path, episode.name, token="wrong").status_code == 401
-        assert upload(client, tar_path, episode.name, token="sekrit").status_code == 202
+        assert upload(client, tar_path, episode.name).status_code == 202
         wait_results(app, 1)
 
 

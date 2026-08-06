@@ -1,13 +1,8 @@
-"""Rig configuration (1..N UMIs) and dataset-schema derivation.
+"""Fixed two-client UMI configuration and dataset-schema derivation.
 
-One YAML declares the rig; ``N = len(umis)`` is the entire 1-vs-2-UMI switch.
-The device loads the live file (``$ROBOT_UMI_CONFIG``) at session start and snapshots
-it (plus every referenced calib blob) into each episode; server stages parse ONLY the
-episode snapshot — never a live file — so old episodes reprocess identically forever.
-
-Deployment knobs (dataset repo_id, push tokens, DATA_DIR, engine selection) do NOT
-belong here; they live in server env / compose. ``task`` stays here: it is capture-time
-semantics.
+Each recorder snapshots its one-arm config into the uploaded episode. The server merges
+the native ``umi1`` leader and ``umi2`` follower snapshots before processing. Public
+collection is always bimanual; one-arm configs exist only as the two transport halves.
 
 ``derive()`` is the single source of the LeRobot schema: state/action dims and names,
 video keys, gripper keys. The device never touches ``state_dim``; the server never
@@ -32,10 +27,11 @@ CONFIG_ENV_VAR = "ROBOT_UMI_CONFIG"
 STATE_DIM_PER_UMI = 6
 STATE_NAMES_PER_UMI = ["x", "y", "z", "rx", "ry", "rz"]
 
-MODE_LIDAR = "lidar"
-MODE_VIVE = "vive"
-MODE_LIDAR_VIVE = "lidar+vive"
-RECORD_MODES = (MODE_LIDAR, MODE_VIVE, MODE_LIDAR_VIVE)
+LEADER_UMI = "umi1"
+FOLLOWER_UMI = "umi2"
+BIMANUAL_UMIS = (LEADER_UMI, FOLLOWER_UMI)
+CLIENT_ROLES = {LEADER_UMI: "leader", FOLLOWER_UMI: "follower"}
+GRIPPER_TAGS = {LEADER_UMI: (0, 1), FOLLOWER_UMI: (2, 3)}
 
 
 class ConfigError(ValueError):
@@ -54,7 +50,6 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class LidarConfig:
-    type: str = "auto"  # auto | robosense | livox — capture is type-agnostic (pcap)
     iface: str = "eth0"
     host_ip: str = ports.ROBOSENSE_DEFAULT_HOST_IP
     lidar_ip: str = ports.ROBOSENSE_DEFAULT_LIDAR_IP
@@ -66,12 +61,6 @@ class LidarConfig:
 
 
 @dataclass(frozen=True)
-class ViveConfig:
-    serial: str  # which tracker in the multi-tracker packet belongs to this UMI
-    ee_calib: str  # per-UMI T(ee<-vive) JSON, relative to the repo/config root
-
-
-@dataclass(frozen=True)
 class GripperConfig:
     tag_ids: tuple[int, int]  # this arm's ArUco pair (DICT_4X4_50); umi1=(0,1), umi2=(2,3)
     stride: int = 2  # detect every Nth frame
@@ -80,11 +69,10 @@ class GripperConfig:
 
 @dataclass(frozen=True)
 class ButtonsConfig:
-    """BCM GPIO pins for the three recorder buttons (tap/hold semantics in buttons.py)."""
+    """BCM GPIO pins for the record and quit buttons."""
 
-    record: int = 17
-    quit: int = 27
-    mode: int = 22
+    record: int = 12
+    quit: int = 16
 
 
 @dataclass(frozen=True)
@@ -93,7 +81,7 @@ class DisplayConfig:
 
     kind: str = "lcd"  # lcd | none
     dc: int = 25
-    rst: int = 4
+    rst: int = 27
     bl: int = 18
 
 
@@ -133,15 +121,13 @@ class AlignmentConfig:
 class UmiConfig:
     name: str
     camera: CameraConfig
-    lidar: LidarConfig | None = None
-    vive: ViveConfig | None = None
+    lidar: LidarConfig
     gripper: GripperConfig | None = None
 
 
 @dataclass(frozen=True)
 class RigConfig:
     umis: tuple[UmiConfig, ...]
-    motion_source: str = MODE_LIDAR  # boot default only; the manifest is authoritative
     task: str = "umi demo task"
     controls: ControlsConfig = field(default_factory=ControlsConfig)
     alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
@@ -162,7 +148,7 @@ def load_rig_config(path: str | Path) -> RigConfig:
 
 def _reject_unknown(mapping: dict, allowed: set[str], where: str, source: str) -> None:
     """Fail on keys we don't recognize. The rig yaml is copied verbatim into every
-    episode snapshot (and can be pushed to the Hub), so a stray/typo'd key is both a
+    episode snapshot, so a stray/typo'd key is both a
     silent misconfiguration and a way for a secret to leak — reject it up front."""
     extra = sorted(set(mapping) - allowed)
     if extra:
@@ -174,19 +160,13 @@ def parse_rig_config(raw: Any, source: str = "<config>") -> RigConfig:
         raise ConfigError(f"{source}: top level must be a mapping")
     _reject_unknown(
         raw,
-        {"version", "motion_source", "umis", "task", "controls", "alignment"},
+        {"version", "umis", "task", "controls", "alignment"},
         "top level",
         source,
     )
     version = raw.get("version", CONFIG_VERSION)
     if version != CONFIG_VERSION:
         raise ConfigError(f"{source}: unsupported config version {version}")
-
-    motion_source = raw.get("motion_source", MODE_LIDAR)
-    if motion_source not in RECORD_MODES:
-        raise ConfigError(
-            f"{source}: motion_source {motion_source!r} not in {RECORD_MODES}"
-        )
 
     umis_raw = raw.get("umis")
     if not isinstance(umis_raw, dict) or not umis_raw:
@@ -200,7 +180,6 @@ def parse_rig_config(raw: Any, source: str = "<config>") -> RigConfig:
 
     cfg = RigConfig(
         umis=tuple(umis),
-        motion_source=motion_source,
         task=str(raw.get("task", "umi demo task")),
         controls=_parse_controls(raw.get("controls"), source),
         alignment=_parse_alignment(raw.get("alignment"), source),
@@ -222,11 +201,10 @@ def _parse_controls(raw: Any, source: str) -> ControlsConfig:
     b = raw.get("buttons") or {}
     if not isinstance(b, dict):
         raise ConfigError(f"{source}: controls.buttons must be a mapping")
-    _reject_unknown(b, {"record", "quit", "mode"}, "controls.buttons", source)
+    _reject_unknown(b, {"record", "quit"}, "controls.buttons", source)
     buttons = ButtonsConfig(
-        record=int(b.get("record", 17)),
-        quit=int(b.get("quit", 27)),
-        mode=int(b.get("mode", 22)),
+        record=int(b.get("record", 12)),
+        quit=int(b.get("quit", 16)),
     )
 
     d = raw.get("display") or {}
@@ -239,7 +217,7 @@ def _parse_controls(raw: Any, source: str) -> ControlsConfig:
     display = DisplayConfig(
         kind=kind,
         dc=int(d.get("dc", 25)),
-        rst=int(d.get("rst", 4)),
+        rst=int(d.get("rst", 27)),
         bl=int(d.get("bl", 18)),
     )
     return ControlsConfig(buttons=buttons, display=display)
@@ -248,7 +226,7 @@ def _parse_controls(raw: Any, source: str) -> ControlsConfig:
 def _parse_alignment(raw: Any, source: str) -> AlignmentConfig:
     """Optional top-level `alignment:` block. Absent/None => a DISABLED default (each lidar
     SLAM'd independently, dataset reads per-lidar GLIM — the historical path). Unknown keys
-    are rejected like everywhere else (the snapshot can reach the Hub)."""
+    are rejected like everywhere else."""
     if raw is None:
         return AlignmentConfig()
     if not isinstance(raw, dict):
@@ -275,8 +253,10 @@ def _parse_alignment(raw: Any, source: str) -> AlignmentConfig:
     if bbox_raw is not None:
         try:
             bbox = tuple(float(v) for v in bbox_raw)
-        except (TypeError, ValueError):
-            raise ConfigError(f"{source}: alignment.workspace_bbox must be a list of numbers")
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"{source}: alignment.workspace_bbox must be a list of numbers"
+            ) from exc
         if len(bbox) != 6:
             raise ConfigError(
                 f"{source}: alignment.workspace_bbox must be "
@@ -296,13 +276,15 @@ def _parse_alignment(raw: Any, source: str) -> AlignmentConfig:
 
 def _parse_t_lidar_imu(raw: Any, name: str, source: str) -> tuple[float, ...] | None:
     """Optional per-lidar extrinsic override: 7 finite floats [x,y,z,qx,qy,qz,qw] with a
-    non-degenerate quaternion. Fails loud (the snapshot can reach the Hub)."""
+    non-degenerate quaternion. Fails loudly."""
     if raw is None:
         return None
     try:
         vals = tuple(float(v) for v in raw)
-    except (TypeError, ValueError):
-        raise ConfigError(f"{source}: umis.{name}.lidar.t_lidar_imu must be a list of numbers")
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            f"{source}: umis.{name}.lidar.t_lidar_imu must be a list of numbers"
+        ) from exc
     if len(vals) != 7:
         raise ConfigError(
             f"{source}: umis.{name}.lidar.t_lidar_imu must have 7 values "
@@ -316,7 +298,7 @@ def _parse_t_lidar_imu(raw: Any, name: str, source: str) -> tuple[float, ...] | 
 
 
 def _parse_umi(name: str, u: dict, source: str) -> UmiConfig:
-    _reject_unknown(u, {"camera", "lidar", "vive", "gripper"}, f"umis.{name}", source)
+    _reject_unknown(u, {"camera", "lidar", "gripper"}, f"umis.{name}", source)
     cam = u.get("camera")
     if not isinstance(cam, dict):
         raise ConfigError(f"{source}: umis.{name}.camera is required")
@@ -335,31 +317,21 @@ def _parse_umi(name: str, u: dict, source: str) -> UmiConfig:
         exposure=int(cam["exposure"]) if "exposure" in cam else None,
     )
 
-    lidar = None
-    if "lidar" in u and u["lidar"] is not None:
-        ld = u["lidar"]
-        _reject_unknown(
-            ld,
-            {"type", "iface", "host_ip", "lidar_ip", "t_lidar_imu"},
-            f"umis.{name}.lidar",
-            source,
-        )
-        lidar_type = str(ld.get("type", "auto"))
-        if lidar_type not in ("auto", ports.LIDAR_TYPE_ROBOSENSE, ports.LIDAR_TYPE_LIVOX):
-            raise ConfigError(f"{source}: umis.{name}.lidar.type {lidar_type!r} invalid")
-        lidar = LidarConfig(
-            type=lidar_type,
-            iface=str(ld.get("iface", "eth0")),
-            host_ip=str(ld.get("host_ip", ports.ROBOSENSE_DEFAULT_HOST_IP)),
-            lidar_ip=str(ld.get("lidar_ip", ports.ROBOSENSE_DEFAULT_LIDAR_IP)),
-            t_lidar_imu=_parse_t_lidar_imu(ld.get("t_lidar_imu"), name, source),
-        )
-
-    vive = None
-    if "vive" in u and u["vive"] is not None:
-        v = u["vive"]
-        _reject_unknown(v, {"serial", "ee_calib"}, f"umis.{name}.vive", source)
-        vive = ViveConfig(serial=str(v["serial"]), ee_calib=str(v["ee_calib"]))
+    ld = u.get("lidar")
+    if not isinstance(ld, dict):
+        raise ConfigError(f"{source}: umis.{name}.lidar is required")
+    _reject_unknown(
+        ld,
+        {"iface", "host_ip", "lidar_ip", "t_lidar_imu"},
+        f"umis.{name}.lidar",
+        source,
+    )
+    lidar = LidarConfig(
+        iface=str(ld.get("iface", "eth0")),
+        host_ip=str(ld.get("host_ip", ports.ROBOSENSE_DEFAULT_HOST_IP)),
+        lidar_ip=str(ld.get("lidar_ip", ports.ROBOSENSE_DEFAULT_LIDAR_IP)),
+        t_lidar_imu=_parse_t_lidar_imu(ld.get("t_lidar_imu"), name, source),
+    )
 
     gripper = None
     if "gripper" in u and u["gripper"] is not None:
@@ -376,7 +348,7 @@ def _parse_umi(name: str, u: dict, source: str) -> UmiConfig:
             roi_top_frac=float(g.get("roi_top_frac", 0.0)),
         )
 
-    return UmiConfig(name=name, camera=camera, lidar=lidar, vive=vive, gripper=gripper)
+    return UmiConfig(name=name, camera=camera, lidar=lidar, gripper=gripper)
 
 
 def _validate(cfg: RigConfig, source: str) -> None:
@@ -396,27 +368,17 @@ def _validate(cfg: RigConfig, source: str) -> None:
                 f"{source}: umis.{u.name} has a gripper but camera is "
                 f"{u.camera.width}x{u.camera.height} (not 4:3) — tags would be clipped"
             )
-    # Two lidars cannot share one interface (distinct NICs/subnets required).
-    ifaces = [u.lidar.iface for u in cfg.umis if u.lidar is not None]
-    if len(set(ifaces)) != len(ifaces):
-        raise ConfigError(f"{source}: two lidars share one interface: {ifaces}")
     # Gripper tag pairs must be disjoint across arms (a camera glimpsing the other
     # gripper must not cross-detect).
     all_tags = [t for u in cfg.umis if u.gripper for t in u.gripper.tag_ids]
     if len(set(all_tags)) != len(all_tags):
         raise ConfigError(f"{source}: gripper tag_ids overlap across UMIs: {all_tags}")
-    # Modes must be realizable: the boot mode's required sensors must exist somewhere.
-    if "lidar" in cfg.motion_source and not any(u.lidar for u in cfg.umis):
-        raise ConfigError(f"{source}: motion_source={cfg.motion_source} but no lidar configured")
-    if "vive" in cfg.motion_source and not any(u.vive for u in cfg.umis):
-        raise ConfigError(f"{source}: motion_source={cfg.motion_source} but no vive configured")
     # GPIO pins must be distinct: buttons + active LCD control pins share one header,
     # and a collision silently steals a button or bricks the LCD.
     c = cfg.controls
     pins = [
         ("controls.buttons.record", c.buttons.record),
         ("controls.buttons.quit", c.buttons.quit),
-        ("controls.buttons.mode", c.buttons.mode),
     ]
     if c.display.kind == "lcd":
         pins += [
@@ -452,7 +414,7 @@ class DerivedSchema:
 def derive(cfg: RigConfig) -> DerivedSchema:
     n = cfg.n_umis
     state_dim = STATE_DIM_PER_UMI * n
-    # Names are always umi-prefixed — single-UMI and bimanual are ONE code path.
+    # Each client snapshot contains exactly one fixed arm name.
     state_names = [f"{u.name}_{s}" for u in cfg.umis for s in STATE_NAMES_PER_UMI]
     video_keys = {u.name: f"observation.images.{u.name}" for u in cfg.umis}
     gripper_keys = {
@@ -492,32 +454,51 @@ def derive(cfg: RigConfig) -> DerivedSchema:
     )
 
 
-def capture_plan(cfg: RigConfig, mode: str) -> list[tuple[str, str]]:
-    """(sensor_key, kind) pairs the given mode ARMS, in start order.
+def client_role(cfg: RigConfig) -> str:
+    """Return the fixed role of a one-arm recorder config."""
+    names = tuple(u.name for u in cfg.umis)
+    if len(names) != 1 or names[0] not in CLIENT_ROLES:
+        raise ConfigError(
+            f"client config must contain exactly one of {LEADER_UMI!r} or "
+            f"{FOLLOWER_UMI!r}, got {list(names)}"
+        )
+    umi = cfg.umis[0]
+    expected_tags = GRIPPER_TAGS[umi.name]
+    if umi.gripper is None or umi.gripper.tag_ids != expected_tags:
+        raise ConfigError(
+            f"{umi.name} must use ArUco tags {list(expected_tags)}"
+        )
+    return CLIENT_ROLES[umi.name]
 
-    The enable mask: cameras always record; lidar/vive record iff the mode includes
-    them AND the UMI has them configured. Armed sensors are REQUIRED (an armed sensor
-    producing nothing makes the episode dataset-ineligible); unarmed sensors are absent.
-    """
-    if mode not in RECORD_MODES:
-        raise ConfigError(f"unknown record mode {mode!r}")
+
+def require_bimanual(cfg: RigConfig) -> DerivedSchema:
+    """Validate the only dataset contract: ordered umi1/umi2 with 12-D state/action."""
+    names = tuple(u.name for u in cfg.umis)
+    if names != BIMANUAL_UMIS:
+        raise ConfigError(
+            f"dataset config must be paired umi1/umi2, got {list(names)}"
+        )
+    for umi in cfg.umis:
+        expected_tags = GRIPPER_TAGS[umi.name]
+        if umi.gripper is None or umi.gripper.tag_ids != expected_tags:
+            raise ConfigError(
+                f"{umi.name} must use ArUco tags {list(expected_tags)}"
+            )
+    derived = derive(cfg)
+    if derived.state_dim != 12:
+        raise ConfigError(f"bimanual dataset state must be 12-D, got {derived.state_dim}")
+    return derived
+
+
+def capture_plan(cfg: RigConfig) -> list[tuple[str, str]]:
+    """The fixed lidar-plus-camera capture plan, in start order."""
     plan: list[tuple[str, str]] = []
     for u in cfg.umis:
-        if "lidar" in mode and u.lidar is not None:
-            plan.append((layout.sensor_key(u.name, layout.KIND_LIDAR), layout.KIND_LIDAR))
-        if "vive" in mode and u.vive is not None:
-            plan.append((layout.sensor_key(u.name, layout.KIND_VIVE), layout.KIND_VIVE))
+        plan.append((layout.sensor_key(u.name, layout.KIND_LIDAR), layout.KIND_LIDAR))
         plan.append((layout.sensor_key(u.name, layout.KIND_CAMERA), layout.KIND_CAMERA))
     return plan
 
 
 def referenced_blobs(cfg: RigConfig) -> list[str]:
     """Config-relative paths of every calib blob the config references (for snapshotting)."""
-    blobs = [u.camera.calib for u in cfg.umis]
-    blobs += [u.vive.ee_calib for u in cfg.umis if u.vive is not None]
-    return blobs
-
-
-def cycle_mode(mode: str) -> str:
-    """Next mode for the MODE button: lidar -> vive -> lidar+vive -> lidar."""
-    return RECORD_MODES[(RECORD_MODES.index(mode) + 1) % len(RECORD_MODES)]
+    return [u.camera.calib for u in cfg.umis]

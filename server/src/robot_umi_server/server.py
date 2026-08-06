@@ -15,7 +15,6 @@ a whole tar that startup recovery re-processes. An episode directory only appear
 from __future__ import annotations
 
 import queue
-import secrets
 import threading
 import time
 import uuid
@@ -40,7 +39,6 @@ DEFAULT_SHUTDOWN_DRAIN_SECONDS = 60.0
 @dataclass(frozen=True)
 class ServerConfig:
     data_dir: Path = Path("data")
-    upload_token: str = ""
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_extract_bytes: int = DEFAULT_MAX_EXTRACT_BYTES
     shutdown_drain_seconds: float = DEFAULT_SHUTDOWN_DRAIN_SECONDS
@@ -148,13 +146,7 @@ def create_app(cfg: ServerConfig) -> FastAPI:
     async def upload(
         request: Request,
         x_episode_id: str | None = Header(default=None),
-        x_upload_token: str | None = Header(default=None),
     ) -> dict[str, object]:
-        if cfg.upload_token:
-            if x_upload_token is None or not secrets.compare_digest(
-                x_upload_token, cfg.upload_token
-            ):
-                raise HTTPException(status_code=401, detail="invalid upload token")
         episode_id = safe_name(x_episode_id or "episode")
         upload_dir = cfg.data_dir / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)

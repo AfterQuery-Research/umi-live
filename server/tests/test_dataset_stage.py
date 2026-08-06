@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
 from robot_umi_core import config as core_config
 from robot_umi_server.dataset_stage import already_appended, mark_appended, pose_track_for_umi
 from robot_umi_server.trajectory import PoseTrack, write_tum
@@ -53,12 +52,18 @@ def _lidar_rig() -> core_config.RigConfig:
     return core_config.parse_rig_config(
         {
             "version": 1,
-            "motion_source": "lidar",
             "task": "t",
             "umis": {
                 "umi1": {
-                    "camera": {"device": "/d", "width": 64, "height": 48, "fps": 30, "calib": "c.npz"},
+                    "camera": {
+                        "device": "/d",
+                        "width": 64,
+                        "height": 48,
+                        "fps": 30,
+                        "calib": "c.npz",
+                    },
                     "lidar": {"iface": "eth0"},
+                    "gripper": {"tag_ids": [0, 1]},
                 }
             },
         }
@@ -73,11 +78,11 @@ def test_pose_track_prefers_align_falls_back_to_glim(tmp_path: Path):
     _write_tum(derived / "umi1" / "glim" / "trajectory.tum", 1.0)
 
     # No align output yet -> falls back to the per-lidar GLIM trajectory (non-joint path).
-    track, basis = pose_track_for_umi(tmp_path, derived, m, umi, "glim")
+    track, basis = pose_track_for_umi(tmp_path, derived, m, umi)
     assert track.pos[0][0] == 1.0
     assert basis is not None  # lidar body-convention basis applied downstream
 
     # Align output present -> preferred (common-frame trajectory).
     _write_tum(derived / "align" / "umi1" / "trajectory.tum", 2.0)
-    track2, _ = pose_track_for_umi(tmp_path, derived, m, umi, "glim")
+    track2, _ = pose_track_for_umi(tmp_path, derived, m, umi)
     assert track2.pos[0][0] == 2.0

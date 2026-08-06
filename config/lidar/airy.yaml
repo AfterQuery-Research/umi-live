@@ -14,7 +14,7 @@ lidar:
       min_distance: 0.1
       max_distance: 60.0
       use_lidar_clock: false   # false = stamp msgs with system clock (no PTP master here);
-                               # keeps LiDAR + IMU on the SAME clock for FAST-LIO
+                               # keeps LiDAR + IMU on the same clock for GLIM
       dense_points: false      # keep NaN points (RViz ignores them); set true to drop
       ts_first_point: false
     ros:

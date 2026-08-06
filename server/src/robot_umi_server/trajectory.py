@@ -1,24 +1,20 @@
-"""Trajectory interchange + resampling: TUM files, Vive poses, per-frame states.
+"""GLIM trajectory interchange, resampling, and per-frame states.
 
 The one interchange contract between SLAM engines and the dataset stage:
-every engine exports ``trajectory.tum`` (``t x y z qx qy qz qw``, t = unix seconds
-on the episode's PTP axis). The dataset stage consumes ONLY that (or, for
-vive-mode episodes, the raw vive jsonl + the episode-shipped EE calib) and
-resamples onto camera frame timestamps with linear position interpolation +
+GLIM exports ``trajectory.tum`` (``t x y z qx qy qz qw``, t = unix seconds
+on the episode's PTP axis). The dataset stage consumes that and resamples onto
+camera frame timestamps with linear position interpolation and
 quaternion Slerp — the proven pattern from the previous rig.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation, Slerp
-
-from robot_umi_core import geom
 
 
 @dataclass(frozen=True)
@@ -62,29 +58,6 @@ def write_tum(path: Path, track: PoseTrack) -> None:
                 + " ".join(f"{v:.9f}" for v in track.quat[i])
                 + "\n"
             )
-
-
-def read_vive_track(poses_jsonl: Path, ee_calib_path: Path) -> PoseTrack:
-    """Raw device vive samples -> EE-frame world poses on the PTP axis.
-
-    EE calibration is applied HERE (server-side, from the episode-shipped calib) —
-    the device records raw tracker poses.
-    """
-    ts, rows = [], []
-    for line in poses_jsonl.read_text().splitlines():
-        if not line.strip():
-            continue
-        d = json.loads(line)
-        ts.append(d["recv_unix_ns"] / 1e9)
-        rows.append(d["data"])  # [x, y, z, qx, qy, qz, qw]
-    if not rows:
-        raise ValueError(f"{poses_jsonl}: no vive samples")
-    vive_poses = np.asarray(rows, dtype=np.float64)
-    t_ev, q_ev = geom.load_ee_calib(ee_calib_path)
-    ee_poses = geom.end_effector_poses_from_vive(vive_poses, t_ev, q_ev)
-    t = np.asarray(ts, dtype=np.float64)
-    order = np.argsort(t, kind="stable")
-    return PoseTrack(t=t[order], pos=ee_poses[order, :3], quat=ee_poses[order, 3:7])
 
 
 def _dedup_increasing(track: PoseTrack) -> PoseTrack:

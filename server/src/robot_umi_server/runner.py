@@ -14,7 +14,7 @@ success it atomically renames it to the final output dir and guarantees a COMPLE
 marker inside. A final dir without COMPLETE (crash between rename and marker) is
 torn down and re-run.
 
-Dispatch is by stream PRESENCE in the manifest (never the mode label): decode runs
+Dispatch is by stream presence in the manifest: decode runs
 iff a lidar pcap exists, engines iff decode is done, gripper iff a camera + gripper
 config exist, dataset when every input it needs is done.
 """
@@ -128,11 +128,6 @@ class Runner:
     stages: list[StageDef]
     executor: Executor | None = None
     failed: dict[tuple[str, str, str], str] = field(default_factory=dict)
-    # When pairing is enabled, skip role-tagged single-arm episodes: they are one half of
-    # a coordinated pair and must be merged (pair_stage) before processing, never run
-    # alone into a 6-D dataset. Solo/merged episodes have no `role` and process normally.
-    pair_sessions: bool = False
-
     def __post_init__(self) -> None:
         if self.executor is None:
             self.executor = Executor(self.data_dir)
@@ -176,7 +171,7 @@ class Runner:
             except (ValueError, OSError) as exc:
                 print(f"skipping unreadable episode {episode_dir.name}: {exc}", flush=True)
                 continue
-            if self.pair_sessions and m.get("role") is not None:
+            if m.get("role") is not None:
                 continue  # an unmerged single arm of a pair; pair_stage will consume it
             for stage in self.stages:
                 for scope in stage.scopes(m, rig):
@@ -249,7 +244,10 @@ class Runner:
         return True
 
     def scan_once(self) -> int:
-        """One full pass; returns the number of stage runs executed."""
+        """Pair all complete arm uploads, then run every newly-ready stage."""
+        from robot_umi_server import pair_stage
+
+        pair_stage.pair_once(self.data_dir)
         executed = 0
         progressed = True
         while progressed:  # keep going while completions unlock dependents
@@ -320,9 +318,7 @@ def _align_ready(m: dict, rig: core_config.RigConfig, done: DoneCheck) -> bool:
 
 def _dataset_ready(m: dict, rig: core_config.RigConfig, done: DoneCheck) -> bool:
     """Dataset needs the SLAM trajectory for every lidar stream and the gripper
-    widths when they apply. Vive-only episodes have no lidar deps. When alignment is
-    enabled on a multi-lidar episode it also waits for the align stage (which rewrites
-    the per-lidar trajectories into one common frame)."""
+    widths. When alignment is enabled it also waits for the align stage."""
     lidar_umis = _lidar_scopes(m, rig)
     for umi in lidar_umis:
         if not done("glim", umi):
@@ -339,7 +335,7 @@ def default_stages(
     gripper_fn: StageFn | None = None,
     align_fn: StageFn | None = None,
 ) -> list[StageDef]:
-    """The production (GPU) graph. decode/glim run in their compose services; gripper,
+    """The production graph. decode/glim run in their compose services; gripper,
     align, and dataset run in-process by default (pure Python) unless overridden.
 
     ``align`` is scheduled only when the rig config enables it on a multi-lidar episode
@@ -353,29 +349,6 @@ def default_stages(
             input_from="decode",
             env_fn=_glim_env,
         ),
-        StageDef(name="align", scopes=_align_scopes, fn=align_fn, ready=_align_ready),
-        StageDef(name="gripper", scopes=_gripper_scope, fn=gripper_fn),
-        StageDef(name="dataset", scopes=_always, fn=dataset_fn, ready=_dataset_ready),
-    ]
-
-
-def mac_stages(
-    glim_fn: StageFn,
-    dataset_fn: StageFn | None = None,
-    gripper_fn: StageFn | None = None,
-    align_fn: StageFn | None = None,
-) -> list[StageDef]:
-    """The Mac (GPU-less) graph: a single in-process ``glim`` stage replays each lidar
-    UMI's pcap through the arm64 CPU GLIM container straight to trajectory.tum — no
-    separate decode/rosbag stage (rslidar_sdk replays the pcap directly). gripper, align,
-    and dataset are the same in-process stages as default_stages().
-
-    The stage keeps the name ``glim`` on purpose: the dataset stage reads
-    ``<umi>/glim/trajectory.tum`` and _dataset_ready gates on ``done("glim", ...)``,
-    so this is a drop-in engine swap, not a new artifact layout. ``align`` is scheduled
-    only when the rig config enables it on a multi-lidar episode (``_align_scopes``)."""
-    return [
-        StageDef(name="glim", scopes=_lidar_scopes, fn=glim_fn),
         StageDef(name="align", scopes=_align_scopes, fn=align_fn, ready=_align_ready),
         StageDef(name="gripper", scopes=_gripper_scope, fn=gripper_fn),
         StageDef(name="dataset", scopes=_always, fn=dataset_fn, ready=_dataset_ready),

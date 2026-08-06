@@ -11,7 +11,7 @@ It runs ONLY when ``rig.alignment.enabled`` (default False) on a >=2-lidar episo
 runner never schedules it otherwise, and the dataset stage falls back to the per-lidar
 GLIM trajectories (the historical non-joint path).
 
-Inputs (per lidar UMI, from the GLIM stage's map export, see mac/export_map.cpp):
+Inputs (per lidar UMI, from the GLIM stage's map export):
   derived/<id>/<umi>/glim/map.ply            merged map (reference-agnostic geometry)
   derived/<id>/<umi>/glim/submaps/poses.txt  one row: idx stamp x y z qx qy qz qw (optimized)
   derived/<id>/<umi>/glim/submaps/<idx:06>.ply   that submap's points in its LOCAL frame
@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from robot_umi_core import config as core_config
 from robot_umi_core import geom, layout, manifest
 
@@ -113,8 +112,10 @@ def piecewise_correct(track: PoseTrack, init_common: list[SE3], optimized: list[
     transform; identity for the reference), then rigidly updated by its NEAREST submap's
     correction ``optimized[i] . inv(init_common[i])`` — mirroring how GLIM moves frames
     rigidly with their parent submap."""
-    corrections = [geom.pose_multiply(op, oq, *geom.pose_inverse(ip, iq))
-                   for (ip, iq), (op, oq) in zip(init_common, optimized)]
+    corrections = [
+        geom.pose_multiply(op, oq, *geom.pose_inverse(ip, iq))
+        for (ip, iq), (op, oq) in zip(init_common, optimized, strict=True)
+    ]
     pos = np.empty_like(track.pos)
     quat = np.empty_like(track.quat)
     for k in range(len(track)):
@@ -223,8 +224,15 @@ def _match_cross_agent(ref: Submaps, other: Submaps, offset_s: float,
     return pairs
 
 
-def optimize_pose_graph(ref: Submaps, other: Submaps, t_ref_other: SE3, offset_s: float,
-                        voxel: float, max_pairs: int, robust_k: float) -> tuple[list[SE3], list[SE3]]:
+def optimize_pose_graph(
+    ref: Submaps,
+    other: Submaps,
+    t_ref_other: SE3,
+    offset_s: float,
+    voxel: float,
+    max_pairs: int,
+    robust_k: float,
+) -> tuple[list[SE3], list[SE3]]:
     """Joint optimization of both agents' submap poses in the common (reference) frame.
 
     Returns (optimized_ref_poses, optimized_other_poses). Seeded by the tier-1 transform;

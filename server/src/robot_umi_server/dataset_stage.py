@@ -1,9 +1,8 @@
-"""Dataset stage: trajectories + frames + gripper widths -> LeRobot v3 (+ HF push).
+"""Dataset stage: paired trajectories, frames, and gripper widths -> local LeRobot v3.
 
 Consumes ONLY per-episode artifacts (hermetic): the manifest + config snapshot, each
-UMI's camera video/frames, the chosen engine's ``trajectory.tum`` per lidar UMI (or
-the raw Vive jsonl + episode-shipped EE calib for vive-mode episodes), and the
-gripper stage's width jsonls. The LeRobot feature schema comes from
+UMI's camera video/frames, GLIM ``trajectory.tum`` per lidar, and the gripper stage's
+width jsonls. The LeRobot feature schema comes from
 ``robot_umi_core.config.derive()`` on the SNAPSHOT config — the schema exists in
 exactly one place.
 
@@ -19,8 +18,7 @@ common frame — read in preference here); without it (alignment disabled, the d
 the per-lidar GLIM trajectories are used directly and cross-arm geometry is only
 correct up to each lidar's arbitrary start frame.
 
-Deployment knobs come from env (not the rig config): ROBOT_UMI_REPO_ID,
-ROBOT_UMI_DATASET_ROOT, ROBOT_UMI_PUSH_TO_HUB, ROBOT_UMI_PUBLIC.
+The dataset is always written under ``$DATA_DIR/lerobot/local/umi-flow``.
 """
 
 from __future__ import annotations
@@ -33,21 +31,20 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy.spatial.transform import Rotation
-
 from robot_umi_core import config as core_config
 from robot_umi_core import geom, layout, lidar_clock, manifest
+from scipy.spatial.transform import Rotation
 
 from robot_umi_server.trajectory import (
     PoseTrack,
     actions_from_states,
     read_tum,
-    read_vive_track,
     resample,
     states_from_track,
 )
 
 DEFAULT_ENGINE = "glim"
+LOCAL_REPO_ID = "local/umi-flow"
 DEFAULT_RGB_ENCODER_VCODEC = "h264"
 
 
@@ -97,52 +94,32 @@ def pose_track_for_umi(
     derived_episode_dir: Path,
     m: dict[str, Any],
     umi: core_config.UmiConfig,
-    engine: str,
-) -> tuple[PoseTrack, np.ndarray | None] | None:
+) -> tuple[PoseTrack, np.ndarray]:
     """This UMI's world poses + the body-convention basis to apply to its states.
 
-    Presence-based, never mode-based. Lidar tracks carry the lidar-body ->
-    UMI-convention basis (forward=+Z, right=+Y, up=+X); vive tracks are already
-    in that convention via the EE calibration."""
+    Lidar tracks carry the lidar-body -> UMI-convention basis."""
     lidar_key = layout.sensor_key(umi.name, layout.KIND_LIDAR)
-    vive_key = layout.sensor_key(umi.name, layout.KIND_VIVE)
-    if lidar_key in manifest.present_streams(m, layout.KIND_LIDAR):
-        # Prefer the align stage's common-frame trajectory when it ran (multi-lidar rigs
-        # with alignment enabled); otherwise read this lidar's own GLIM trajectory. The
-        # fallback IS the non-joint path — with no align output the behavior is identical
-        # to before (incl. solo / single-lidar episodes, which never run align).
-        aligned_tum = derived_episode_dir / "align" / umi.name / "trajectory.tum"
-        traj_tum = (
-            aligned_tum
-            if aligned_tum.is_file()
-            else derived_episode_dir / umi.name / engine / "trajectory.tum"
-        )
-        track = read_tum(traj_tum)
-        # GLIM stamps poses in the LIDAR clock; realign onto the host/camera clock via the
-        # pcap arrival-vs-payload skew, so a lagging lidar PTP clock can't push the whole
-        # trajectory outside the camera window (which would clamp every pose to one value).
-        pcap = episode_dir / layout.sensor_files(lidar_key)["pcap"]
-        skew = lidar_clock.pcap_host_skew(pcap) if pcap.is_file() else None
-        if skew is not None:
-            print(f"  {umi.name}: lidar->host clock skew {skew:+.3f}s (realigned)", flush=True)
-            track = PoseTrack(t=track.t + skew, pos=track.pos, quat=track.quat)
-        # GLIM tracks the LIDAR body; shift to the gripper end-effector (TCP) so the state is
-        # the true EE pose. The EE is a fixed lever in the lidar body frame, so
-        # ee_pos = lidar_pos + R_lidar @ lever_body (orientation unchanged — UMI_FROM_LIDAR_BODY
-        # re-expresses axes downstream). LIDAR_EE_LEVER_M is in UMI axes, so rotate it back into
-        # the lidar body frame. Matches the mac live/offline EE viewers. (The vive branch below
-        # applies its own tracker->EE calibration, so this is lidar-only.)
-        lever_body = geom.UMI_FROM_LIDAR_BODY.T @ geom.LIDAR_EE_LEVER_M
-        ee_pos = track.pos + Rotation.from_quat(track.quat).apply(lever_body)
-        track = PoseTrack(t=track.t, pos=ee_pos, quat=track.quat)
-        return track, geom.UMI_FROM_LIDAR_BODY
-    if vive_key in manifest.present_streams(m, layout.KIND_VIVE):
-        if umi.vive is None:
-            raise ValueError(f"{umi.name}: vive stream present but not configured")
-        ee_calib = episode_dir / layout.CONFIG_SNAPSHOT_DIR / umi.vive.ee_calib
-        poses_jsonl = episode_dir / layout.sensor_files(vive_key)["poses"]
-        return read_vive_track(poses_jsonl, ee_calib), None
-    return None  # camera-only: state stays zero
+    if lidar_key not in manifest.present_streams(m, layout.KIND_LIDAR):
+        raise ValueError(f"{umi.name}: required lidar stream is missing")
+    # Prefer the optional common-frame trajectory, otherwise use this arm's GLIM output.
+    aligned_tum = derived_episode_dir / "align" / umi.name / "trajectory.tum"
+    traj_tum = (
+        aligned_tum
+        if aligned_tum.is_file()
+        else derived_episode_dir / umi.name / DEFAULT_ENGINE / "trajectory.tum"
+    )
+    track = read_tum(traj_tum)
+    # GLIM stamps poses in the lidar clock; realign onto the host/camera clock.
+    pcap = episode_dir / layout.sensor_files(lidar_key)["pcap"]
+    skew = lidar_clock.pcap_host_skew(pcap) if pcap.is_file() else None
+    if skew is not None:
+        print(f"  {umi.name}: lidar->host clock skew {skew:+.3f}s (realigned)", flush=True)
+        track = PoseTrack(t=track.t + skew, pos=track.pos, quat=track.quat)
+    # Shift the tracked lidar body to the gripper end-effector (TCP).
+    lever_body = geom.UMI_FROM_LIDAR_BODY.T @ geom.LIDAR_EE_LEVER_M
+    ee_pos = track.pos + Rotation.from_quat(track.quat).apply(lever_body)
+    track = PoseTrack(t=track.t, pos=ee_pos, quat=track.quat)
+    return track, geom.UMI_FROM_LIDAR_BODY
 
 
 def load_gripper_widths(
@@ -163,7 +140,7 @@ def load_gripper_widths(
     return np.interp(timeline_t, np.asarray(ts), np.asarray(ws)).astype(np.float32)
 
 
-# The LeRobot append + HF push are global side effects that live OUTSIDE the
+# The LeRobot append is a global side effect that lives OUTSIDE the
 # runner's staging dir, so the runner's "tear down a stage dir without COMPLETE and
 # re-run it" crash recovery would otherwise re-append the same episode's frames.
 # This append-only ledger (one episode_id per line, next to the dataset) records
@@ -186,13 +163,12 @@ def mark_appended(dataset_dir: Path, episode_id: str) -> None:
 
 
 def _assert_local_dataset_consistent(dataset_dir: Path) -> None:
-    """Guard against pushing a half-written LeRobot v3.0 dataset to the Hub.
+    """Guard against leaving a half-written LeRobot v3.0 dataset.
 
     info.json claims `total_episodes`, and every episode 0..N-1 must have a row in the
     meta/episodes/*.parquet footer (a v3.0 file may batch several episodes, so we compare
     the UNION of episode_index across all footer files, not file counts). A mismatch means
-    the writer wasn't flushed (missing finalize()) and the Hub would load with
-    "episode N not found in metadata" — raise so the push is skipped and the failure is loud.
+    the writer wasn't flushed (missing finalize()).
     """
     import pandas as pd
 
@@ -208,7 +184,7 @@ def _assert_local_dataset_consistent(dataset_dir: Path) -> None:
         raise RuntimeError(
             f"local dataset inconsistent after finalize: info.total_episodes={total} but "
             f"meta/episodes is missing episode_index {sorted(missing)} "
-            f"(footer files: {[p.name for p in ep_files]}). Refusing to push."
+            f"(footer files: {[p.name for p in ep_files]})."
         )
 
 
@@ -235,7 +211,7 @@ def open_dataset(
         if existing_state != (derived.state_dim,):
             raise ValueError(
                 f"episode state_dim {derived.state_dim} != dataset {existing_state}; "
-                "N UMIs is fixed per repo_id"
+                "the local dataset schema is fixed at 12-D"
             )
         return LeRobotDataset.resume(
             repo_id=repo_id,
@@ -258,20 +234,19 @@ def open_dataset(
     )
 
 
-def run(episode_dir: Path, out_dir: Path, scope: str = "", engine: str | None = None) -> None:
+def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     """StageFn entrypoint. ``out_dir`` is the runner's staging dir (receipt lands
     there); the derived episode dir (glim/gripper outputs) is its parent."""
     del scope
-    engine = engine or os.environ.get("ROBOT_UMI_ENGINE", DEFAULT_ENGINE)
     derived_episode_dir = out_dir.resolve().parent
 
     m = manifest.read_manifest(episode_dir / layout.MANIFEST_FILE)
     rig = core_config.load_rig_config(
         episode_dir / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
     )
-    derived = core_config.derive(rig)
+    derived = core_config.require_bimanual(rig)
 
-    receipt: dict[str, Any] = {"episode_id": m["episode_id"], "engine": engine}
+    receipt: dict[str, Any] = {"episode_id": m["episode_id"], "engine": DEFAULT_ENGINE}
     if not m["dataset_eligible"]:
         receipt["skipped"] = "episode not dataset_eligible"
         (out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2))
@@ -282,19 +257,15 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "", engine: str | None = 
         (out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2))
         print(f"dataset: skipping PTP-unacceptable episode {m['episode_id']}", flush=True)
         return
-    # Merged bimanual episodes: the follower arm is resampled onto the leader's unix-ns
-    # timeline, so a large cross-Pi clock skew would silently misalign the two arms. A
-    # no-op for solo episodes (no clock_sync block).
+    # The follower arm is resampled onto the leader's unix-ns timeline.
     if not manifest.clock_sync_acceptable(m):
         receipt["skipped"] = "cross-Pi clock offset too large / unsynced (bimanual merge)"
         (out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2))
         print(f"dataset: skipping clock-desynced episode {m['episode_id']}", flush=True)
         return
 
-    repo_id = os.environ.get("ROBOT_UMI_REPO_ID")
-    if not repo_id:
-        raise RuntimeError("ROBOT_UMI_REPO_ID is required for the dataset stage")
-    dataset_root = Path(os.environ.get("ROBOT_UMI_DATASET_ROOT", "data/lerobot"))
+    repo_id = LOCAL_REPO_ID
+    dataset_root = Path(os.environ.get("DATA_DIR", "data")) / "lerobot"
     dataset_dir = dataset_root / repo_id
 
     # Idempotence: if this episode already appended (e.g. the runner re-runs the
@@ -315,16 +286,14 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "", engine: str | None = 
     ref_quat: np.ndarray | None = None
     state_blocks: list[np.ndarray] = []
     for u in rig.umis:
-        source = pose_track_for_umi(episode_dir, derived_episode_dir, m, u, engine)
-        if source is None:
-            state_blocks.append(np.zeros((n_frames, 6), dtype=np.float32))
-            continue
-        track, basis = source
+        track, basis = pose_track_for_umi(episode_dir, derived_episode_dir, m, u)
         aligned = resample(track, timeline)
         if ref_pos is None:
             ref_pos, ref_quat = aligned.pos[0], aligned.quat[0]
         state_blocks.append(states_from_track(aligned, ref_pos, ref_quat, basis=basis))
     states = np.concatenate(state_blocks, axis=1)
+    if states.shape != (n_frames, 12):
+        raise RuntimeError(f"expected bimanual state shape {(n_frames, 12)}, got {states.shape}")
     actions = actions_from_states(states)
 
     grippers = {
@@ -356,60 +325,14 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "", engine: str | None = 
         dataset.add_frame(frame)
     dataset.save_episode()
     # LeRobot v3.0 buffers each episode's footer metadata in the DatasetWriter: save_episode()
-    # writes data/*.parquet + info.json but NOT meta/episodes/file-NNN.parquet until the writer
-    # is flushed (otherwise only DatasetWriter.__del__ flushes it, at GC/process-exit). The hub
-    # push below runs BEFORE that, so without an explicit flush it mirrors a half-written dataset
-    # (new episode's data present, its meta/episodes row absent) -> the Hub loads with
-    # "episode N not found in metadata". finalize() flushes it; it is idempotent and safe to call
-    # per-append (the next run re-opens the writer via open_dataset).
+    # writes data/*.parquet + info.json but buffers the episode footer until finalize().
     dataset.finalize()
-    _assert_local_dataset_consistent(dataset_dir)  # fail loud rather than push an invalid dataset
-    # Record the append BEFORE the (slow, fallible) hub push: if the push crashes,
-    # the local frames are already committed and must not be re-appended on re-run.
+    _assert_local_dataset_consistent(dataset_dir)
     mark_appended(dataset_dir, m["episode_id"])
-
-    pushed = False
-    if os.environ.get("ROBOT_UMI_PUSH_TO_HUB", "0") == "1":
-        try:
-            private = os.environ.get("ROBOT_UMI_PUBLIC", "0") != "1"
-            from huggingface_hub import HfApi
-
-            api = HfApi()
-            # Create the repo with the intended visibility, then ENFORCE it (create_repo is
-            # a no-op on an existing repo, so it won't flip a pre-existing repo's visibility).
-            api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-            api.update_repo_settings(repo_id=repo_id, repo_type="dataset", private=private)
-
-            # NEVER use lerobot's push_to_hub: it skips meta/episodes/ and can mangle data/,
-            # leaving the Hub inconsistent ("episode N not found in metadata"). The LOCAL
-            # dataset is the single source of truth and is always self-consistent (info.json +
-            # meta/episodes/ + data/ + videos/ are all written together by save_episode). Sync
-            # the Hub to EXACTLY match it: delete_patterns drops any stale/corrupt remote file
-            # the local no longer has, and upload_folder overwrites the rest (LFS dedups
-            # unchanged videos by hash, so re-uploading the full dataset each episode is cheap).
-            api.upload_folder(
-                repo_id=repo_id,
-                repo_type="dataset",
-                folder_path=str(dataset_dir),
-                ignore_patterns=[".umi_appended_episodes.txt"],
-                delete_patterns=["meta/**", "data/**", "videos/**"],
-            )
-            # Archive the raw episode alongside (best-effort; separate raw_episodes/ namespace,
-            # untouched by the delete_patterns above so prior episodes accumulate).
-            api.upload_folder(
-                repo_id=repo_id,
-                repo_type="dataset",
-                folder_path=str(episode_dir),
-                path_in_repo=f"raw_episodes/{episode_dir.name}",
-            )
-            pushed = True
-        except Exception as exc:  # push failure must not lose the local append
-            print(f"dataset: hub push failed ({exc}); local dataset is intact", flush=True)
-
-    receipt.update(frames=n_frames, state_dim=int(states.shape[1]), pushed=pushed)
+    receipt.update(frames=n_frames, state_dim=int(states.shape[1]))
     (out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2))
     print(
-        f"dataset: appended {n_frames} frames ({m['episode_id']}) pushed={pushed}",
+        f"dataset: appended {n_frames} frames ({m['episode_id']})",
         flush=True,
     )
 

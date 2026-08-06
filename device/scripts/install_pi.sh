@@ -2,8 +2,7 @@
 # install_pi.sh — take a freshly-flashed Ubuntu 24.04 Raspberry Pi 5 to a working
 # UMI recorder in one run. Idempotent: safe to re-run after editing .env/config.
 #
-#   cp .env.example .env && $EDITOR .env      # fill in server URL + spool dir
-#   device/scripts/install_pi.sh              # run as the LOGIN user (not root)
+#   bin/provision-pair
 #
 # It does everything the old bring-up left as tribal knowledge: apt deps, uv +
 # Rust toolchains, the Python env + Rust recorder build, tcpdump capture
@@ -25,18 +24,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 USER_NAME="$(id -un)"
 cd "$REPO"
 
-# Load .env (server URL, spool dir, rig config path) if present.
-if [ -f "$REPO/.env" ]; then
-  set -a; . "$REPO/.env"; set +a
-else
-  echo "note: no .env yet — copying .env.example -> .env (edit it and re-run)."
-  cp "$REPO/.env.example" "$REPO/.env"
-fi
+[ -f "$REPO/.env" ] || { echo "no rendered .env — run bin/provision-pair" >&2; exit 1; }
+set -a; . "$REPO/.env"; set +a
 CONFIG_REL="${ROBOT_UMI_CONFIG:-config/umi.yaml}"
 CONFIG_PATH="$REPO/$CONFIG_REL"
 SPOOL_DIR="${ROBOT_UMI_SPOOL_DIR:-$REPO/device/robot_umi_spool}"
-[ -n "${ROBOT_UMI_UPLOAD_TOKEN:-}" ] || echo "WARN: ROBOT_UMI_UPLOAD_TOKEN is blank" \
-  "in .env — uploads will 401 unless the server is tokenless. Set the SAME value as the GPU box."
 
 # needrestart (Ubuntu's post-apt hook) auto-restarts services after upgrades — including
 # systemd-networkd/resolved, which briefly kills DNS mid-install and makes the uv/rust
@@ -58,7 +50,7 @@ fi
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
   git curl ca-certificates build-essential pkg-config \
-  tcpdump ethtool linuxptp libcap2-bin v4l-utils python3-dev
+  chrony tcpdump ethtool linuxptp libcap2-bin v4l-utils python3-dev
 
 echo "=== [2/11] uv (Python) ==="
 if ! command -v uv >/dev/null && [ ! -x "$HOME/.local/bin/uv" ]; then
@@ -119,15 +111,11 @@ UDEV
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
 echo "=== [8/11] rig config ==="
-if [ ! -f "$CONFIG_PATH" ]; then
-  mkdir -p "$(dirname "$CONFIG_PATH")"
-  cp "$REPO/config/umi.single.example.yaml" "$CONFIG_PATH"
-  echo "seeded $CONFIG_REL from umi.single.example.yaml — EDIT it (camera device, calib, lidar)."
-fi
+[ -f "$CONFIG_PATH" ] || { echo "missing rendered client config $CONFIG_PATH" >&2; exit 1; }
 # Fail loudly on an unparseable config NOW (unknown key, bad YAML) instead of
 # silently skipping lidar/PTP below and reporting a false "install complete".
 if ! ERR="$("$REPO/.venv/bin/python" -c \
-    'import sys; from robot_umi_core.config import load_rig_config; load_rig_config(sys.argv[1])' \
+    'import sys; from robot_umi_core.config import client_role,load_rig_config; print(client_role(load_rig_config(sys.argv[1])))' \
     "$CONFIG_PATH" 2>&1)"; then
   echo "config error in $CONFIG_REL:" >&2; echo "$ERR" >&2
   echo "edit $CONFIG_REL and re-run." >&2; exit 1
@@ -140,8 +128,7 @@ import sys
 from robot_umi_core.config import load_rig_config
 rig = load_rig_config(sys.argv[1])   # already validated above
 for u in rig.umis:
-    if u.lidar is not None:
-        print(f"{u.lidar.iface} {u.lidar.host_ip} {u.lidar.lidar_ip}")
+    print(f"{u.lidar.iface} {u.lidar.host_ip} {u.lidar.lidar_ip}")
 PY
 )"
 if [ -n "$LIDARS" ]; then
@@ -154,24 +141,16 @@ if [ -n "$LIDARS" ]; then
   done <<< "$LIDARS"
   # shellcheck disable=SC2086
   sudo "$REPO/device/scripts/setup_ptp.sh" $IFACES || echo "WARN: PTP setup incomplete"
-else
-  echo "no lidar in $CONFIG_REL (vive-only rig, or config unedited) — skipping lidar net/PTP."
 fi
+
+# Both clients discipline their system clocks automatically through chrony's configured
+# Ubuntu sources.
+sudo systemctl enable --now chrony >/dev/null 2>&1 \
+  || sudo systemctl enable --now chronyd >/dev/null 2>&1
 
 echo "=== [10/11] episode spool ==="
 mkdir -p "$SPOOL_DIR"
-# The spool holds raw pcap + video (GB per episode). On the SD card (root fs) it fills
-# fast and wears the card, so require an SSD mount unless explicitly overridden.
-if [ "$(df --output=target "$SPOOL_DIR" | tail -1)" = "/" ]; then
-  MSG="spool $SPOOL_DIR is on the SD card (root fs), not an SSD."
-  if [ "${ROBOT_UMI_ALLOW_SD_SPOOL:-0}" = "1" ]; then
-    echo "WARN: $MSG ROBOT_UMI_ALLOW_SD_SPOOL=1 set — continuing."
-  else
-    echo "ERROR: $MSG Mount the SSD and set ROBOT_UMI_SPOOL_DIR in .env to a path on" >&2
-    echo "it, then re-run. (Set ROBOT_UMI_ALLOW_SD_SPOOL=1 to override on a dev box.)" >&2
-    exit 1
-  fi
-fi
+echo "recordings spool to the microSD card at $SPOOL_DIR"
 
 echo "=== [11/11] recorder systemd unit ==="
 sed -e "s#@REPO@#$REPO#g" -e "s#@USER@#$USER_NAME#g" \
@@ -186,7 +165,7 @@ else
   echo "needed anyway to activate the SPI overlay + group membership from step 7."
 fi
 echo "dev session by hand instead (keyboard buttons, no LCD):"
-echo "    cd $REPO && .venv/bin/python device/scripts/record.py --buttons keyboard --display none"
+echo "    cd $REPO && set -a && . ./.env && set +a && .venv/bin/python device/scripts/record.py --buttons keyboard --display none"
 
 # --- self-test -----------------------------------------------------------------
 echo
@@ -205,6 +184,8 @@ for i in $IFACES; do
   systemctl is-active --quiet "umi-ptp@$i" && echo "OK  PTP master running on $i" \
     || echo "CHECK PTP not active on $i — journalctl -u umi-ptp@$i"
 done
+chronyc tracking >/dev/null 2>&1 && echo "OK  chrony clock synchronization active" \
+  || echo "CHECK chrony is not synchronized yet"
 [ "$NEED_RELOGIN" = "1" ] && echo "ACTION log out/in (or reboot) for new group membership (GPIO/SPI/camera)."
 grep -q '^dtparam=spi=on' "$BOOTCFG" 2>/dev/null && ! [ -e /dev/spidev0.0 ] && echo "ACTION reboot to activate SPI (LCD)."
 

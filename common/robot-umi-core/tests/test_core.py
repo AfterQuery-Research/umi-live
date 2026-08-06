@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from robot_umi_core import config as cfg
 from robot_umi_core import geom, layout, manifest, ports
 
 # --- fixtures ------------------------------------------------------------------------
 
-SINGLE = {
+CLIENT = {
     "version": 1,
-    "motion_source": "lidar",
     "task": "test task",
     "umis": {
         "umi1": {
@@ -23,7 +21,7 @@ SINGLE = {
                 "fps": 30,
                 "calib": "config/calib/umi1_calib.npz",
             },
-            "lidar": {"type": "auto", "iface": "eth0"},
+            "lidar": {"iface": "eth0"},
             "gripper": {"tag_ids": [0, 1]},
         }
     },
@@ -31,7 +29,6 @@ SINGLE = {
 
 DUAL = {
     "version": 1,
-    "motion_source": "lidar+vive",
     "umis": {
         "umi1": {
             "camera": {
@@ -42,7 +39,6 @@ DUAL = {
                 "calib": "config/calib/umi1_calib.npz",
             },
             "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
-            "vive": {"serial": "LHR-A", "ee_calib": "config/ee_calib.umi1.json"},
             "gripper": {"tag_ids": [0, 1]},
         },
         "umi2": {
@@ -53,8 +49,7 @@ DUAL = {
                 "fps": 30,
                 "calib": "config/calib/umi2_calib.npz",
             },
-            "lidar": {"iface": "eth1", "host_ip": "192.168.2.102"},
-            "vive": {"serial": "LHR-B", "ee_calib": "config/ee_calib.umi2.json"},
+            "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
             "gripper": {"tag_ids": [2, 3]},
         },
     },
@@ -77,7 +72,6 @@ def test_sensor_files_per_kind():
         "stats": "umi1_camera_stats.json",
     }
     assert layout.sensor_files("umi2/lidar")["pcap"] == "umi2_lidar.pcap"
-    assert layout.sensor_files("umi1/vive") == {"poses": "umi1_vive.jsonl"}
 
 
 def test_sensor_key_rejects_unknown_kind():
@@ -93,8 +87,8 @@ def test_episode_id_shape():
 # --- config --------------------------------------------------------------------------
 
 
-def test_single_umi_schema():
-    rig = cfg.parse_rig_config(SINGLE)
+def test_client_half_schema():
+    rig = cfg.parse_rig_config(CLIENT)
     d = cfg.derive(rig)
     assert d.n_umis == 1
     assert d.state_dim == 6
@@ -115,39 +109,29 @@ def test_dual_umi_schema():
     assert d.features["action"]["shape"] == (12,)
 
 
-def test_capture_plan_enable_mask():
+def test_fixed_capture_plan():
     rig = cfg.parse_rig_config(DUAL)
-    lidar_plan = cfg.capture_plan(rig, cfg.MODE_LIDAR)
-    keys = [k for k, _ in lidar_plan]
-    assert "umi1/lidar" in keys and "umi1/camera" in keys
-    assert "umi1/vive" not in keys  # not armed in lidar mode
-    both = cfg.capture_plan(rig, cfg.MODE_LIDAR_VIVE)
-    assert {"umi1/lidar", "umi1/vive", "umi2/lidar", "umi2/vive"} <= {k for k, _ in both}
-    # Cameras are always armed.
-    vive_plan = cfg.capture_plan(rig, cfg.MODE_VIVE)
-    assert {"umi1/camera", "umi2/camera"} <= {k for k, _ in vive_plan}
-    assert not any(kind == "lidar" for _, kind in vive_plan)
-
-
-def test_mode_cycle():
-    assert cfg.cycle_mode(cfg.MODE_LIDAR) == cfg.MODE_VIVE
-    assert cfg.cycle_mode(cfg.MODE_LIDAR_VIVE) == cfg.MODE_LIDAR
+    assert cfg.capture_plan(rig) == [
+        ("umi1/lidar", "lidar"),
+        ("umi1/camera", "camera"),
+        ("umi2/lidar", "lidar"),
+        ("umi2/camera", "camera"),
+    ]
 
 
 def test_controls_defaults_when_omitted():
-    # SINGLE has no `controls:` -> historical hardcoded pins, LCD on (back-compat).
-    rig = cfg.parse_rig_config(SINGLE)
+    rig = cfg.parse_rig_config(CLIENT)
     b, d = rig.controls.buttons, rig.controls.display
-    assert (b.record, b.quit, b.mode) == (17, 27, 22)
-    assert (d.kind, d.dc, d.rst, d.bl) == ("lcd", 25, 4, 18)
+    assert (b.record, b.quit) == (12, 16)
+    assert (d.kind, d.dc, d.rst, d.bl) == ("lcd", 25, 27, 18)
 
 
 def test_controls_custom_pins():
     import copy
 
-    good = copy.deepcopy(SINGLE)
+    good = copy.deepcopy(CLIENT)
     good["controls"] = {
-        "buttons": {"record": 12, "quit": 16, "mode": 22},
+        "buttons": {"record": 12, "quit": 16},
         "display": {"kind": "lcd", "dc": 25, "rst": 27, "bl": 18},
     }
     rig = cfg.parse_rig_config(good)
@@ -158,7 +142,7 @@ def test_controls_custom_pins():
 def test_controls_rejects_pin_collision():
     import copy
 
-    bad = copy.deepcopy(SINGLE)
+    bad = copy.deepcopy(CLIENT)
     bad["controls"] = {"buttons": {"record": 25}}  # collides with default display.dc=25
     with pytest.raises(cfg.ConfigError, match="GPIO pin 25"):
         cfg.parse_rig_config(bad)
@@ -168,7 +152,7 @@ def test_controls_pins_free_when_display_none():
     import copy
 
     # No LCD -> its pins aren't in use, so a button may take a former LCD pin.
-    ok = copy.deepcopy(SINGLE)
+    ok = copy.deepcopy(CLIENT)
     ok["controls"] = {"buttons": {"record": 4}, "display": {"kind": "none"}}
     rig = cfg.parse_rig_config(ok)
     assert rig.controls.display.kind == "none"
@@ -178,7 +162,7 @@ def test_controls_pins_free_when_display_none():
 def test_controls_rejects_bad_display_kind():
     import copy
 
-    bad = copy.deepcopy(SINGLE)
+    bad = copy.deepcopy(CLIENT)
     bad["controls"] = {"display": {"kind": "oled"}}
     with pytest.raises(cfg.ConfigError, match="display.kind"):
         cfg.parse_rig_config(bad)
@@ -187,7 +171,7 @@ def test_controls_rejects_bad_display_kind():
 def test_rejects_unknown_top_level_key():
     import copy
 
-    bad = copy.deepcopy(SINGLE)
+    bad = copy.deepcopy(CLIENT)
     bad["hf_token"] = "secret"  # a stray/secret key must not ride into the snapshot
     with pytest.raises(cfg.ConfigError, match="unknown key.*hf_token"):
         cfg.parse_rig_config(bad)
@@ -196,12 +180,12 @@ def test_rejects_unknown_top_level_key():
 def test_rejects_unknown_nested_keys():
     import copy
 
-    for where, mutate in [
+    for _where, mutate in [
         ("camera", lambda u: u["umi1"]["camera"].update(exposre=100)),  # typo
         ("lidar", lambda u: u["umi1"].setdefault("lidar", {}).update(prot="udp")),
         ("umi", lambda u: u["umi1"].update(unknwn={})),
     ]:
-        bad = copy.deepcopy(SINGLE)
+        bad = copy.deepcopy(CLIENT)
         mutate(bad["umis"])
         with pytest.raises(cfg.ConfigError, match="unknown key"):
             cfg.parse_rig_config(bad)
@@ -218,21 +202,12 @@ def test_rejects_non_4x3_camera_with_gripper():
                     "fps": 30,
                     "calib": "c.npz",
                 },
+                "lidar": {},
                 "gripper": {"tag_ids": [0, 1]},
             }
         },
-        "motion_source": "vive",
     }
     with pytest.raises(cfg.ConfigError, match="4:3"):
-        cfg.parse_rig_config(bad)
-
-
-def test_rejects_shared_lidar_iface():
-    import copy
-
-    bad = copy.deepcopy(DUAL)
-    bad["umis"]["umi2"]["lidar"]["iface"] = "eth0"
-    with pytest.raises(cfg.ConfigError, match="share one interface"):
         cfg.parse_rig_config(bad)
 
 
@@ -245,51 +220,15 @@ def test_rejects_overlapping_tag_ids():
         cfg.parse_rig_config(bad)
 
 
-def test_rejects_unrealizable_mode():
-    bad = {
-        "motion_source": "vive",
-        "umis": {
-            "umi1": {
-                "camera": {
-                    "device": "d",
-                    "width": 800,
-                    "height": 600,
-                    "fps": 30,
-                    "calib": "c.npz",
-                }
-            }
-        },
-    }
-    with pytest.raises(cfg.ConfigError, match="no vive configured"):
-        cfg.parse_rig_config(bad)
-
-
-def test_committed_example_configs_load():
-    # Guard the shipped examples (incl. the two-Pi pair configs) against schema drift.
-    import pathlib
-
-    root = pathlib.Path(__file__).resolve().parents[3]
-    expected = {
-        "umi.single.example.yaml": (["umi1"], 6),
-        "umi.dual.example.yaml": (["umi1", "umi2"], 12),
-        "umi.pair-leader.example.yaml": (["umi1"], 6),
-        "umi.pair-follower.example.yaml": (["umi2"], 6),
-    }
-    for name, (names, state_dim) in expected.items():
-        rig = cfg.load_rig_config(root / "config" / name)
-        assert [u.name for u in rig.umis] == names
-        assert cfg.derive(rig).state_dim == state_dim
-
-
 def test_referenced_blobs():
     rig = cfg.parse_rig_config(DUAL)
     blobs = cfg.referenced_blobs(rig)
     assert "config/calib/umi1_calib.npz" in blobs
-    assert "config/ee_calib.umi2.json" in blobs
+    assert "config/calib/umi2_calib.npz" in blobs
 
 
 def test_lidar_t_lidar_imu_absent_is_none():
-    rig = cfg.parse_rig_config(SINGLE)
+    rig = cfg.parse_rig_config(CLIENT)
     assert rig.umis[0].lidar is not None
     assert rig.umis[0].lidar.t_lidar_imu is None
 
@@ -298,7 +237,7 @@ def test_lidar_t_lidar_imu_override_parses():
     import copy
 
     ext = [0.00425, 0.00418, -0.00446, 0.707999, -0.706198, 0.003362, 0.003284]
-    good = copy.deepcopy(SINGLE)
+    good = copy.deepcopy(CLIENT)
     good["umis"]["umi1"]["lidar"]["t_lidar_imu"] = ext
     rig = cfg.parse_rig_config(good)
     assert rig.umis[0].lidar.t_lidar_imu == pytest.approx(tuple(ext))
@@ -307,7 +246,7 @@ def test_lidar_t_lidar_imu_override_parses():
 def test_lidar_t_lidar_imu_wrong_length_rejected():
     import copy
 
-    bad = copy.deepcopy(SINGLE)
+    bad = copy.deepcopy(CLIENT)
     bad["umis"]["umi1"]["lidar"]["t_lidar_imu"] = [0, 0, 0, 0, 0, 1]  # 6, not 7
     with pytest.raises(cfg.ConfigError, match="7 values"):
         cfg.parse_rig_config(bad)
@@ -316,7 +255,7 @@ def test_lidar_t_lidar_imu_wrong_length_rejected():
 def test_lidar_t_lidar_imu_degenerate_quat_rejected():
     import copy
 
-    bad = copy.deepcopy(SINGLE)
+    bad = copy.deepcopy(CLIENT)
     bad["umis"]["umi1"]["lidar"]["t_lidar_imu"] = [0, 0, 0, 0, 0, 0, 0]  # zero quat
     with pytest.raises(cfg.ConfigError, match="degenerate"):
         cfg.parse_rig_config(bad)
@@ -347,7 +286,6 @@ def _mk_manifest(lidar_error=None, ptp_locked=True, residual=100_000):
     return manifest.build_manifest(
         episode_id="episode_x",
         device_id="pi",
-        mode="lidar",
         task="t",
         sensors=sensors,
         ptp=ptp,
@@ -388,7 +326,7 @@ def test_ptp_rejection_rule():
 
 
 def test_coordination_fields_omitted_when_none():
-    # Regression guard: a solo manifest must be byte-identical to before these fields
+    # Transport manifests omit optional coordination fields when callers pass None.
     # existed — the coordination keys are absent, not present-with-null.
     m = _mk_manifest()
     assert "session_id" not in m
@@ -405,7 +343,6 @@ def test_coordination_fields_present_when_set():
     m = manifest.build_manifest(
         episode_id="e",
         device_id="pi",
-        mode="lidar",
         task="t",
         sensors=sensors,
         ptp={},
@@ -426,12 +363,12 @@ def test_coordination_fields_present_when_set():
 
 
 def test_clock_sync_acceptable():
-    # No block -> always acceptable (single-Pi).
-    assert manifest.clock_sync_acceptable(_mk_manifest())
+    # Missing pair synchronization evidence is rejected.
+    assert not manifest.clock_sync_acceptable(_mk_manifest())
     # Unsynced -> rejected.
     assert not manifest.clock_sync_acceptable({"clock_sync": {"synced": False}})
-    # Synced, no cross-Pi estimate -> acceptable (a per-Pi block).
-    assert manifest.clock_sync_acceptable({"clock_sync": {"synced": True}})
+    # A merged estimate is required.
+    assert not manifest.clock_sync_acceptable({"clock_sync": {"synced": True}})
     # Synced, small cross-Pi offset -> acceptable; large -> rejected.
     assert manifest.clock_sync_acceptable(
         {"clock_sync": {"synced": True, "estimated_cross_pi_offset_ns": 1_000_000}}
@@ -462,55 +399,17 @@ def test_pose_multiply_inverse_identity():
     )
 
 
-def test_parse_trackers_skips_malformed():
-    packet = {
-        "trackers": [
-            {"serial": "A", "valid": True, "pos": [0, 0, 0], "quat": [1, 0, 0, 0]},
-            {"serial": "B", "valid": True},  # malformed: no pos/quat
-            {"serial": "C", "valid": False, "pos": [0, 0, 0], "quat": [1, 0, 0, 0]},
-        ]
-    }
-    poses = geom.parse_trackers(packet)
-    assert set(poses) == {"A"}
-
-
-def test_pose_zeroer_tare():
-    z = geom.PoseZeroer()
-    first = z.relative((1, 2, 3), (0, 0, 0, 1))
-    assert first[:3] == (1, 2, 3)
-    z.request_zero()
-    z.relative((1, 2, 3), (0, 0, 0, 1))
-    rel = z.relative((2, 2, 3), (0, 0, 0, 1))
-    assert rel[:3] == pytest.approx((1, 0, 0))
-
-
-def test_ee_from_vive_identity_calib_is_noop():
-    poses = np.array([[1, 2, 3, 0, 0, 0, 1]], dtype=np.float64)
-    out = geom.end_effector_poses_from_vive(
-        poses, np.zeros(3), np.array([0, 0, 0, 1.0])
-    )
-    assert np.allclose(out, poses)
-
-
-def test_load_ee_calib_strict(tmp_path):
-    f = tmp_path / "ee.json"
-    f.write_text('{"translation_mm": [100, 0, -200], "quat_xyzw": [0, 0, 0, 1]}')
-    t, q = geom.load_ee_calib(f)
-    assert np.allclose(t, [0.1, 0.0, -0.2])
-    with pytest.raises(FileNotFoundError):
-        geom.load_ee_calib(tmp_path / "missing.json")
-
-
 # --- ports ---------------------------------------------------------------------------
 
 
 def test_classify_port():
     assert ports.classify_port(6699) == "robosense"
     assert ports.classify_port(6688) == "robosense"
-    assert ports.classify_port(56301) == "livox"
+    assert ports.classify_port(56301) is None
     assert ports.classify_port(1234) is None
 
 
-def test_bpf_filter_covers_both_vendors():
+def test_bpf_filter_covers_robosense_ports():
     f = ports.bpf_filter("192.168.1.102")
-    assert "port 6699" in f and "portrange 56100-56500" in f and "dst host" in f
+    assert "port 6699" in f and "port 7788" in f and "port 6688" in f
+    assert "portrange" not in f and "dst host" in f

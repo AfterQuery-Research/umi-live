@@ -2,8 +2,7 @@
 # install_server.sh — stand up the GPU processing box (Lambda instance or on-prem
 # NVIDIA machine) in one run. Idempotent. Portable: detects GPU vs CPU.
 #
-#   cp .env.example .env && $EDITOR .env      # upload token, HF repo/token
-#   server/scripts/install_server.sh          # run as your login user (sudo used as needed)
+#   bin/provision-server
 #
 # Brings up: Docker (+ nvidia-container-toolkit on GPU hosts), the stage images,
 # the host Python env the runner needs (gripper/dataset run in-process → lerobot +
@@ -22,9 +21,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 USER_NAME="$(id -un)"
 cd "$REPO"
 
-[ -f "$REPO/.env" ] || { echo "no .env — copy .env.example to .env and fill it in first."; exit 1; }
+[ -f "$REPO/.env" ] || { echo "no rendered .env — run bin/provision-server"; exit 1; }
 set -a; . "$REPO/.env"; set +a
-: "${ROBOT_UMI_UPLOAD_TOKEN:?set ROBOT_UMI_UPLOAD_TOKEN in .env (shared with the Pi)}"
 export DATA_DIR="${DATA_DIR:-./data}"
 
 echo "=== [1/8] base packages ==="
@@ -110,12 +108,7 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 # --frozen: keep uv.lock authoritative (match the ingest image) so the runner's
 # in-process gripper/dataset deps don't drift from the container versions.
-uv sync --frozen --no-dev --package robot-umi-server
-# Bimanual align stage (rig.alignment / --pair pipelines) lazily imports open3d +
-# gtsam — the server's [align] extra. It is NOT in the base sync; without it every
-# bimanual episode fails at align() with "No module named 'open3d'". gtsam needs
-# the 4.3 prerelease for numpy>=2 (stable 4.2.1 pins numpy<2 and segfaults).
-uv pip install --python "$REPO/.venv/bin/python" --prerelease=allow "open3d>=0.18" "gtsam>=4.3a0"
+uv sync --frozen --no-dev --package robot-umi-server --extra align
 
 echo "=== [5/8] build stage images ==="
 $DOCKER compose build umi-ingest
@@ -132,14 +125,17 @@ echo "=== [8/8] runner systemd service ==="
 sed -e "s#@REPO@#$REPO#g" -e "s#@USER@#$USER_NAME#g" \
     "$REPO/config/systemd/umi-runner.service" | sudo tee /etc/systemd/system/umi-runner.service >/dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable --now umi-runner
+sudo systemctl enable umi-runner >/dev/null
+# Provisioning is also the update path: restart even when the service was already active
+# so newly deployed Python code is never left behind an old long-running process.
+sudo systemctl restart umi-runner
 
 # --- self-test -----------------------------------------------------------------
 echo
 echo "=== self-test ==="
 fail=0
 sleep 3
-# A bare POST returns 401/400 when up; curl prints 000 on connection-refused. Do
+# A bare POST returns 400 when up; curl prints 000 on connection-refused. Do
 # NOT use -f here: it makes curl exit non-zero AND still print the code, which the
 # old `|| echo down` fallback then concatenated ("000down") and misread as "up".
 code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:8080/upload" 2>/dev/null || echo 000)
@@ -148,18 +144,14 @@ case "$code" in
   *)   echo "OK  ingest up (HTTP $code)" ;;
 esac
 systemctl is-active --quiet umi-runner && echo "OK  runner service active" || { echo "FAIL runner not active — journalctl -u umi-runner"; fail=1; }
-for img in umi-ingest umi-decode umi-slam umi-dataset; do
+for img in umi-ingest umi-decode umi-slam; do
   $DOCKER image inspect "$img" >/dev/null 2>&1 && echo "OK  image $img built" || { echo "FAIL image $img missing"; fail=1; }
 done
 [ "$GPU" = "1" ] && echo "GPU mode." || echo "CPU mode (see docker-compose.override.yml)."
 
 echo
 if [ "$fail" = "0" ]; then
-  echo "server up. Point the Pis here: ./bin/provision-pi --target gpu <user@pi> with"
-  echo "SERVER_URL (LAN box) or SERVER_SSH=$USER_NAME@<this-box> (cloud box, only :22 open"
-  echo "— installs a boot-persistent Pi->box tunnel) in the rig env."
-  echo "Bimanual (two-Pi) rigs: set ROBOT_UMI_RUNNER_ARGS=--pair in .env and restart"
-  echo "umi-runner so the runner merges leader+follower episodes into one 12-D dataset."
+  echo "server ready; run bin/provision-pair on the setup machine"
 else
   echo "install finished with FAILUREs above."; exit 1
 fi

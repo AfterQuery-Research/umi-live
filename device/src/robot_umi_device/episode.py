@@ -1,14 +1,12 @@
-"""Episode recording: N sensors behind one seam, hermetic episode directories.
+"""One client's camera and lidar recording in a hermetic episode directory.
 
 An episode directory is the complete device->server contract (see
 robot_umi_core.layout): raw sensor streams + a resolved config snapshot (the YAML
 plus every referenced calib blob) + a versioned manifest + checksums + COMPLETE.
 
-The recorder holds a flat list of :class:`SensorRecorder`s chosen by the episode's
-mode (the enable mask, from ``robot_umi_core.config.capture_plan``). Non-camera
-sensors start first so a camera-start failure never orphans a detached recorder
-process; failures at stop never discard data — they are reported in the manifest
-(per-sensor ``error``, ``dataset_eligible=false``).
+The recorder holds the fixed lidar-plus-camera sensor plan for one client. Non-camera
+sensors start first so a camera-start failure never orphans a detached recorder process;
+failures at stop never discard data — they are reported in the manifest.
 """
 
 from __future__ import annotations
@@ -41,11 +39,10 @@ def _no_clock_sync() -> manifest.ClockSyncStatus | None:
 class ActiveEpisode:
     episode_id: str
     path: Path
-    mode: str
     sensors: list[SensorRecorder]
     start_unix_ns: int
-    session_id: str | None = None  # coordinated multi-Pi pairing key (None = solo)
-    role: str | None = None  # this Pi's arm, e.g. "umi1"/"umi2" (None = solo)
+    session_id: str = ""
+    role: str = ""
 
 
 class EpisodeRecorder:
@@ -60,10 +57,9 @@ class EpisodeRecorder:
         ptp_probe: PtpProbe = _no_ptp,
         clock_sync_probe: ClockSyncProbe = _no_clock_sync,
     ):
-        """``sensors_by_key`` holds one recorder per configured sensor (all modes'
-        union); each episode arms the subset its mode selects. ``config_root`` is
-        the base for the config's relative blob paths (defaults to the config
-        file's repo root)."""
+        """``sensors_by_key`` holds the client's lidar and camera recorders.
+        ``config_root`` is the base for relative calibration paths."""
+        core_config.client_role(rig)
         self.rig = rig
         self.config_path = config_path
         self.config_root = config_root or config_path.resolve().parent.parent
@@ -81,17 +77,20 @@ class EpisodeRecorder:
 
     # --- lifecycle -------------------------------------------------------------------
 
-    def start(
-        self, mode: str, *, session_id: str | None = None, role: str | None = None
-    ) -> ActiveEpisode:
+    def start(self, *, session_id: str, role: str) -> ActiveEpisode:
         if self.active is not None:
             raise RuntimeError("episode already recording")
-        plan = core_config.capture_plan(self.rig, mode)
+        if not session_id:
+            raise ValueError("session_id is required for bimanual recording")
+        expected_role = self.rig.umis[0].name
+        if role != expected_role:
+            raise ValueError(f"role must match client UMI {expected_role!r}, got {role!r}")
+        plan = core_config.capture_plan(self.rig)
         armed: list[SensorRecorder] = []
         for key, _kind in plan:
             recorder = self.sensors_by_key.get(key)
             if recorder is None:
-                raise RuntimeError(f"mode {mode!r} arms {key} but no recorder is wired")
+                raise RuntimeError(f"required sensor {key} has no recorder")
             armed.append(recorder)
 
         eid = layout.episode_id()
@@ -118,7 +117,12 @@ class EpisodeRecorder:
             raise
 
         self.active = ActiveEpisode(
-            eid, path, mode, ordered, start_unix, session_id=session_id, role=role
+            eid,
+            path,
+            ordered,
+            start_unix,
+            session_id=session_id,
+            role=role,
         )
         return self.active
 
@@ -164,7 +168,6 @@ class EpisodeRecorder:
         m = manifest.build_manifest(
             episode_id=active.episode_id,
             device_id=socket.gethostname(),
-            mode=active.mode,
             task=self.rig.task,
             sensors=entries,
             ptp=self.ptp_probe(),

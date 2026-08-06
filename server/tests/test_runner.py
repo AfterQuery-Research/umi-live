@@ -6,12 +6,12 @@ from pathlib import Path
 
 from robot_umi_server.runner import Executor, Runner, StageRun, default_stages
 
-from tests.helpers import make_v2_episode
+from tests.helpers import make_paired_episode
 
 
-def publish(tmp_path: Path, n_umis: int = 1) -> tuple[Path, Path]:
+def publish(tmp_path: Path) -> tuple[Path, Path]:
     """A validated episode in data/raw_episodes (as the ingest would leave it)."""
-    episode = make_v2_episode(tmp_path, n_umis=n_umis)
+    episode = make_paired_episode(tmp_path)
     data_dir = tmp_path / "data"
     raw_root = data_dir / "raw_episodes"
     raw_root.mkdir(parents=True)
@@ -43,13 +43,16 @@ def test_full_graph_runs_in_dependency_order(tmp_path: Path):
     calls: list[tuple[str, str]] = []
     runner = make_runner(data_dir, calls)
     executed = runner.scan_once()
-    # lidar present, no gripper config -> decode + glim + dataset (no gripper).
+    # Both fixed arms run decode + GLIM; gripper and dataset run once on the pair.
     assert ("decode", "umi1") in calls
     assert ("glim", "umi1") in calls
+    assert ("decode", "umi2") in calls
+    assert ("glim", "umi2") in calls
+    assert ("gripper", "") in calls
     assert ("dataset", "") in calls
     assert calls.index(("decode", "umi1")) < calls.index(("glim", "umi1"))
     assert calls.index(("glim", "umi1")) < calls.index(("dataset", ""))
-    assert executed == 3
+    assert executed == 6
 
     derived = data_dir / "derived" / episode.name
     assert (derived / "umi1" / "decode" / "COMPLETE").exists()
@@ -61,9 +64,9 @@ def test_rescan_is_idempotent(tmp_path: Path):
     data_dir, _ = publish(tmp_path)
     calls: list[tuple[str, str]] = []
     runner = make_runner(data_dir, calls)
-    assert runner.scan_once() == 3
+    assert runner.scan_once() == 6
     assert runner.scan_once() == 0  # everything COMPLETE; nothing re-runs
-    assert len(calls) == 3
+    assert len(calls) == 6
 
 
 def test_recovery_reruns_incomplete_stage(tmp_path: Path):
@@ -83,7 +86,7 @@ def test_recovery_reruns_incomplete_stage(tmp_path: Path):
 
 
 def test_failed_stage_blocks_dependents_not_siblings(tmp_path: Path):
-    data_dir, _ = publish(tmp_path, n_umis=2)
+    data_dir, _ = publish(tmp_path)
     calls: list[tuple[str, str]] = []
 
     def fake_stage(name):
@@ -146,7 +149,7 @@ def test_executor_threads_env_into_compose(tmp_path: Path):
 
 
 def test_scoped_outputs_layout(tmp_path: Path):
-    data_dir, episode = publish(tmp_path, n_umis=2)
+    data_dir, episode = publish(tmp_path)
     calls: list[tuple[str, str]] = []
     runner = make_runner(data_dir, calls)
     runner.scan_once()

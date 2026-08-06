@@ -14,7 +14,7 @@
 #   ${DATA_DIR:-./data}  ->  /data in every container
 #     /data/raw_episodes/<id>/          hermetic episodes (manifest.json,
 #                                       config_snapshot/, umiN_lidar.pcap,
-#                                       umiN_camera.mjpeg.avi, umiN_vive.jsonl)
+#                                       umiN_camera.mjpeg.avi, umiN_lidar.pcap)
 #     /data/derived/<id>/<stage>/       stage outputs + COMPLETE marker
 #
 # Normal operation is via server/scripts/install_server.sh (builds the images,
@@ -31,9 +31,8 @@
 
 services:
   # ---------------------------------------------------------------- ingest --
-  # CPU, always-up. Refuses to start without ROBOT_UMI_UPLOAD_TOKEN (server
-  # won't bind 0.0.0.0 tokenless). Ingest only extracts + validates + publishes;
-  # dataset conversion/HF push happen later in the runner's dataset stage.
+  # CPU, always-up. The host publishes it on loopback only; recorder clients reach it
+  # through their SSH tunnels. Ingest only extracts, validates, and publishes.
   umi-ingest:
     build:
       context: .
@@ -46,11 +45,8 @@ services:
     # to 1000 (typical first login user); install_server.sh can pin them per host.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
-      ROBOT_UMI_UPLOAD_TOKEN: ${ROBOT_UMI_UPLOAD_TOKEN:-}
-      # No HF_TOKEN here: ingest never pushes to the Hub (that's the runner's
-      # dataset stage), and this is the only internet-facing container.
       DATA_DIR: /data # informational; the mount below is what matters
     volumes:
       - ${DATA_DIR:-./data}:/data
@@ -96,29 +92,3 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-
-  # --------------------------------------------------------------- dataset --
-  # CPU. Raw episode + derived outputs -> LeRobot dataset. Present for manual/
-  # containerized runs; the runner currently invokes the dataset stage in-process
-  # (robot_umi_server.dataset_stage) rather than through this service.
-  umi-dataset:
-    profiles: [stages]
-    build:
-      context: .
-      dockerfile: docker/dataset/Dockerfile
-    image: umi-dataset
-    environment:
-      HF_TOKEN: ${HF_TOKEN:-}
-    volumes:
-      - ${DATA_DIR:-./data}:/data
-
-  # --------------------------------------------------------------- compare --
-  # CPU. Pairwise evo APE/RPE across every <engine>/trajectory.tum ->
-  # metrics.json + plots. args: <derived_dir> <out_dir>
-  umi-compare:
-    profiles: [stages]
-    build:
-      context: docker/compare
-    image: umi-compare
-    volumes:
-      - ${DATA_DIR:-./data}:/data

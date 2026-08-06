@@ -10,7 +10,7 @@ Three pieces, all speaking the same on-disk format (classic pcap, EN10MB link ty
   Ethernet/IPv4/UDP framing around payloads. Used by the CI mock lidar so mock and
   hardware exercise byte-compatible files (rslidar_sdk pcap replay reads either).
 - :func:`read_udp_packets` — a minimal reader (both microsecond and nanosecond
-  magics) for stats, tests, and the server's DIFOP/Livox parser. This half now lives
+  magics) for stats, tests, and the server's DIFOP parser. This half now lives
   in :mod:`robot_umi_core.pcapio` (so the server can read pcaps without depending on
   this device package); it is re-exported here for back-compat.
 

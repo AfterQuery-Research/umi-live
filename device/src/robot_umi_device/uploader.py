@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
 import queue
 import shutil
 import tarfile
@@ -19,11 +18,8 @@ from urllib.parse import urlparse
 
 from robot_umi_core.layout import COMPLETE_FILE
 
-
 DEFAULT_UPLOAD_TIMEOUT_SECONDS = 10.0
 REACHABILITY_TIMEOUT_SECONDS = 3.0
-# Shared secret sent as X-Upload-Token; the server rejects uploads without it.
-UPLOAD_TOKEN_ENV = "ROBOT_UMI_UPLOAD_TOKEN"
 PostFile = Callable[[str, Path, str, float], dict[str, Any]]
 
 
@@ -38,20 +34,14 @@ class UploadResult:
 
 def _parse_url(server_url: str) -> tuple[str, str, int]:
     parsed = urlparse(server_url)
-    if parsed.scheme not in ("http", "https") or parsed.hostname is None:
-        raise ValueError(
-            f"only http:// or https:// upload URLs are supported: {server_url}"
-        )
-    default_port = 443 if parsed.scheme == "https" else 80
-    return parsed.scheme, parsed.hostname, parsed.port or default_port
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError(f"upload endpoint must use the local SSH tunnel: {server_url}")
+    return parsed.scheme, parsed.hostname, parsed.port or 80
 
 
 def _connect(server_url: str, timeout_seconds: float) -> http.client.HTTPConnection:
-    """Open an HTTP or HTTPS connection per the URL scheme. Prefer https:// (or an
-    ssh tunnel) when the token/episode data crosses an untrusted network."""
+    """Open the loopback HTTP connection reached through the SSH tunnel."""
     scheme, host, port = _parse_url(server_url)
-    if scheme == "https":
-        return http.client.HTTPSConnection(host, port, timeout=timeout_seconds)
     return http.client.HTTPConnection(host, port, timeout=timeout_seconds)
 
 
@@ -88,14 +78,11 @@ def post_tar_file(
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
-    token = os.environ.get(UPLOAD_TOKEN_ENV, "")
     try:
         conn.putrequest("POST", path)
         conn.putheader("Content-Type", "application/x-tar")
         conn.putheader("Content-Length", str(size))
         conn.putheader("X-Episode-Id", episode_id)
-        if token:
-            conn.putheader("X-Upload-Token", token)
         conn.endheaders()
         with tar_path.open("rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
