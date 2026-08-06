@@ -1,111 +1,156 @@
-# umi-flow
+# UMI Flow
 
-UMI-style handheld data collection with **offline GPU SLAM**: Raspberry Pi rigs
-(camera + RoboSense lidar, one arm each; a coordinated leader/follower pair for
-bimanual) record raw, PTP-timestamped episodes to an SSD and upload them; a
-processing host (GPU box, or a Mac in CPU mode) decodes, runs **GLIM**
-(lidar-inertial SLAM with loop closure) offline, registers the two arms into one
-frame, extracts ArUco gripper widths, and builds
-[LeRobot](https://github.com/huggingface/lerobot) datasets pushed to the
-HuggingFace Hub.
+UMI Flow records synchronized bimanual demonstrations from two handheld UMI clients and processes them into a 12-D [LeRobot](https://github.com/huggingface/lerobot) dataset.
 
-> **Setting this up? Start at [SETUP.md](SETUP.md)** — the step-by-step guide
-> (which value goes in which file, bimanual pairing, target switching,
-> troubleshooting). The sections below are the architecture reference.
+## Requirements
 
-| Package | Runs on | What it does |
+| Device | Requirements |
+| --- | --- |
+| Leader client | Raspberry Pi 5, Ubuntu Server 24.04 arm64, 64 GB or larger microSD card |
+| Follower client | Raspberry Pi 5, Ubuntu Server 24.04 arm64, 64 GB or larger microSD card |
+| Processing server | x86_64 Ubuntu 24.04; NVIDIA GPU optional |
+
+Each client uses:
+
+- [RoboSense Airy](https://store.robosense.ai/products/airy) lidar
+- [Arducam B0495 AR0234](https://www.arducam.com/downloads/datasheet/B0495_AR0234_Global_Shutter_USB3.0_Camera_Module_Datasheet.pdf) USB global-shutter camera
+- Two printed [ArUco tags](tools/make_gripper_tags.py) per client: IDs `0` and `1` for the leader, and `2` and `3` for the follower
+- Network connection to the other client and server
+
+Run the setup commands from any macOS or Linux machine with Git, SSH, rsync, and network access to all three devices. The clients and server must have internet access during installation.
+
+## Roles
+
+| Role | Arm | Dataset name | Controls |
+| --- | --- | --- | --- |
+| Leader | Left | `umi1` | Record buttons and LCD |
+| Follower | Right | `umi2` | Headless; controlled by the leader |
+
+The leader sends start and stop commands to the follower. Each client uploads one recording. The server pairs them by session ID, runs GLIM for both arms, extracts gripper state, and creates one dataset episode. The current dataset timeline and origin use `umi1`.
+
+Required connections:
+
+| From | To | Port |
 | --- | --- | --- |
-| [`common/robot-umi-core`](common/robot-umi-core) | both | shared truths: episode layout, manifest v2, rig config + schema derivation, pose geometry (numpy+pyyaml only) |
-| [`device/`](device/README.md) | Raspberry Pi (ROS-free) | pcap lidar capture, Rust V4L2 camera, Vive receiver, buttons + LCD (temp/mode), episode spooling, resilient upload |
-| [`server/`](server/README.md) | GPU box / cloud | ingest inbox, pipeline runner (filesystem state machine), stage containers (decode → GLIM/LVI-SAM → gripper → dataset → compare) |
+| Setup machine | Clients and server | TCP 22 |
+| Leader | Follower | TCP 9140 |
+| Clients | Server | TCP 8080, or TCP 22 when using an SSH tunnel |
+| Clients and server | Internet | TCP 443 |
 
-## Architecture principles
+## Install
 
-1. **Hermetic episodes** — each episode dir carries its raw streams + a config/calib
-   snapshot + a versioned manifest, all checksummed; any archived episode reprocesses
-   identically forever.
-2. **Record raw, process later** — the Pi writes verbatim wire formats (pcap, MJPEG,
-   raw Vive samples) on one PTP time axis; all decode/geometry/SLAM/dataset math is
-   server-side.
-3. **Standard formats** — pcap, rosbag2, TUM, LeRobot v3, evo.
-4. **One home for shared truths** — if device and server both need it, it lives in
-   `robot-umi-core` exactly once.
-5. **The filesystem is the queue** — stages communicate through directories
-   (`.staging` → atomic rename → `COMPLETE`); recovery is a rescan.
-6. **Presence over mode** — the server dispatches on which streams exist in the
-   episode, never on the device's mode label.
-7. **One sensor seam** — every sensor implements the same `SensorRecorder` Protocol;
-   1-vs-2 UMIs is config data (`state_dim = 6·N` is derived, never hardcoded).
+Clone the repository once on the setup machine. The install commands copy it to the server and both clients.
 
-## Setup
+```sh
+git clone https://github.com/AfterQuery-Research/umi-flow.git
+cd umi-flow
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync --package robot-umi-core
+```
 
-Follow **[SETUP.md](SETUP.md)**. In brief: everything is driven from your
-workstation off one inventory (`provisioning/secrets` + `provisioning/server.env`
-+ `provisioning/rigs/<pi>.env`) — `./bin/provision-server <user@box>` stands up the
-processing host (`--local` for a Mac host), `./bin/provision-pi <user@pi>` each Pi
-(`./bin/provision-pair` for a bimanual pair), and `./bin/switch-target --target
-mac|gpu <user@pi>...` flips provisioned Pis between processing hosts. Secrets are
-written once and fanned out; no machine is hand-configured.
+### 1. Configure the server
 
-Do **not** hand-configure a Pi (clone + `install_pi.sh` + editing files on it) —
-that path is the provisioner's internal machinery and skips the SSD mount, upload
-tunnel, chrony sync, and required reboot.
+```sh
+cp provisioning/secrets.example provisioning/secrets
+cp provisioning/server.env.example provisioning/server.env
+```
 
-## Configure the rig
+Set these values in `provisioning/secrets`:
 
-`config/umi.yaml` (seeded by the installer from `umi.single.example.yaml`, or
-`umi.dual.example.yaml` for two UMIs) declares the rig. `N = len(umis)` drives
-everything (state dim, feature names, capture plan). Camera fisheye calibs live in
-`config/calib/`; per-UMI Vive EE calibs in `config/ee_calib.umiN.json`. Unknown keys
-are rejected (the file is snapshotted into every episode — no stray secrets).
+```sh
+PI_PASSWORD="<client sudo password>"
+UPLOAD_TOKEN="<output of: openssl rand -hex 32>"
+HF_TOKEN=""
+```
+
+`UPLOAD_TOKEN` is shared automatically with the server and both clients. It is required by the current ingest service.
+
+Set these values in `provisioning/server.env`:
+
+```sh
+REPO_ID="local/umi-flow"
+PUSH_TO_HUB="0"
+PUBLIC="0"
+RUNNER_ARGS="--pair"
+```
+
+Install the server:
+
+```sh
+./bin/provision-server <server-user>@<server-ip>
+```
+
+The installer uses the NVIDIA GPU when available and otherwise builds GLIM for CPU processing.
+
+### 2. Configure the clients
+
+Create one inventory file per client. Each filename must match the host used in the provision command.
+
+```sh
+cp provisioning/rigs/example.env provisioning/rigs/<leader-host>.env
+cp provisioning/rigs/example.env provisioning/rigs/<follower-host>.env
+```
+
+Set the following fields. Leave `SERVER_URL` empty when using `SERVER_SSH`; leave `SERVER_SSH` empty when port 8080 is directly reachable.
+
+| Field | Leader | Follower |
+| --- | --- | --- |
+| `RIG_TARGET` | `gpu` | `gpu` |
+| `SERVER_SSH` | `<server-user>@<server-ip>` | `<server-user>@<server-ip>` |
+| `SERVER_URL` | `http://<server-ip>:8080/upload` | `http://<server-ip>:8080/upload` |
+| `ALLOW_SD_SPOOL` | `1` | `1` |
+| `SPOOL_DIR` | `/home/<leader-user>/umi-recordings` | `/home/<follower-user>/umi-recordings` |
+| `UMI_NAME` | `umi1` | `umi2` |
+| `CAMERA_DEVICE` | blank for auto-detection | blank for auto-detection |
+| `CAMERA_CALIB` | `config/calib/umi1_calib.npz` | `config/calib/umi2_calib.npz` |
+| `LIDAR_TYPE` | `robosense` | `robosense` |
+| `GRIPPER_TAGS` | IDs mounted on the left UMI | IDs mounted on the right UMI |
+| `LCD_KIND` | `lcd` | `none` |
+| `ROLE` | `leader` | `follower` |
+| `PEER_HOST` | `<follower-ip>` | empty |
+| `TIME_REF` | same reachable NTP server | same reachable NTP server |
+
+Install the follower first, then the leader:
+
+```sh
+./bin/provision-pair <leader-user>@<leader-host> <follower-user>@<follower-host>
+```
+
+Both clients reboot at the end of installation.
+
+## Verify
+
+```sh
+ssh <server-user>@<server-ip> 'systemctl is-active umi-runner && curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8080/upload'
+ssh <leader-user>@<leader-host> 'systemctl is-active umi-recorder'
+ssh <follower-user>@<follower-host> 'systemctl is-active umi-recorder'
+```
+
+Expected output: active services and HTTP `401` from the unauthenticated server probe.
 
 ## Record
 
-Buttons: record tap = start/stop, record hold = cancel, quit hold = end session,
-**mode tap = cycle lidar → vive → lidar+vive** (idle only). The LCD shows per-lidar
-presence/type/**temperature**, the mode, REC/IDLE, pending episodes, and upload state.
-Episodes spool to the SSD and upload to the server; the runner processes each one as
-it lands.
+Tap the leader record button to start. Move both UMIs through the shared workspace for at least 30 seconds, keeping both ArUco pairs visible. Tap the button again to stop.
 
-## Pipeline (server)
-
-```
-raw_episodes/<id>/                      derived/<id>/
-  umiN_lidar.pcap        ── decode ──►    umiN/decode/bag        (rslidar pcap replay, per-point t)
-  (bag)                  ── glim ────►    umiN/glim/trajectory.tum
-  umiN_camera.mjpeg.avi  ── gripper ─►    gripper/umiN_gripper.jsonl
-  everything             ── dataset ─►    dataset/receipt.json + LeRobot append (+ HF push)
-  trajectories           ── compare ─►    compare/metrics.json   (evo ATE/RPE, LI vs LIV)
-```
-
-`server/scripts/runner.py` (the `umi-runner` service) drives this: **decode** and
-**glim** run as `docker compose run --rm` stage containers (see `docker/`),
-**gripper** and **dataset** run in-process. GLIM's known RoboSense-Airy timestamp
-pitfall (upstream issue [#257](https://github.com/koide3/glim/issues/257)) and its
-per-unit IMU extrinsic are handled in decode + the GLIM config. The CPU fallback for
-the shipped pipeline is **GLIM-CPU** (`install_server.sh` writes the compose override
-automatically on a GPU-less box).
-
-**Scaffolded, not yet wired into the runner:** **Livox decode** (only RoboSense pcap
-replay is implemented — the decode stage refuses Livox episodes, though capture to
-pcap works), the **LVI-SAM** lidar-inertial-visual engine, the evo **compare** stage
-(`docker/compare/`), and **FAST-LIO2** (`docker/slam-fastlio/`, proven on hardware but
-not containerized). These are future LI-vs-LIV / multi-lidar work, not shipped features.
-
-## Test
+Follow processing on the server:
 
 ```sh
-uv run --package robot-umi-core pytest common/robot-umi-core/tests -q
-uv run --package robot-umi-device pytest device/tests -q
-cd server && uv run --package robot-umi-server pytest -q   # incl. device→dataset e2e
+ssh <server-user>@<server-ip> 'journalctl -u umi-runner -f'
 ```
 
-The CI mock lidar emits synthetic RoboSense-shaped **pcaps**, so mock and hardware
-exercise the same pipeline bytes.
+Expected stages:
 
-## Acknowledgments
+```text
+pair -> decode -> glim -> gripper -> dataset
+```
 
-The device/server skeleton (episode spooling, resilient upload, secure ingest,
-Rust V4L2 recorder) is based on the architecture of `branyang02/robot-umi`.
-Sensor/UX/SLAM logic (buttons, ST7789 LCD, Vive receiver, fisheye/ArUco gripper
-math, RoboSense bring-up) is carried over from the AfterQuery robot-umi rigs.
+## Results
+
+| Data | Location |
+| --- | --- |
+| Client recordings | `<SPOOL_DIR>/sent/` |
+| Uploaded episodes | `~/umi-flow/data/raw_episodes/` on the server |
+| Processing outputs | `~/umi-flow/data/derived/` on the server |
+| LeRobot dataset | `~/umi-flow/data/lerobot/local/umi-flow/` on the server |
+
+The dataset episode is complete when its derived directory contains `dataset/COMPLETE`.
