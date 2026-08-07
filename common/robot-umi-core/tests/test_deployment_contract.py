@@ -15,7 +15,7 @@ def test_pair_inventory_has_only_variable_connection_and_task_inputs() -> None:
         for line in (ROOT / "provisioning/pair.env.example").read_text().splitlines()
         if line and not line.startswith("#")
     ]
-    assert lines == ["SERVER", "LEADER", "FOLLOWER", "TASK"]
+    assert lines == ["SERVER", "LEADER", "FOLLOWER", "TASK", "HF_REPO_ID", "HF_TOKEN"]
 
 
 def test_only_one_readme_and_no_legacy_inventory() -> None:

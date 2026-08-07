@@ -5,6 +5,7 @@ description = "Paired ingest, GLIM pipeline, and local LeRobot dataset generatio
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139.0",
+    "huggingface-hub>=1.23.0",
     "lerobot[dataset]>=0.6.0",
     "numpy>=2.2.6",
     # Headless build: the server renders no GUI, and the lab box / CI runners

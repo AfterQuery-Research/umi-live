@@ -329,12 +329,52 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     dataset.finalize()
     _assert_local_dataset_consistent(dataset_dir)
     mark_appended(dataset_dir, m["episode_id"])
-    receipt.update(frames=n_frames, state_dim=int(states.shape[1]))
+    hf_repo = os.environ.get("HF_REPO_ID", "").strip()
+    pushed = _push_to_hub(dataset_dir, episode_dir, hf_repo) if hf_repo else False
+    receipt.update(frames=n_frames, state_dim=int(states.shape[1]), pushed=pushed)
     (out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2))
     print(
-        f"dataset: appended {n_frames} frames ({m['episode_id']})",
+        f"dataset: appended {n_frames} frames ({m['episode_id']}) pushed={pushed}",
         flush=True,
     )
+
+
+def _push_to_hub(dataset_dir: Path, episode_dir: Path, repo_id: str) -> bool:
+    """Mirror the local dataset to the HF Hub + archive the raw episode (the offsite copy).
+
+    Best-effort: a failed push never loses the local append — the next episode's push
+    re-syncs the whole dataset. Auth comes from the HF_TOKEN env var (rendered into .env
+    by bin/provision-server; huggingface_hub reads it natively). Blank HF_REPO_ID in
+    pair.env = never called = the local-only default."""
+    try:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        api.create_repo(repo_id=repo_id, repo_type="dataset", private=True, exist_ok=True)
+        # NEVER lerobot's own push_to_hub: it skips meta/episodes/ and can mangle data/,
+        # leaving the Hub inconsistent ("episode N not found in metadata"). The LOCAL
+        # dataset is the single source of truth and is self-consistent after finalize();
+        # sync the Hub to EXACTLY match it — delete_patterns drops stale remote files,
+        # and LFS dedups unchanged videos so the per-episode re-upload is cheap.
+        api.upload_folder(
+            repo_id=repo_id,
+            repo_type="dataset",
+            folder_path=str(dataset_dir),
+            ignore_patterns=[APPENDED_LEDGER],
+            delete_patterns=["meta/**", "data/**", "videos/**"],
+        )
+        # Raw episode archive: its own accumulating namespace, untouched by the deletes
+        # above — the only off-box copy of the raw pcaps/video once Pi spools are pruned.
+        api.upload_folder(
+            repo_id=repo_id,
+            repo_type="dataset",
+            folder_path=str(episode_dir),
+            path_in_repo=f"raw_episodes/{episode_dir.name}",
+        )
+        return True
+    except Exception as exc:  # push failure must not take down the pipeline
+        print(f"dataset: hub push failed ({exc}); local dataset is intact", flush=True)
+        return False
 
 
 def _nearest_past(stream_t: np.ndarray, t: float) -> int:

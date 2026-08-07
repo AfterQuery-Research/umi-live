@@ -143,10 +143,17 @@ if [ -n "$LIDARS" ]; then
   sudo "$REPO/device/scripts/setup_ptp.sh" $IFACES || echo "WARN: PTP setup incomplete"
 fi
 
-# Both clients discipline their system clocks automatically through chrony's configured
-# Ubuntu sources.
+# Both clients MUST discipline against the SAME time reference: the pair stage's
+# cross-Pi gate subtracts each Pi's offset-to-its-reference, which only measures the
+# true inter-Pi skew when the reference is shared. chrony's default pools pick a
+# DIFFERENT internet server per machine, making that subtraction noise at the few-ms
+# scale of the 5 ms gate — so pin one shared server (prefer biases selection to it).
+CHRONY_LINE="server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer"
+grep -qF "$CHRONY_LINE" /etc/chrony/chrony.conf 2>/dev/null \
+  || echo "$CHRONY_LINE" | sudo tee -a /etc/chrony/chrony.conf >/dev/null
 sudo systemctl enable --now chrony >/dev/null 2>&1 \
   || sudo systemctl enable --now chronyd >/dev/null 2>&1
+sudo systemctl restart chrony >/dev/null 2>&1 || sudo systemctl restart chronyd >/dev/null 2>&1
 
 echo "=== [10/11] episode spool ==="
 mkdir -p "$SPOOL_DIR"

@@ -106,3 +106,12 @@ Each take runs through `pair -> decode -> GLIM -> gripper -> dataset`.
 | LeRobot dataset | `~/umi-flow/data/lerobot/local/umi-flow/` on the server |
 
 A take is complete when `data/derived/<paired-session>/dataset/COMPLETE` exists.
+
+## Publishing to HuggingFace (optional)
+
+Set `HF_REPO_ID` (e.g. `youruser/umi-bimanual`) and `HF_TOKEN` (a write-scope token) in
+`provisioning/pair.env` and re-run `bin/provision-server`. Every take then mirrors the
+LeRobot dataset to that Hub repo (created private on first push) and archives the raw
+episode under `raw_episodes/` — the offsite copy of everything. Blank fields (the
+default) keep the dataset local-only. A failed push never loses the local append; the
+next take's push re-syncs.

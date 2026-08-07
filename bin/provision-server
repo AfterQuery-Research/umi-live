@@ -37,9 +37,12 @@ rsync -a --delete \
   -e "ssh ${SSH_OPTS[*]}" "$ROOT/" "$SERVER:$REMOTE_REPO/"
 
 log "3/4 render internal server environment"
+# HF_REPO_ID/HF_TOKEN come from pair.env; blank = local-only dataset (no Hub push).
 server_ssh "cat > '$REMOTE_REPO/.env'" <<ENV
-# Rendered by bin/provision-server. No user-managed secrets or dataset settings.
+# Rendered by bin/provision-server. Edit provisioning/pair.env and re-provision, not this.
 DATA_DIR=$REMOTE_REPO/data
+HF_REPO_ID=${HF_REPO_ID:-}
+HF_TOKEN=${HF_TOKEN:-}
 ENV
 
 log "4/4 install server"
