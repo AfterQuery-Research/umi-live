@@ -30,6 +30,14 @@ from robot_umi_core.manifest import present_streams, read_manifest
 
 from robot_umi_server import gripper
 
+# Per-arm camera->tag geometry: the two cameras were remounted at DIFFERENT forward
+# offsets (2026-08-07), so the arms no longer share GripperGeometry's default.
+# Keep tools/live_gripper_view.py's ARMS table in sync with this.
+ARM_GEOMETRY = {
+    "umi1": gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1),
+    "umi2": gripper.GripperGeometry(plane_mm=61.9, front_mm=17.1),
+}
+
 
 class _StridedWidthSource:
     """Detect on every Nth frame only; skipped frames read as misses (None).
@@ -90,7 +98,7 @@ def _process_umi(umi: UmiConfig, episode_dir: Path, out_dir: Path) -> None:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or umi.camera.height
         detector = gripper.detector_from_config(
             gripper.GripperConfig(
-                geom=gripper.GripperGeometry(),
+                geom=ARM_GEOMETRY.get(umi.name, gripper.GripperGeometry()),
                 roi_top_frac=umi.gripper.roi_top_frac,
                 calib_path=calib_path,
             ),
