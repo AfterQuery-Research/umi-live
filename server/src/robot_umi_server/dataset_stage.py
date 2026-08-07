@@ -371,6 +371,17 @@ def _push_to_hub(dataset_dir: Path, episode_dir: Path, repo_id: str) -> bool:
             folder_path=str(episode_dir),
             path_in_repo=f"raw_episodes/{episode_dir.name}",
         )
+        # LeRobot dataset card: the tags/configs front-matter is what lights up the Hub
+        # page (robotics + LeRobot chips, dataset viewer, Visualize badge). Same card
+        # lerobot's own push_to_hub would write — only its data upload is unsafe, not this.
+        from lerobot.datasets.utils import DatasetInfo, create_lerobot_dataset_card
+
+        info = json.loads((dataset_dir / "meta" / "info.json").read_text())
+        fields = {k: info[k] for k in DatasetInfo.__dataclass_fields__ if k in info}
+        card = create_lerobot_dataset_card(
+            dataset_info=DatasetInfo(**fields), license="apache-2.0", repo_id=repo_id
+        )
+        card.push_to_hub(repo_id=repo_id, repo_type="dataset")
         return True
     except Exception as exc:  # push failure must not take down the pipeline
         print(f"dataset: hub push failed ({exc}); local dataset is intact", flush=True)
