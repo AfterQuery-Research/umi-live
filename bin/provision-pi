@@ -54,6 +54,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+remove_temporary_sudo() {
+  if [ "$SUDO_TEMP" = 1 ]; then
+    pssh 'sudo -n rm -f /etc/sudoers.d/90-umi-provision' \
+      || die "could not remove temporary sudo access from $PI"
+    SUDO_TEMP=0
+  fi
+}
+
 log "1/7 preflight: $ROLE client $PI"
 pssh true || die "cannot SSH to $PI"
 if [ "$DRY_RUN" = 1 ]; then
@@ -151,27 +159,33 @@ sed -e "s#@USER@#$PI_USER#g" -e "s#@SSH_TARGET@#$SERVER#g" \
   | pssh 'sudo tee /etc/systemd/system/umi-upload-tunnel.service >/dev/null'
 pssh 'sudo systemctl daemon-reload && sudo systemctl enable umi-upload-tunnel >/dev/null'
 
-log "6/7 remove temporary sudo access"
-if [ "$SUDO_TEMP" = 1 ]; then
-  pssh 'sudo rm -f /etc/sudoers.d/90-umi-provision'
-  SUDO_TEMP=0
-fi
-
 if [ "$REBOOT" = 0 ]; then
+  log "6/7 remove temporary sudo access"
+  remove_temporary_sudo
   echo "provisioned $ROLE; reboot $PI before recording"
   exit 0
 fi
 
-log "7/7 reboot and verify"
-pssh 'sudo systemctl reboot' >/dev/null 2>&1 || true
+log "6/7 reboot"
+BOOT_ID_BEFORE="$(pssh 'cat /proc/sys/kernel/random/boot_id')"
+[ -n "$BOOT_ID_BEFORE" ] || die "could not read boot ID from $PI"
+pssh 'sudo -n true' >/dev/null 2>&1 || die "lost sudo access before rebooting $PI"
+pssh 'sudo -n systemctl reboot' >/dev/null 2>&1 || true
 echo "waiting for $PI to reboot..."
-sleep 15
-back=0
+sleep 5
+rebooted=0
 for _ in $(seq 1 36); do
-  if pssh true >/dev/null 2>&1; then back=1; break; fi
+  BOOT_ID_AFTER="$(pssh 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null || true)"
+  if [ -n "$BOOT_ID_AFTER" ] && [ "$BOOT_ID_AFTER" != "$BOOT_ID_BEFORE" ]; then
+    rebooted=1
+    break
+  fi
   sleep 5
 done
-[ "$back" = 1 ] || die "$PI did not return after reboot"
+[ "$rebooted" = 1 ] || die "$PI did not complete a verified reboot"
+
+log "7/7 remove temporary sudo access and verify"
+remove_temporary_sudo
 pssh "systemctl is-active --quiet umi-recorder && systemctl is-active --quiet umi-upload-tunnel && test -d '$SPOOL_DIR'" \
   || die "$ROLE services failed verification on $PI"
 echo "$ROLE client ready: $PI"
