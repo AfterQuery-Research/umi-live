@@ -64,9 +64,7 @@ class CvCameraRecorder:
                 )
         finally:
             writer.release()
-        (episode_dir / files["frames"]).write_text(
-            "\n".join(json.dumps(r) for r in rows) + "\n"
-        )
+        (episode_dir / files["frames"]).write_text("\n".join(json.dumps(r) for r in rows) + "\n")
         (episode_dir / files["stats"]).write_text("{}")
 
     def end_episode(self) -> SensorStats:

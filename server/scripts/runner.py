@@ -27,9 +27,7 @@ def main() -> None:
         del scope
         align_stage.run(episode_dir, out_dir)
 
-    stages = default_stages(
-        dataset_fn=run_dataset, gripper_fn=run_gripper, align_fn=run_align
-    )
+    stages = default_stages(dataset_fn=run_dataset, gripper_fn=run_gripper, align_fn=run_align)
 
     data_dir = Path(os.environ.get("DATA_DIR", "data"))
     runner = Runner(data_dir=data_dir, stages=stages, executor=Executor(data_dir))

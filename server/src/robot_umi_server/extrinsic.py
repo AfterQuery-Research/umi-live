@@ -16,7 +16,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-
 from robot_umi_core import config as core_config
 from robot_umi_core import difop, layout
 

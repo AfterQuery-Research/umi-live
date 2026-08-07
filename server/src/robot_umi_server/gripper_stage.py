@@ -24,7 +24,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-
 from robot_umi_core import layout
 from robot_umi_core.config import UmiConfig, load_rig_config
 from robot_umi_core.manifest import present_streams, read_manifest
@@ -63,17 +62,13 @@ def _load_frame_times(path: Path) -> list[int]:
     return times
 
 
-def _sequential_decoder(
-    cap: cv2.VideoCapture, video_path: Path
-) -> Callable[[int], np.ndarray]:
+def _sequential_decoder(cap: cv2.VideoCapture, video_path: Path) -> Callable[[int], np.ndarray]:
     """Decode frames one at a time, in order, without holding the video in memory."""
 
     def decode(index: int) -> np.ndarray:
         ok, bgr = cap.read()
         if not ok:
-            raise ValueError(
-                f"{video_path}: video ended at frame {index} (frames.jsonl has more)"
-            )
+            raise ValueError(f"{video_path}: video ended at frame {index} (frames.jsonl has more)")
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
     return decode
@@ -112,15 +107,11 @@ def _process_umi(umi: UmiConfig, episode_dir: Path, out_dir: Path) -> None:
         cap.release()
 
     if widths is None:
-        print(
-            f"{umi.name}: no frame saw both tags {umi.gripper.tag_ids}; no output written"
-        )
+        print(f"{umi.name}: no frame saw both tags {umi.gripper.tag_ids}; no output written")
         return
     out_path = out_dir / f"{umi.name}_gripper.jsonl"
     lines = [
-        json.dumps(
-            {"frame_index": i, "time_unix_ns": ts, "width_mm": float(widths[i, 0])}
-        )
+        json.dumps({"frame_index": i, "time_unix_ns": ts, "width_mm": float(widths[i, 0])})
         for i, ts in enumerate(times)
     ]
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -129,9 +120,7 @@ def _process_umi(umi: UmiConfig, episode_dir: Path, out_dir: Path) -> None:
 
 def run(episode_dir: Path, out_dir: Path) -> None:
     manifest = read_manifest(episode_dir / layout.MANIFEST_FILE)
-    cfg = load_rig_config(
-        episode_dir / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
-    )
+    cfg = load_rig_config(episode_dir / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML)
     cameras = set(present_streams(manifest, layout.KIND_CAMERA))
     out_dir.mkdir(parents=True, exist_ok=True)
     for umi in cfg.umis:

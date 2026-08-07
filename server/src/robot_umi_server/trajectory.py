@@ -110,7 +110,10 @@ def states_from_track(
     q0 = track.quat[0] if ref_quat is None else np.asarray(ref_quat, dtype=np.float64)
     r0_inv = Rotation.from_quat(q0).inv()
     rel_pos = r0_inv.apply(track.pos - p0)
-    rel_rot = (r0_inv * Rotation.from_quat(track.quat)).as_rotvec()
+    relative_rotation = r0_inv * Rotation.from_quat(track.quat)
+    if relative_rotation is NotImplemented:
+        raise TypeError("could not compose trajectory rotations")
+    rel_rot = relative_rotation.as_rotvec()
     if basis is not None:
         rel_pos = rel_pos @ basis.T
         rel_rot = rel_rot @ basis.T

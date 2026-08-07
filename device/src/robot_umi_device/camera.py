@@ -21,9 +21,7 @@ KILL_TIMEOUT_SECONDS = 10.0
 
 class CameraProcess(Protocol):
     def prepare(self) -> None: ...
-    def start(
-        self, output_path: Path, timestamps_path: Path, stats_path: Path
-    ) -> int: ...
+    def start(self, output_path: Path, timestamps_path: Path, stats_path: Path) -> int: ...
     def stop(self) -> int: ...
     def cancel(self) -> None: ...
     def stats(self) -> dict[str, Any]: ...
@@ -54,9 +52,7 @@ class RustV4L2Camera:
         self.writer_queue_frames = writer_queue_frames
         self.repo_root = repo_root or Path(__file__).resolve().parents[2]
         self.project_dir = self.repo_root / "v4l2_recorder"
-        self.binary_path = (
-            self.project_dir / "target" / "release" / "robot-umi-v4l2-recorder"
-        )
+        self.binary_path = self.project_dir / "target" / "release" / "robot-umi-v4l2-recorder"
         self.process: subprocess.Popen[bytes] | None = None
         self.stats_path: Path | None = None
         self._stats: dict[str, Any] = {}
@@ -225,9 +221,7 @@ class RustV4L2Camera:
             self.project_dir / "Cargo.lock",
             self.project_dir / "src" / "main.rs",
         ]
-        return all(
-            path.exists() and path.stat().st_mtime <= binary_mtime for path in sources
-        )
+        return all(path.exists() and path.stat().st_mtime <= binary_mtime for path in sources)
 
 
 def join_errors(first: str | None, second: str | None) -> str | None:

@@ -102,7 +102,7 @@ class ST7789:
         bl: int = 18,
         rotation: int = 90,
     ):
-        from gpiozero import DigitalOutputDevice
+        from gpiozero import DigitalOutputDevice  # ty: ignore[unresolved-import]
 
         spidev = import_module("spidev")
         if rotation not in (0, 90, 180, 270):
@@ -337,8 +337,12 @@ class StatusDisplay(Display):
             if sending is not None:
                 d.rectangle([0, h - 34, w, h], fill=_AMBER)
                 plural = "episode" if episodes == 1 else "episodes"
-                d.text((16, h - 28), f"\N{UPWARDS ARROW} sending  ({episodes} {plural})",
-                       fill=(0, 0, 0), font=_font(18))
+                d.text(
+                    (16, h - 28),
+                    f"\N{UPWARDS ARROW} sending  ({episodes} {plural})",
+                    fill=(0, 0, 0),
+                    font=_font(18),
+                )
             elif banner is not None:
                 text, color = banner
                 d.rectangle([0, h - 34, w, h], fill=color)

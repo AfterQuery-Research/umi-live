@@ -9,7 +9,6 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-
 COMPLETE_FILE = "COMPLETE"
 CHECKSUMS_FILE = "checksums.sha256"
 MANIFEST_FILE = "manifest.json"
@@ -43,9 +42,7 @@ def extract_episode(
     raw_root.mkdir(parents=True, exist_ok=True)
     with tarfile.open(tar_path, "r:") as tar:
         members = tar.getmembers()
-        roots = {
-            Path(member.name).parts[0] for member in members if Path(member.name).parts
-        }
+        roots = {Path(member.name).parts[0] for member in members if Path(member.name).parts}
         if len(roots) != 1:
             raise ValueError("episode tar must contain exactly one top-level folder")
         root = next(iter(roots))
@@ -64,9 +61,7 @@ def extract_episode(
             if not parts or member_path.is_absolute() or ".." in parts:
                 raise ValueError(f"unsafe tar path: {member.name}")
             if parts[0] != root:
-                raise ValueError(
-                    "episode tar must contain exactly one top-level folder"
-                )
+                raise ValueError("episode tar must contain exactly one top-level folder")
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"unsupported tar member type: {member.name}")
             total_bytes += member.size

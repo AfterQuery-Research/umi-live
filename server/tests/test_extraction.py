@@ -7,7 +7,6 @@ import threading
 from pathlib import Path
 
 import pytest
-
 from robot_umi_server.episode import extract_episode
 
 

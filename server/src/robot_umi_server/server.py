@@ -161,9 +161,7 @@ def create_app(cfg: ServerConfig) -> FastAPI:
                 async for chunk in request.stream():
                     bytes_written += len(chunk)
                     if bytes_written > cfg.max_upload_bytes:
-                        raise HTTPException(
-                            status_code=413, detail="upload exceeds maximum size"
-                        )
+                        raise HTTPException(status_code=413, detail="upload exceeds maximum size")
                     await run_in_threadpool(f.write, chunk)
             finally:
                 f.close()

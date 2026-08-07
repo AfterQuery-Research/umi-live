@@ -58,9 +58,7 @@ class PcapWriter:
 
     def __init__(self, path: Path):
         self._f = path.open("wb")
-        self._f.write(
-            struct.pack("<IHHiIII", PCAP_MAGIC_NS, 2, 4, 0, 0, 0xFFFF, LINKTYPE_ETHERNET)
-        )
+        self._f.write(struct.pack("<IHHiIII", PCAP_MAGIC_NS, 2, 4, 0, 0, 0xFFFF, LINKTYPE_ETHERNET))
 
     def write_udp(
         self,
@@ -79,8 +77,16 @@ class PcapWriter:
         )
         checksum = _ip_checksum(ip_wo_checksum)
         ip = _IP_HEADER.pack(
-            0x45, 0, ip_len, 0, 0, 64, 17, checksum,
-            _ip_to_bytes(src_ip), _ip_to_bytes(dst_ip),
+            0x45,
+            0,
+            ip_len,
+            0,
+            0,
+            64,
+            17,
+            checksum,
+            _ip_to_bytes(src_ip),
+            _ip_to_bytes(dst_ip),
         )
         frame = _ETH_HEADER.pack(b"\x02" * 6, b"\x04" * 6, 0x0800) + ip + udp
         self._f.write(
@@ -131,10 +137,13 @@ class PcapCapture:
             raise RuntimeError("tcpdump is required for lidar capture")
         cmd = [
             tcpdump,
-            "-i", self.iface,
-            "-w", str(output_path),
+            "-i",
+            self.iface,
+            "-w",
+            str(output_path),
             "--time-stamp-precision=nano",
-            "-B", str(self.buffer_kib),
+            "-B",
+            str(self.buffer_kib),
             "-q",
             self.bpf,
         ]

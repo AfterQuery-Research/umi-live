@@ -64,9 +64,7 @@ def service_active(iface: str) -> bool:
 
 def phc2sys_residual_ns(iface: str) -> int | None:
     """Last phc2sys offset from the journal, if hardware timestamping is in play."""
-    out = _run(
-        ["journalctl", "-u", f"umi-phc2sys@{iface}", "-n", "1", "--no-pager", "-o", "cat"]
-    )
+    out = _run(["journalctl", "-u", f"umi-phc2sys@{iface}", "-n", "1", "--no-pager", "-o", "cat"])
     if not out:
         return None
     m = _PHC2SYS_OFFSET_RE.search(out)

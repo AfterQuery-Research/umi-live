@@ -34,14 +34,10 @@ def test_upload_failure_leaves_episode_in_complete(tmp_path: Path):
     complete.mkdir()
     episode = make_episode(complete)
 
-    def fail(
-        _url: str, _tar_path: Path, _episode_id: str, _timeout_seconds: float
-    ) -> dict:
+    def fail(_url: str, _tar_path: Path, _episode_id: str, _timeout_seconds: float) -> dict:
         raise RuntimeError("down")
 
-    assert not upload_episode(
-        episode, "http://127.0.0.1:8080/upload", sent, post=fail
-    ).success
+    assert not upload_episode(episode, "http://127.0.0.1:8080/upload", sent, post=fail).success
     assert episode.exists()
     assert not (sent / episode.name).exists()
 
@@ -78,18 +74,11 @@ def test_retry_success_moves_episode_to_sent(tmp_path: Path):
 
     def ok(_url: str, tar_path: Path, episode_id: str, _timeout_seconds: float) -> dict:
         with tarfile.open(tar_path, "r") as tar:
-            assert any(
-                member.name.startswith("episode_1/") for member in tar.getmembers()
-            )
+            assert any(member.name.startswith("episode_1/") for member in tar.getmembers())
         uploaded.append(episode_id)
         return {"status": "queued"}
 
-    assert (
-        retry_completed(
-            complete, "http://127.0.0.1:8080/upload", sent, post=ok
-        )
-        == 1
-    )
+    assert retry_completed(complete, "http://127.0.0.1:8080/upload", sent, post=ok) == 1
     assert uploaded == [episode.name]
     assert not episode.exists()
     assert (sent / episode.name).exists()
@@ -103,16 +92,12 @@ def test_async_uploader_does_not_block_submit(tmp_path: Path):
     upload_started = threading.Event()
     release_upload = threading.Event()
 
-    def slow_ok(
-        _url: str, _tar_path: Path, _episode_id: str, _timeout_seconds: float
-    ) -> dict:
+    def slow_ok(_url: str, _tar_path: Path, _episode_id: str, _timeout_seconds: float) -> dict:
         upload_started.set()
         release_upload.wait(timeout=2)
         return {"status": "queued"}
 
-    uploader = AsyncUploader(
-        complete, "http://127.0.0.1:8080/upload", sent, post=slow_ok
-    )
+    uploader = AsyncUploader(complete, "http://127.0.0.1:8080/upload", sent, post=slow_ok)
     uploader.submit(episode)
     assert episode.exists()
     assert upload_started.wait(timeout=2)
@@ -140,16 +125,12 @@ def test_async_uploader_survives_archive_failure(tmp_path: Path, monkeypatch):
             raise OSError("archive disk full")
         original_create_episode_tar(episode_dir, tar_path)
 
-    def ok(
-        _url: str, _tar_path: Path, _episode_id: str, _timeout_seconds: float
-    ) -> dict:
+    def ok(_url: str, _tar_path: Path, _episode_id: str, _timeout_seconds: float) -> dict:
         return {"status": "queued"}
 
     monkeypatch.setattr(uploader_module, "create_episode_tar", flaky_archive)
 
-    uploader = AsyncUploader(
-        complete, "http://127.0.0.1:8080/upload", sent, post=ok
-    )
+    uploader = AsyncUploader(complete, "http://127.0.0.1:8080/upload", sent, post=ok)
     uploader.submit(first)
     uploader.submit(second)
     uploader.close(wait=True)
@@ -168,9 +149,7 @@ def test_upload_timeout_is_passed_to_http_client(tmp_path: Path):
     episode = make_episode(complete)
     seen_timeout: list[float] = []
 
-    def ok(
-        _url: str, _tar_path: Path, _episode_id: str, timeout_seconds: float
-    ) -> dict:
+    def ok(_url: str, _tar_path: Path, _episode_id: str, timeout_seconds: float) -> dict:
         seen_timeout.append(timeout_seconds)
         return {"status": "queued"}
 
@@ -267,9 +246,7 @@ def test_retry_scan_skips_tarring_while_server_unreachable(tmp_path: Path, monke
         post=ok,
     )
     try:
-        monkeypatch.setattr(
-            uploader_module, "server_reachable", lambda *_a, **_k: False
-        )
+        monkeypatch.setattr(uploader_module, "server_reachable", lambda *_a, **_k: False)
         uploader._retry_scan()
         assert posts == []
         assert not (tmp_path / "staging").exists()  # no tar built while down
@@ -324,9 +301,7 @@ def test_create_episode_tar_never_leaves_partial_tar(tmp_path: Path, monkeypatch
         def add(self, *_args, **_kwargs):
             raise OSError("disk full")
 
-    monkeypatch.setattr(
-        uploader_module.tarfile, "open", lambda path, mode: ExplodingTar(path)
-    )
+    monkeypatch.setattr(uploader_module.tarfile, "open", lambda path, mode: ExplodingTar(path))
     with pytest.raises(OSError, match="disk full"):
         uploader_module.create_episode_tar(episode, tar_path)
 

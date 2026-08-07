@@ -28,8 +28,12 @@ def _write_pcap(path, *, difop_ext=None, msop=False):
         )
     if msop:
         w.write_udp(
-            2, b"\x00" * 32, src_ip="192.168.1.200", src_port=6699,
-            dst_ip="192.168.1.102", dst_port=6699,
+            2,
+            b"\x00" * 32,
+            src_ip="192.168.1.200",
+            src_port=6699,
+            dst_ip="192.168.1.102",
+            dst_port=6699,
         )
     w.close()
 
@@ -44,9 +48,7 @@ def _write_snapshot(episode_dir, *, override=None):
         "version": 1,
         "umis": {
             "umi1": {
-                "camera": {
-                    "device": "d", "width": 800, "height": 600, "fps": 30, "calib": "c.npz"
-                },
+                "camera": {"device": "d", "width": 800, "height": 600, "fps": 30, "calib": "c.npz"},
                 "lidar": lidar,
             }
         },
@@ -57,7 +59,9 @@ def _write_snapshot(episode_dir, *, override=None):
 def test_extract_from_pcap(tmp_path):
     p = tmp_path / _pcap_name()
     _write_pcap(p, difop_ext=difop.DEFAULT_AIRY_T_LIDAR_IMU)
-    assert np.allclose(difop.extract_t_lidar_imu(p), difop.DEFAULT_AIRY_T_LIDAR_IMU, atol=1e-5)
+    actual = difop.extract_t_lidar_imu(p)
+    assert actual is not None
+    assert np.allclose(actual, difop.DEFAULT_AIRY_T_LIDAR_IMU, atol=1e-5)
 
 
 def test_extract_none_without_difop(tmp_path):

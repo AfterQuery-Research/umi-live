@@ -106,10 +106,7 @@ class LidarMonitor:
                     temp = parse_robosense_temp_c(data)
                     if temp is not None:
                         self._temp_c = temp
-        present = (
-            self._last_seen_ns is not None
-            and (now_ns - self._last_seen_ns) < STALE_S * 1e9
-        )
+        present = self._last_seen_ns is not None and (now_ns - self._last_seen_ns) < STALE_S * 1e9
         return LidarHealth(
             present=present,
             lidar_type=self._lidar_type if present else None,

@@ -104,8 +104,13 @@ def read_submaps(glim_dir: Path, load_clouds: bool = True) -> Submaps:
     return Submaps(stamps=np.asarray(stamps, dtype=np.float64), poses=poses, clouds=clouds)
 
 
-def piecewise_correct(track: PoseTrack, init_common: list[SE3], optimized: list[SE3],
-                      submap_stamps: np.ndarray, init_to_common: SE3) -> PoseTrack:
+def piecewise_correct(
+    track: PoseTrack,
+    init_common: list[SE3],
+    optimized: list[SE3],
+    submap_stamps: np.ndarray,
+    init_to_common: SE3,
+) -> PoseTrack:
     """Deform a per-frame trajectory by its submaps' pose-graph correction.
 
     Each frame is carried into the common frame by ``init_to_common`` (the tier-1
@@ -121,8 +126,9 @@ def piecewise_correct(track: PoseTrack, init_common: list[SE3], optimized: list[
     for k in range(len(track)):
         i = int(np.argmin(np.abs(submap_stamps - track.t[k])))
         # frame -> common (tier-1), then apply the submap's correction.
-        cp, cq = geom.pose_multiply(init_to_common[0], init_to_common[1],
-                                    track.pos[k], track.quat[k])
+        cp, cq = geom.pose_multiply(
+            init_to_common[0], init_to_common[1], track.pos[k], track.quat[k]
+        )
         cp, cq = geom.pose_multiply(corrections[i][0], corrections[i][1], cp, cq)
         pos[k], quat[k] = cp, cq
     return PoseTrack(t=track.t.copy(), pos=pos, quat=quat)
@@ -132,21 +138,19 @@ def piecewise_correct(track: PoseTrack, init_common: list[SE3], optimized: list[
 
 
 def _read_ply(path: Path) -> np.ndarray:
-    import open3d as o3d
+    import open3d as o3d  # ty: ignore[unresolved-import]
 
     return np.asarray(o3d.io.read_point_cloud(str(path)).points, dtype=np.float64)
 
 
 def _o3d_cloud(points: np.ndarray, voxel: float):
-    import open3d as o3d
+    import open3d as o3d  # ty: ignore[unresolved-import]
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(np.ascontiguousarray(points))
     if voxel > 0:
         pcd = pcd.voxel_down_sample(voxel)
-    pcd.estimate_normals(
-        o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2.5, max_nn=30)
-    )
+    pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel * 2.5, max_nn=30))
     return pcd
 
 
@@ -154,7 +158,7 @@ def register_clouds(source: np.ndarray, target: np.ndarray, voxel: float) -> SE3
     """Rigid ``T(target<-source)`` as (pos, quat_xyzw): FPFH+RANSAC coarse then GICP fine.
 
     ``source``/``target`` are (N,3) arrays already cropped to the workspace."""
-    import open3d as o3d
+    import open3d as o3d  # ty: ignore[unresolved-import]
 
     src, tgt = _o3d_cloud(source, voxel), _o3d_cloud(target, voxel)
     radius = voxel * 5.0
@@ -162,13 +166,22 @@ def register_clouds(source: np.ndarray, target: np.ndarray, voxel: float) -> SE3
     src_f = o3d.pipelines.registration.compute_fpfh_feature(src, fpfh_param)
     tgt_f = o3d.pipelines.registration.compute_fpfh_feature(tgt, fpfh_param)
     coarse = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        src, tgt, src_f, tgt_f, True, radius,
-        o3d.pipelines.registration.TransformationEstimationPointToPoint(False), 3,
+        src,
+        tgt,
+        src_f,
+        tgt_f,
+        True,
+        radius,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+        3,
         [o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(radius)],
         o3d.pipelines.registration.RANSACConvergenceCriteria(4_000_000, 500),
     )
     fine = o3d.pipelines.registration.registration_generalized_icp(
-        src, tgt, voxel * 2.0, coarse.transformation,
+        src,
+        tgt,
+        voxel * 2.0,
+        coarse.transformation,
         o3d.pipelines.registration.TransformationEstimationForGeneralizedICP(),
     )
     return _mat_to_se3(fine.transformation)
@@ -176,11 +189,14 @@ def register_clouds(source: np.ndarray, target: np.ndarray, voxel: float) -> SE3
 
 def gicp_pair(source: np.ndarray, target: np.ndarray, init: SE3, voxel: float) -> SE3:
     """Fine GICP of two world-frame clouds from an initial guess -> ``T(target<-source)``."""
-    import open3d as o3d
+    import open3d as o3d  # ty: ignore[unresolved-import]
 
     src, tgt = _o3d_cloud(source, voxel), _o3d_cloud(target, voxel)
     res = o3d.pipelines.registration.registration_generalized_icp(
-        src, tgt, voxel * 2.0, _se3_to_mat(init),
+        src,
+        tgt,
+        voxel * 2.0,
+        _se3_to_mat(init),
         o3d.pipelines.registration.TransformationEstimationForGeneralizedICP(),
     )
     return _mat_to_se3(res.transformation)
@@ -209,8 +225,9 @@ def transform_points(points: np.ndarray, t: SE3) -> np.ndarray:
 # --- tier 2: joint pose graph (gtsam, lazy-imported) -----------------------------------
 
 
-def _match_cross_agent(ref: Submaps, other: Submaps, offset_s: float,
-                       max_pairs: int) -> list[tuple[int, int]]:
+def _match_cross_agent(
+    ref: Submaps, other: Submaps, offset_s: float, max_pairs: int
+) -> list[tuple[int, int]]:
     """Pick up to ``max_pairs`` (ref_i, other_j) submap pairs nearest in time (after the
     cross-Pi clock offset), spread across the episode."""
     pairs: list[tuple[int, int]] = []
@@ -237,20 +254,23 @@ def optimize_pose_graph(
 
     Returns (optimized_ref_poses, optimized_other_poses). Seeded by the tier-1 transform;
     other agent's submaps are initialized ``t_ref_other . glim_pose``."""
-    import gtsam
+    import gtsam  # ty: ignore[unresolved-import]
 
     def key(agent: int, i: int) -> int:
         return gtsam.symbol(chr(ord("a") + agent), i)
 
     def to_pose3(t: SE3):
         p, q = t
-        return gtsam.Pose3(gtsam.Rot3.Quaternion(q[3], q[0], q[1], q[2]),
-                           gtsam.Point3(p[0], p[1], p[2]))
+        return gtsam.Pose3(
+            gtsam.Rot3.Quaternion(q[3], q[0], q[1], q[2]), gtsam.Point3(p[0], p[1], p[2])
+        )
 
     def from_pose3(pose) -> SE3:
         q = pose.rotation().toQuaternion()
-        return (np.asarray([pose.x(), pose.y(), pose.z()]),
-                np.asarray([q.x(), q.y(), q.z(), q.w()]))
+        return (
+            np.asarray([pose.x(), pose.y(), pose.z()]),
+            np.asarray([q.x(), q.y(), q.z(), q.w()]),
+        )
 
     graph = gtsam.NonlinearFactorGraph()
     values = gtsam.Values()
@@ -262,12 +282,13 @@ def optimize_pose_graph(
         for i, t in enumerate(init):
             values.insert(key(agent, i), to_pose3(t))
 
-    odom_noise = gtsam.noiseModel.Diagonal.Sigmas(
-        np.array([0.01, 0.01, 0.01, 0.02, 0.02, 0.02])
-    )
+    odom_noise = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.01, 0.01, 0.01, 0.02, 0.02, 0.02]))
     # anchor gauge to the reference's first submap (its GLIM pose)
-    graph.add(gtsam.PriorFactorPose3(key(0, 0), to_pose3(ref_init[0]),
-              gtsam.noiseModel.Diagonal.Sigmas(np.full(6, 1e-4))))
+    graph.add(
+        gtsam.PriorFactorPose3(
+            key(0, 0), to_pose3(ref_init[0]), gtsam.noiseModel.Diagonal.Sigmas(np.full(6, 1e-4))
+        )
+    )
     # per-agent odometry (relative pose is frame-invariant -> use each agent's own poses)
     for agent, sm in ((0, ref), (1, other)):
         for i in range(len(sm.poses) - 1):
@@ -342,8 +363,10 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     for other in others:
         other_map = crop_bbox(_read_ply(glim_dir(other) / "map.ply"), al.workspace_bbox)
         t_ref_other = register_clouds(other_map, ref_map, al.gicp_voxel)
-        receipt["transforms"][other] = {"t": list(map(float, t_ref_other[0])),
-                                        "q": list(map(float, t_ref_other[1]))}
+        receipt["transforms"][other] = {
+            "t": list(map(float, t_ref_other[0])),
+            "q": list(map(float, t_ref_other[1])),
+        }
         other_track = read_tum(glim_dir(other) / "trajectory.tum")
 
         if al.tier == 1:
@@ -352,17 +375,30 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
             ref_sm = read_submaps(glim_dir(ref))
             other_sm = read_submaps(glim_dir(other))
             ref_opt, other_opt = optimize_pose_graph(
-                ref_sm, other_sm, t_ref_other, offset,
-                al.gicp_voxel, al.cross_agent_constraints, al.robust_threshold,
+                ref_sm,
+                other_sm,
+                t_ref_other,
+                offset,
+                al.gicp_voxel,
+                al.cross_agent_constraints,
+                al.robust_threshold,
             )
             other_init_common = [geom.pose_multiply(*t_ref_other, *p) for p in other_sm.poses]
             common = piecewise_correct(
-                other_track, other_init_common, other_opt, other_sm.stamps, t_ref_other,
+                other_track,
+                other_init_common,
+                other_opt,
+                other_sm.stamps,
+                t_ref_other,
             )
             # tier 2 also refines the reference trajectory in-place (once).
             ref_track = read_tum(glim_dir(ref) / "trajectory.tum")
             ref_corrected = piecewise_correct(
-                ref_track, list(ref_sm.poses), ref_opt, ref_sm.stamps, IDENTITY,
+                ref_track,
+                list(ref_sm.poses),
+                ref_opt,
+                ref_sm.stamps,
+                IDENTITY,
             )
             _write_track(out_dir, ref, ref_corrected)
         _write_track(out_dir, other, common)

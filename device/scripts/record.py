@@ -74,9 +74,7 @@ def resolve_config_path(args: Args) -> Path:
     env = os.environ.get(core_config.CONFIG_ENV_VAR)
     if env:
         return Path(env).expanduser().resolve()
-    raise SystemExit(
-        f"no rig config: pass --config or set ${core_config.CONFIG_ENV_VAR}"
-    )
+    raise SystemExit(f"no rig config: pass --config or set ${core_config.CONFIG_ENV_VAR}")
 
 
 def resolve_spool_dir(path: Path | None) -> Path:
@@ -168,8 +166,9 @@ def make_display(rig: core_config.RigConfig, args: Args, role: str) -> Display:
     # A follower's LCD is a lidar-health monitor only (the operator drives recording
     # from the leader), so hide the REC/IDLE box + episode count there.
     title = "Leader" if role == "leader" else "Follower"
-    return StatusDisplay(driver=ST7789(dc=d.dc, rst=d.rst, bl=d.bl),
-                         show_status=role != "follower", title=title)
+    return StatusDisplay(
+        driver=ST7789(dc=d.dc, rst=d.rst, bl=d.bl), show_status=role != "follower", title=title
+    )
 
 
 def pending_episodes(spool_dir: Path) -> int:
@@ -387,12 +386,22 @@ def main(args: Args) -> None:
     try:
         if role == "follower":
             assert follower is not None
-            follower_loop(recorder, uploader, monitors, display, spool_dir, follower,
-                          manifest_role, handshake)
+            follower_loop(
+                recorder, uploader, monitors, display, spool_dir, follower, manifest_role, handshake
+            )
         else:
             assert buttons is not None and leader is not None
-            button_loop(recorder, uploader, monitors, display, spool_dir, buttons, leader,
-                        manifest_role, handshake)
+            button_loop(
+                recorder,
+                uploader,
+                monitors,
+                display,
+                spool_dir,
+                buttons,
+                leader,
+                manifest_role,
+                handshake,
+            )
     except KeyboardInterrupt:
         print("\ninterrupted")
     finally:

@@ -127,7 +127,9 @@ def test_executor_threads_env_into_compose(tmp_path: Path):
         def run(self, stage, run, input_dir, staging, env=None):
             captured["env"] = env
             captured["cmd"] = [
-                *self.compose_cmd, "run", "--rm",
+                *self.compose_cmd,
+                "run",
+                "--rm",
                 *[x for k, v in (env or {}).items() for x in ("-e", f"{k}={v}")],
                 f"umi-{stage.name}",
             ]

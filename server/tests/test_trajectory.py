@@ -93,9 +93,9 @@ def test_states_basis_remap_umi_convention():
     track = PoseTrack(t=t, pos=pos, quat=quat)
     states = states_from_track(track, basis=geom.UMI_FROM_LIDAR_BODY)
     # forward (-y) -> +Z ; right (-x) -> +Y ; up (+z) -> +X
-    assert states[1, :3] == pytest.approx([0, 0, 1])   # moved forward
-    assert states[2, :3] == pytest.approx([0, 1, 1])   # then right
-    assert states[3, :3] == pytest.approx([1, 1, 1])   # then up
+    assert states[1, :3] == pytest.approx([0, 0, 1])  # moved forward
+    assert states[2, :3] == pytest.approx([0, 1, 1])  # then right
+    assert states[3, :3] == pytest.approx([1, 1, 1])  # then up
 
 
 def test_actions_are_deltas_with_zero_tail():

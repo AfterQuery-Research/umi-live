@@ -69,7 +69,7 @@ class GpioButtons(Buttons):
         bounce_s: float = 0.05,
         toggle_debounce_s: float = 0.4,
     ):
-        from gpiozero import Button
+        from gpiozero import Button  # ty: ignore[unresolved-import]
 
         self._events: Queue[Event] = Queue()
         self._record_held = False

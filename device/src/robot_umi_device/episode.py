@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,7 +51,7 @@ class EpisodeRecorder:
         rig: core_config.RigConfig,
         config_path: Path,
         spool_dir: Path,
-        sensors_by_key: dict[str, SensorRecorder],
+        sensors_by_key: Mapping[str, SensorRecorder],
         *,
         config_root: Path | None = None,
         ptp_probe: PtpProbe = _no_ptp,

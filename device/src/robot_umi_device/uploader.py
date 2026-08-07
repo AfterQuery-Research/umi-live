@@ -150,9 +150,7 @@ def _upload_with_tar(
         if not tar_path.exists():
             create_episode_tar(episode_dir, tar_path)
         size_bytes = tar_path.stat().st_size
-        server_response = post(
-            server_url, tar_path, episode_dir.name, upload_timeout_seconds
-        )
+        server_response = post(server_url, tar_path, episode_dir.name, upload_timeout_seconds)
     except Exception as exc:
         print(f"upload kept for retry: {episode_dir.name}: {exc}")
         return UploadResult(

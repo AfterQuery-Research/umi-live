@@ -159,7 +159,5 @@ esac
 
     commands = (state / "commands").read_text().splitlines()
     reboot = next(i for i, command in enumerate(commands) if "systemctl reboot" in command)
-    cleanup = next(
-        i for i, command in enumerate(commands) if "rm -f /etc/sudoers.d" in command
-    )
+    cleanup = next(i for i, command in enumerate(commands) if "rm -f /etc/sudoers.d" in command)
     assert reboot < cleanup

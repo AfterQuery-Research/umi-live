@@ -29,7 +29,10 @@ def _write_arm_config(
         "umis": {
             umi_name: {
                 "camera": {
-                    "device": f"/dev/{umi_name}", "width": 64, "height": 48, "fps": 30,
+                    "device": f"/dev/{umi_name}",
+                    "width": 64,
+                    "height": 48,
+                    "fps": 30,
                     "calib": f"config/calib/{umi_name}_calib.npz",
                 },
                 "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
@@ -54,7 +57,9 @@ def _record_arm(
     cam_key = layout.sensor_key(u.name, layout.KIND_CAMERA)
     lidar_key = layout.sensor_key(u.name, layout.KIND_LIDAR)
     recorder = EpisodeRecorder(
-        rig, config_path, tmp_path / f"spool_{umi_name}",
+        rig,
+        config_path,
+        tmp_path / f"spool_{umi_name}",
         {cam_key: CvCameraRecorder(cam_key, frames=6), lidar_key: MockLidarPcapRecorder(lidar_key)},
         config_root=config_root,
         ptp_probe=lambda: {
@@ -111,6 +116,7 @@ def _fake_runner(data_dir: Path, calls: list[tuple[str, str]]) -> Runner:
                 (out_dir / "map.ply").write_text("ply\n")
                 (out_dir / "submaps").mkdir(exist_ok=True)
                 (out_dir / "submaps" / "poses.txt").write_text("# id stamp x y z qx qy qz qw\n")
+
         return fn
 
     stages = default_stages(

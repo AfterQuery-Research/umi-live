@@ -117,8 +117,7 @@ class Executor:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(
-                f"stage {stage.name} failed (rc={result.returncode}): "
-                f"{result.stderr.strip()[:500]}"
+                f"stage {stage.name} failed (rc={result.returncode}): {result.stderr.strip()[:500]}"
             )
 
 
@@ -128,6 +127,7 @@ class Runner:
     stages: list[StageDef]
     executor: Executor | None = None
     failed: dict[tuple[str, str, str], str] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         if self.executor is None:
             self.executor = Executor(self.data_dir)
@@ -151,11 +151,7 @@ class Runner:
     def _episodes(self) -> list[Path]:
         if not self.raw_root.exists():
             return []
-        return sorted(
-            p
-            for p in self.raw_root.iterdir()
-            if p.is_dir() and (p / COMPLETE).exists()
-        )
+        return sorted(p for p in self.raw_root.iterdir() if p.is_dir() and (p / COMPLETE).exists())
 
     # --- planning -------------------------------------------------------------------
 
@@ -180,8 +176,7 @@ class Runner:
                     if key in self.failed or self.is_done(run):
                         continue
                     deps_done = all(
-                        self.is_done(StageRun(run.episode_id, dep, scope))
-                        for dep in stage.needs
+                        self.is_done(StageRun(run.episode_id, dep, scope)) for dep in stage.needs
                     )
                     if deps_done and stage.ready is not None:
                         eid = run.episode_id
