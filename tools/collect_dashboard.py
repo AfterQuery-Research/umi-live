@@ -144,7 +144,7 @@ def poll_hub():
             except Exception as e:
                 with lock:
                     if _is_missing_repo(e):
-                        state["hub"] = {"episodes": 0, "last_push": None}  # repo not created yet
+                        state["hub"] = {"episodes": 0, "minutes": 0, "last_push": None}  # repo not created yet
                         state["err"].pop("hub", None)
                     else:
                         state["err"]["hub"] = str(e)[:80]
