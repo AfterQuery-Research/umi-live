@@ -35,6 +35,12 @@ from robot_umi_server import extrinsic
 
 COMPLETE = layout.COMPLETE_FILE
 
+# Concurrent stage slots for run_forever. Sized for the box (52 cores, 2x H100):
+# decode is the heavy stage (~2-4 cores each); GLIM holds the GPU ~10 s per arm;
+# dataset never parallelizes (see run_forever). 5 keeps 2-3 episodes fully in
+# flight without starving anything.
+MAX_STAGE_WORKERS = 5
+
 # A stage callable runs in-process: (episode_dir, out_dir, scope) -> None.
 StageFn = Callable[[Path, Path, str], None]
 
@@ -239,7 +245,7 @@ class Runner:
         return True
 
     def scan_once(self) -> int:
-        """Pair all complete arm uploads, then run every newly-ready stage."""
+        """Pair all complete arm uploads, then run every newly-ready stage (sequentially)."""
         from robot_umi_server import pair_stage
 
         pair_stage.pair_once(self.data_dir)
@@ -253,11 +259,56 @@ class Runner:
                     progressed = True
         return executed
 
-    def run_forever(self, interval_s: float = 5.0) -> None:
-        print(f"pipeline runner watching {self.raw_root}", flush=True)
-        while True:
-            self.scan_once()
-            time.sleep(interval_s)
+    def run_forever(self, interval_s: float = 5.0, workers: int = MAX_STAGE_WORKERS) -> None:
+        """Concurrent pipeline loop: up to ``workers`` stages execute at once across
+        episodes (and across the two arms of one episode), so a rapid-fire recording
+        session drains in parallel instead of one take at a time. Two invariants:
+
+        * The DATASET stage is globally serialized (``_dataset_lock``) — one LeRobot
+          writer, one append ledger, one Hub mirror; concurrent appends would corrupt
+          it. Everything upstream (decode/glim/gripper/align) parallelizes freely:
+          stages meet only at per-episode directories.
+        * Pairing runs every tick on the main thread, so freshly-uploaded arms merge
+          immediately even while stages are executing (previously pairing waited for
+          the whole sequential scan).
+
+        Episode indices in the dataset follow append-completion order, which under
+        concurrency may differ from recording order (a short take can finish before
+        an earlier long one) — harmless for training data.
+        """
+        import threading
+        from concurrent.futures import Future, ThreadPoolExecutor
+
+        from robot_umi_server import pair_stage
+
+        dataset_lock = threading.Lock()
+        inflight: dict[tuple[str, str, str], Future] = {}
+
+        def _job(stage: StageDef, run: StageRun, episode_dir: Path) -> None:
+            if stage.name == "dataset":
+                with dataset_lock:
+                    self.execute(stage, run, episode_dir)
+            else:
+                self.execute(stage, run, episode_dir)
+
+        print(
+            f"pipeline runner watching {self.raw_root} ({workers} stage workers)",
+            flush=True,
+        )
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            while True:
+                try:
+                    pair_stage.pair_once(self.data_dir)
+                except Exception as exc:  # pairing must never take down the loop
+                    print(f"pair: pass failed, continuing: {exc}", flush=True)
+                for key in [k for k, f in inflight.items() if f.done()]:
+                    del inflight[key]
+                for stage, run, episode_dir in self.ready_runs():
+                    key = (run.episode_id, run.stage, run.scope)
+                    if key in inflight:
+                        continue
+                    inflight[key] = pool.submit(_job, stage, run, episode_dir)
+                time.sleep(interval_s)
 
 
 # --- the standard stage graph ----------------------------------------------------------
