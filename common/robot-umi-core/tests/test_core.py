@@ -22,7 +22,7 @@ CLIENT = {
                 "calib": "config/calib/umi1_calib.npz",
             },
             "lidar": {"iface": "eth0"},
-            "gripper": {"tag_ids": [0, 1]},
+            "gripper": {"tag_ids": [2, 3]},
         }
     },
 }
@@ -39,7 +39,7 @@ DUAL = {
                 "calib": "config/calib/umi1_calib.npz",
             },
             "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
-            "gripper": {"tag_ids": [0, 1]},
+            "gripper": {"tag_ids": [2, 3]},
         },
         "umi2": {
             "camera": {
@@ -50,7 +50,7 @@ DUAL = {
                 "calib": "config/calib/umi2_calib.npz",
             },
             "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
-            "gripper": {"tag_ids": [2, 3]},
+            "gripper": {"tag_ids": [0, 1]},
         },
     },
 }
@@ -203,7 +203,7 @@ def test_rejects_non_4x3_camera_with_gripper():
                     "calib": "c.npz",
                 },
                 "lidar": {},
-                "gripper": {"tag_ids": [0, 1]},
+                "gripper": {"tag_ids": [2, 3]},
             }
         },
     }

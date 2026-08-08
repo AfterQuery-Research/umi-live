@@ -58,7 +58,7 @@ def rig_and_recorder(tmp_path):
                     "calib": "config/calib/umi1_calib.npz",
                 },
                 "lidar": {"iface": "eth0"},
-                "gripper": {"tag_ids": [0, 1]},
+                "gripper": {"tag_ids": [2, 3]},
             }
         },
     }
@@ -142,7 +142,7 @@ def test_armed_sensor_error_marks_ineligible(tmp_path):
                     "calib": "config/c.npz",
                 },
                 "lidar": {"iface": "eth0"},
-                "gripper": {"tag_ids": [0, 1]},
+                "gripper": {"tag_ids": [2, 3]},
             }
         },
     }

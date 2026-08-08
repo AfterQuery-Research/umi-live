@@ -20,10 +20,10 @@ def _umi(name: str, tags: list[int], calib: str) -> dict:
 
 def test_client_role_is_derived_from_the_single_umi_name() -> None:
     leader = config.parse_rig_config(
-        {"version": 1, "umis": {"umi1": _umi("umi1", [0, 1], "leader.npz")}}
+        {"version": 1, "umis": {"umi1": _umi("umi1", [2, 3], "leader.npz")}}
     )
     follower = config.parse_rig_config(
-        {"version": 1, "umis": {"umi2": _umi("umi2", [2, 3], "follower.npz")}}
+        {"version": 1, "umis": {"umi2": _umi("umi2", [0, 1], "follower.npz")}}
     )
 
     assert config.client_role(leader) == "leader"
@@ -41,8 +41,8 @@ def test_client_role_rejects_solo_or_multi_umi_configs() -> None:
         {
             "version": 1,
             "umis": {
-                "umi1": _umi("umi1", [0, 1], "leader.npz"),
-                "umi2": _umi("umi2", [2, 3], "follower.npz"),
+                "umi1": _umi("umi1", [2, 3], "leader.npz"),
+                "umi2": _umi("umi2", [0, 1], "follower.npz"),
             },
         }
     )
@@ -55,8 +55,8 @@ def test_bimanual_contract_requires_umi1_umi2_and_12_dimensions() -> None:
         {
             "version": 1,
             "umis": {
-                "umi1": _umi("umi1", [0, 1], "leader.npz"),
-                "umi2": _umi("umi2", [2, 3], "follower.npz"),
+                "umi1": _umi("umi1", [2, 3], "leader.npz"),
+                "umi2": _umi("umi2", [0, 1], "follower.npz"),
             },
         }
     )
@@ -69,7 +69,7 @@ def test_bimanual_contract_requires_umi1_umi2_and_12_dimensions() -> None:
 
 def test_bimanual_contract_rejects_a_single_arm() -> None:
     rig = config.parse_rig_config(
-        {"version": 1, "umis": {"umi1": _umi("umi1", [0, 1], "leader.npz")}}
+        {"version": 1, "umis": {"umi1": _umi("umi1", [2, 3], "leader.npz")}}
     )
     with pytest.raises(config.ConfigError, match="paired umi1/umi2"):
         config.require_bimanual(rig)
@@ -81,16 +81,16 @@ def test_removed_sensor_and_mode_fields_are_rejected() -> None:
             {
                 "version": 1,
                 "motion_source": "vive",
-                "umis": {"umi1": _umi("umi1", [0, 1], "leader.npz")},
+                "umis": {"umi1": _umi("umi1", [2, 3], "leader.npz")},
             }
         )
 
-    vive = _umi("umi1", [0, 1], "leader.npz")
+    vive = _umi("umi1", [2, 3], "leader.npz")
     vive["vive"] = {"serial": "tracker", "ee_calib": "ee.json"}
     with pytest.raises(config.ConfigError, match="vive"):
         config.parse_rig_config({"version": 1, "umis": {"umi1": vive}})
 
-    typed_lidar = _umi("umi1", [0, 1], "leader.npz")
+    typed_lidar = _umi("umi1", [2, 3], "leader.npz")
     typed_lidar["lidar"]["type"] = "livox"
     with pytest.raises(config.ConfigError, match="type"):
         config.parse_rig_config({"version": 1, "umis": {"umi1": typed_lidar}})

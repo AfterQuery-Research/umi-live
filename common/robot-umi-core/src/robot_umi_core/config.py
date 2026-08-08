@@ -31,7 +31,7 @@ LEADER_UMI = "umi1"
 FOLLOWER_UMI = "umi2"
 BIMANUAL_UMIS = (LEADER_UMI, FOLLOWER_UMI)
 CLIENT_ROLES = {LEADER_UMI: "leader", FOLLOWER_UMI: "follower"}
-GRIPPER_TAGS = {LEADER_UMI: (0, 1), FOLLOWER_UMI: (2, 3)}
+GRIPPER_TAGS = {LEADER_UMI: (2, 3), FOLLOWER_UMI: (0, 1)}  # leader wears 2,3 (hardware)
 
 
 class ConfigError(ValueError):
@@ -95,12 +95,13 @@ class ControlsConfig:
 
 @dataclass(frozen=True)
 class AlignmentConfig:
-    """Optional cross-lidar map alignment for bimanual rigs. DISABLED by default: with
-    ``enabled=False`` each lidar is SLAM'd independently and the dataset consumes the
-    per-lidar GLIM trajectories directly (historical behavior — existing configs, which
-    have no ``alignment:`` block, keep working unchanged). When enabled, a post-GLIM
-    ``align`` stage registers the two lidar maps into ONE common frame so cross-arm
-    geometry is metric.
+    """Optional cross-lidar map alignment for bimanual rigs. The PROVISIONED leader
+    config enables it (bin/provision-pi), so fleet episodes get a post-GLIM ``align``
+    stage registering the two lidar maps into ONE common frame (metric cross-arm
+    geometry); a config with no ``alignment:`` block keeps the historical independent
+    per-lidar frames. Known risk with no ``workspace_bbox``: repetitive far-field room
+    structure can alias the registration (~1 m confident-but-wrong fits) — sanity-check
+    takes in new rooms.
 
     ``reference`` names the UMI whose frame is the common frame (None => the first UMI).
     ``tier`` 1 = a single rigid map-to-map registration; 2 = a joint pose graph

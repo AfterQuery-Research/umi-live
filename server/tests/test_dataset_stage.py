@@ -63,7 +63,7 @@ def _lidar_rig() -> core_config.RigConfig:
                         "calib": "c.npz",
                     },
                     "lidar": {"iface": "eth0"},
-                    "gripper": {"tag_ids": [0, 1]},
+                    "gripper": {"tag_ids": [2, 3]},
                 }
             },
         }

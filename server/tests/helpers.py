@@ -94,7 +94,7 @@ def write_client_config(config_root: Path, umi_name: str) -> Path:
                     "calib": f"config/calib/{umi_name}_calib.npz",
                 },
                 "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
-                "gripper": {"tag_ids": [0, 1] if umi_name == "umi1" else [2, 3]},
+                "gripper": {"tag_ids": list(core_config.GRIPPER_TAGS[umi_name])},
             }
         },
     }

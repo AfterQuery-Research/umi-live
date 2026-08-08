@@ -89,7 +89,7 @@ def _publish_pair(
         "umi1",
         session_id=session_id,
         role="umi1",
-        tag_ids=(0, 1),
+        tag_ids=(2, 3),
         clock_sync=leader_cs,
         alignment=alignment,
     )
@@ -98,7 +98,7 @@ def _publish_pair(
         "umi2",
         session_id=session_id,
         role="umi2",
-        tag_ids=(2, 3),
+        tag_ids=(0, 1),
         clock_sync=follower_cs,
     )
     for ep in (leader, follower):
@@ -231,7 +231,7 @@ def test_crash_recovery_between_merge_and_relocate(tmp_path: Path):
 def test_orphan_dropped_after_timeout(tmp_path: Path):
     data_dir = tmp_path / "data"
     (data_dir / "raw_episodes").mkdir(parents=True)
-    lone = _record_arm(tmp_path, "umi1", session_id="s9", role="umi1", tag_ids=(0, 1))
+    lone = _record_arm(tmp_path, "umi1", session_id="s9", role="umi1", tag_ids=(2, 3))
     lone.rename(data_dir / "raw_episodes" / lone.name)
 
     # not yet timed out -> pending, stays put.
@@ -249,8 +249,8 @@ def test_orphan_dropped_after_timeout(tmp_path: Path):
 def test_merge_rejects_non_native_arm(tmp_path: Path):
     # A follower mistakenly provisioned as umi1 (role umi2 but config umi named umi1)
     # fails loud with PairError, not a silent collision.
-    leader = _record_arm(tmp_path, "umi1", session_id="s1", role="umi1", tag_ids=(0, 1))
-    bad = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(2, 3))
+    leader = _record_arm(tmp_path, "umi1", session_id="s1", role="umi1", tag_ids=(2, 3))
+    bad = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(0, 1))
     snapshot = bad / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
     raw = yaml.safe_load(snapshot.read_text())
     raw["umis"] = {"umi1": raw["umis"].pop("umi2")}
@@ -266,11 +266,11 @@ def test_bad_pair_is_quarantined_not_crashed(tmp_path: Path):
     data_dir = tmp_path / "data"
     raw = data_dir / "raw_episodes"
     raw.mkdir(parents=True)
-    leader = _record_arm(tmp_path, "umi1", session_id="s1", role="umi1", tag_ids=(0, 1))
-    follower = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(2, 3))
+    leader = _record_arm(tmp_path, "umi1", session_id="s1", role="umi1", tag_ids=(2, 3))
+    follower = _record_arm(tmp_path, "umi2", session_id="s1", role="umi2", tag_ids=(0, 1))
     snapshot = follower / layout.CONFIG_SNAPSHOT_DIR / layout.CONFIG_SNAPSHOT_YAML
     follower_raw = yaml.safe_load(snapshot.read_text())
-    follower_raw["umis"]["umi2"]["gripper"]["tag_ids"] = [0, 1]
+    follower_raw["umis"]["umi2"]["gripper"]["tag_ids"] = [2, 3]
     snapshot.write_text(yaml.safe_dump(follower_raw))
     leader.rename(raw / leader.name)
     follower.rename(raw / follower.name)
