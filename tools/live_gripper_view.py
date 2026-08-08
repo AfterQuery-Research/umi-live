@@ -26,10 +26,10 @@ from robot_umi_server import gripper  # noqa: E402
 # Per-arm camera->tag geometry: the cameras were remounted at different forward
 # offsets (2026-08-07), so the arms no longer share one GripperGeometry.
 ARMS = [
-    dict(name="umi1", host="lidar-umi@lidar-umi.local", calib="config/calib/umi1_calib.npz",
+    dict(name="umi1", host="umi1@umi1.local", calib="config/calib/umi1_calib.npz",
+         tags=(2, 3), geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1)),
+    dict(name="umi2", host="umi2@umi2.local", calib="config/calib/umi2_calib.npz",
          tags=(0, 1), geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1)),
-    dict(name="umi2", host="lidar-umi-2@lidar-umi-2.local", calib="config/calib/umi2_calib.npz",
-         tags=(2, 3), geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=17.1)),
 ]
 W, H, PORT = 800, 600, 8899
 
@@ -119,7 +119,7 @@ INDEX = f"""<html><head><title>UMI live gripper view</title></head>
 <h2>Live gripper width + tag detections</h2>
 <div><img src="/umi1.mjpg" width="{W}"> <img src="/umi2.mjpg" width="{W}"></div>
 <p>green = detected tag · magenta = the arm's pair · width uses per-arm geometry
-(umi1 front_mm=30.1, umi2 front_mm=17.1)</p></body></html>"""
+(umi1 front_mm=30.1, umi2 front_mm=30.1)</p></body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -130,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/":
             body = INDEX.encode()
             self.send_response(200)
-            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(body)
             return

@@ -33,8 +33,8 @@ class GripperGeometry:
     """Fixed camera<->tag-plane geometry + the linear calibration (mm)."""
 
     plane_mm: float = 61.9  # camera +Y (down) to the tag plane
-    front_mm: float = 17.1  # camera +Z (forward) to the tags (camera moved 20 mm
-    #                         toward the tags on 2026-08-07; was 37.1 originally)
+    front_mm: float = 30.1  # camera +Z (forward) to the tags (remeasured 2026-08-08;
+    #                         was 37.1 on the original mount, briefly 17.1)
     scale: float = 1.0  # W_true = scale * W_raw + offset; identity now that the fisheye
     offset: float = 0.0  # calib covers the tags' angular range -> raw geometry is used
 

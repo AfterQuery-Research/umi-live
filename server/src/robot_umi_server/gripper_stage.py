@@ -30,12 +30,12 @@ from robot_umi_core.manifest import present_streams, read_manifest
 
 from robot_umi_server import gripper
 
-# Per-arm camera->tag geometry: the two cameras were remounted at DIFFERENT forward
-# offsets (2026-08-07), so the arms no longer share GripperGeometry's default.
-# Keep tools/live_gripper_view.py's ARMS table in sync with this.
+# Per-arm camera->tag geometry seam (falls back to GripperGeometry's defaults).
+# Both cameras sit at the same mount since 2026-08-08 (front_mm=30.1); keep
+# tools/live_gripper_view.py's ARMS table in sync when these diverge again.
 ARM_GEOMETRY = {
     "umi1": gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1),
-    "umi2": gripper.GripperGeometry(plane_mm=61.9, front_mm=17.1),
+    "umi2": gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1),
 }
 
 
