@@ -95,11 +95,11 @@ class ControlsConfig:
 
 @dataclass(frozen=True)
 class AlignmentConfig:
-    """Optional cross-lidar map alignment for bimanual rigs. The PROVISIONED leader
-    config enables it (bin/provision-pi), so fleet episodes get a post-GLIM ``align``
-    stage registering the two lidar maps into ONE common frame (metric cross-arm
-    geometry); a config with no ``alignment:`` block keeps the historical independent
-    per-lidar frames. Known risk with no ``workspace_bbox``: repetitive far-field room
+    """Optional cross-lidar map alignment for bimanual rigs. DISABLED by default:
+    each arm's trajectory stays in its own frame, independently zeroed to its own
+    start pose. Add ``alignment: {enabled: true}`` to the LEADER config to run a
+    post-GLIM ``align`` stage registering the two lidar maps into ONE common frame
+    (metric cross-arm geometry) — the pair merge inherits the leader's top-level keys. Known risk with no ``workspace_bbox``: repetitive far-field room
     structure can alias the registration (~1 m confident-but-wrong fits) — sanity-check
     takes in new rooms.
 

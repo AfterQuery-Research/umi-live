@@ -112,15 +112,6 @@ umis:
       tag_ids: [$TAGS]
       stride: 2
 YAML
-# The LEADER config carries the fleet-wide alignment switch: the server's pair merge
-# inherits the leader's top-level keys, so this turns on the cross-lidar align stage
-# (metric arm-to-arm geometry) for every merged episode.
-if [ "$ROLE" = leader ]; then
-  cat >> "$CFG_TMP" <<'YAML'
-alignment:
-  enabled: true
-YAML
-fi
 PYTHONPATH="$ROOT/common/robot-umi-core/src" "$PYTHON" -c \
   'import sys; from robot_umi_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
   "$CFG_TMP" "$ROLE"
