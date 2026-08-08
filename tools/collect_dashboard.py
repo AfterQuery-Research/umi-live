@@ -98,14 +98,39 @@ def poll_pis():
         time.sleep(6)
 
 
+def _hf_token() -> str | None:
+    # The repo is created PRIVATE, so the poll needs auth: read the workstation
+    # inventory (never committed, never sent anywhere).
+    for inv in (Path.home() / "umi-flow/provisioning/secrets",):
+        try:
+            for line in inv.read_text().splitlines():
+                if line.startswith("HF_TOKEN="):
+                    return line.split("=", 1)[1].strip().strip('"') or None
+        except OSError:
+            pass
+    return None
+
+
+def _is_missing_repo(e: BaseException) -> bool:
+    seen = set()
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if "404" in str(e) or "Not Found" in str(e) or type(e).__name__ == "RepositoryNotFoundError":
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
 def poll_hub():
     from huggingface_hub import HfApi, hf_hub_download
-    api = HfApi()
+    token = _hf_token()
+    api = HfApi(token=token)
     while True:
         repo = state.get("box", {}).get("repo") or ""
         if repo:
             try:
-                p = hf_hub_download(repo, "meta/info.json", repo_type="dataset", force_download=True)
+                p = hf_hub_download(repo, "meta/info.json", repo_type="dataset",
+                                    force_download=True, token=token)
                 info = api.repo_info(repo, repo_type="dataset")
                 with lock:
                     state["hub"] = {
@@ -115,7 +140,7 @@ def poll_hub():
                     state["err"].pop("hub", None)
             except Exception as e:
                 with lock:
-                    if "404" in str(e) or "Not Found" in str(e):
+                    if _is_missing_repo(e):
                         state["hub"] = {"episodes": 0, "last_push": None}  # repo not created yet
                         state["err"].pop("hub", None)
                     else:
