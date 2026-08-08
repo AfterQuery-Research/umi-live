@@ -133,9 +133,11 @@ def poll_hub():
                 p = hf_hub_download(repo, "meta/info.json", repo_type="dataset",
                                     force_download=True, token=token)
                 info = api.repo_info(repo, repo_type="dataset")
+                meta = json.load(open(p))
                 with lock:
                     state["hub"] = {
-                        "episodes": json.load(open(p))["total_episodes"],
+                        "episodes": meta["total_episodes"],
+                        "minutes": round(meta["total_frames"] / max(meta.get("fps") or 30, 1) / 60, 1),
                         "last_push": info.last_modified.timestamp(),
                     }
                     state["err"].pop("hub", None)
@@ -167,6 +169,7 @@ async function tick(){
   const justSent = age!==null && age<90;
   let cards = '';
   cards += `<div class=card><div class=big>${hub.episodes ?? '—'}</div><div class=lbl>episodes on the Hub</div><div class="lbl ${justSent?'ok':''}">last push ${ageTxt}${justSent?' ✓':''}</div></div>`;
+  cards += `<div class=card><div class=big>${hub.minutes ?? '—'}</div><div class=lbl>minutes of data on the Hub</div></div>`;
   cards += `<div class=card><div class=big class=warn>${(b.processing||[]).length}</div><div class=lbl>processing now</div><div class=lbl>${(b.processing||[]).map(p=>p.id.slice(-6)+' @ '+p.at+' ('+p.done+'/'+p.of+')').join('<br>')||'idle'}</div></div>`;
   cards += `<div class=card><div class=big>${(b.waiting_pair||[]).length}</div><div class=lbl>arms waiting for pair mate</div></div>`;
   for (const [name,pi] of Object.entries(s.pis||{})) {
