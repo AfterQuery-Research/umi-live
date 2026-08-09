@@ -27,6 +27,15 @@ def test_leader_follower_roundtrip():
         leader = coordinator.Leader(f"127.0.0.1:{f.port}")
 
         result: list[dict | None] = []
+        request = threading.Thread(target=lambda: result.append(leader.precheck()))
+        request.start()
+        cmd = _drain(f)
+        assert cmd.cmd == coordinator.CMD_PRECHECK
+        cmd.respond(True, result={"ok": True, "checks": []})
+        request.join(timeout=1)
+        assert result[0] is not None and result[0]["result"]["ok"] is True
+
+        result.clear()
         request = threading.Thread(target=lambda: result.append(leader.start_take("sess_1")))
         request.start()
         cmd = _drain(f)
@@ -72,6 +81,7 @@ def test_leader_unreachable_returns_none():
     port = s.getsockname()[1]
     s.close()
     leader = coordinator.Leader(f"127.0.0.1:{port}", timeout_s=0.5)
+    assert leader.precheck() is None
     assert leader.start_take("s") is None
     assert leader.stop_take() is None
     assert leader.ping() is False

@@ -7,6 +7,7 @@ dependencies = [
     # Floor kept at 2.2 so the workspace can co-resolve with lerobot's
     # numpy<2.3 pin; the device only uses stable numpy core APIs.
     "numpy>=2.2.6",
+    "opencv-python-headless>=4.9.0",
     "pillow>=10.0",
     "umi-flow-core",
     "tyro>=1.0.15",

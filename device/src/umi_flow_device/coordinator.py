@@ -32,6 +32,7 @@ CMD_START = "start"
 CMD_STOP = "stop"
 CMD_CANCEL = "cancel"
 CMD_PING = "ping"
+CMD_PRECHECK = "precheck"
 
 
 @dataclass
@@ -41,13 +42,15 @@ class Command:
     leader_unix_ns: int | None = None
     _reply: Queue[dict] | None = field(default=None, repr=False)
 
-    def respond(self, ok: bool, error: str = "") -> None:
+    def respond(self, ok: bool, error: str = "", result: dict[str, object] | None = None) -> None:
         """Complete the command after the follower recorder applied it."""
         if self._reply is None:
             return
         reply: dict = {"ok": ok, "follower_unix_ns": time.time_ns()}
         if error:
             reply["error"] = error
+        if result is not None:
+            reply["result"] = result
         self._reply.put_nowait(reply)
 
 
@@ -92,6 +95,9 @@ class Leader:
                 "leader_unix_ns": leader_unix_ns if leader_unix_ns is not None else time.time_ns(),
             }
         )
+
+    def precheck(self) -> dict | None:
+        return self._send({"cmd": CMD_PRECHECK})
 
     def stop_take(self) -> dict | None:
         return self._send({"cmd": CMD_STOP})
@@ -148,7 +154,7 @@ class Follower:
                 cmd = str(obj.get("cmd", ""))
                 if cmd == CMD_PING:
                     reply = {"ok": True, "follower_unix_ns": time.time_ns()}
-                elif cmd in {CMD_START, CMD_STOP, CMD_CANCEL}:
+                elif cmd in {CMD_PRECHECK, CMD_START, CMD_STOP, CMD_CANCEL}:
                     replies: Queue[dict] = Queue(maxsize=1)
                     self._q.put(
                         Command(

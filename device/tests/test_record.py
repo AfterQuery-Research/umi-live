@@ -5,8 +5,10 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from queue import Queue
 
 from umi_flow_device.buttons import Event
+from umi_flow_device.preflight import CheckResult, PipelineResult
 
 RECORD_PATH = Path(__file__).resolve().parents[1] / "scripts" / "record.py"
 spec = importlib.util.spec_from_file_location("record", RECORD_PATH)
@@ -19,6 +21,8 @@ spec.loader.exec_module(record)
 class FakeDisplay:
     def __init__(self) -> None:
         self.uploads: list[str] = []
+        self.check_failures: list[tuple[str, ...]] = []
+        self.check_clears = 0
 
     def notify_upload(self, state: str) -> None:
         self.uploads.append(state)
@@ -27,6 +31,12 @@ class FakeDisplay:
     def set_episodes(self, *_args) -> None: ...
     def set_sending(self, *_args) -> None: ...
     def set_recording(self, *_args) -> None: ...
+
+    def notify_check_failure(self, lines: tuple[str, ...]) -> None:
+        self.check_failures.append(lines)
+
+    def clear_check_failure(self) -> None:
+        self.check_clears += 1
 
 
 class FakeUploader:
@@ -57,8 +67,29 @@ class SequenceButtons:
 
 
 class UnavailableFollower:
+    def precheck(self):
+        return None
+
     def start_take(self, _session_id: str):
         return None
+
+
+class FakePipeline:
+    def __init__(self, result: PipelineResult):
+        self.result = result
+        self.runs = 0
+
+    def run(self) -> PipelineResult:
+        self.runs += 1
+        return self.result
+
+
+def passing_pipeline(umi: str = "umi1") -> FakePipeline:
+    return FakePipeline(PipelineResult((CheckResult("gripper_tags", umi, True),)))
+
+
+def precheck_ack(result: PipelineResult) -> dict:
+    return {"ok": result.ok, "result": result.to_dict(), "follower_unix_ns": 1}
 
 
 def test_legacy_environment_names_remain_accepted(tmp_path: Path, monkeypatch):
@@ -120,10 +151,12 @@ def test_unavailable_follower_aborts_before_local_recording(tmp_path: Path):
         UnavailableFollower(),
         "umi1",
         {"v": None},
+        passing_pipeline(),
     )
 
     assert recorder.starts == 0
-    assert display.uploads == [record.UPLOAD_FAIL]
+    assert display.uploads == []
+    assert display.check_failures == [("umi2: follower unavailable",)]
 
 
 def test_follower_start_rejection_aborts_before_local_recording(tmp_path: Path):
@@ -131,6 +164,9 @@ def test_follower_start_rejection_aborts_before_local_recording(tmp_path: Path):
     display = FakeDisplay()
 
     class RejectedFollower:
+        def precheck(self):
+            return precheck_ack(PipelineResult((CheckResult("gripper_tags", "umi2", True),)))
+
         def start_take(self, _session_id: str):
             return {"ok": False, "error": "camera failed"}
 
@@ -144,7 +180,95 @@ def test_follower_start_rejection_aborts_before_local_recording(tmp_path: Path):
         RejectedFollower(),
         "umi1",
         {"v": None},
+        passing_pipeline(),
     )
 
     assert recorder.starts == 0
     assert display.uploads == [record.UPLOAD_FAIL]
+
+
+def test_preflight_reports_missing_tags_from_both_clients() -> None:
+    local = FakePipeline(PipelineResult((CheckResult("gripper_tags", "umi1", False, (2,)),)))
+    remote = PipelineResult((CheckResult("gripper_tags", "umi2", False, (0, 1)),))
+
+    class MissingFollower:
+        def precheck(self):
+            return precheck_ack(remote)
+
+    display = FakeDisplay()
+    assert not record._preflight_before_start(local, MissingFollower(), display)
+    assert local.runs == 1
+    assert display.check_failures == [("umi1 tags missing: 2", "umi2 tags missing: 0,1")]
+
+
+def test_preflight_passes_only_after_both_clients_pass() -> None:
+    local = passing_pipeline()
+    remote = PipelineResult((CheckResult("gripper_tags", "umi2", True),))
+
+    class ReadyFollower:
+        def precheck(self):
+            return precheck_ack(remote)
+
+    display = FakeDisplay()
+    assert record._preflight_before_start(local, ReadyFollower(), display)
+    assert display.check_failures == []
+
+
+def test_follower_precheck_response_carries_structured_result() -> None:
+    replies: Queue[dict] = Queue(maxsize=1)
+    command = record.coordinator.Command(cmd=record.coordinator.CMD_PRECHECK, _reply=replies)
+    pipeline = FakePipeline(PipelineResult((CheckResult("gripper_tags", "umi2", False, (1,)),)))
+
+    record._respond_to_precheck(command, pipeline)
+
+    reply = replies.get_nowait()
+    assert reply["ok"] is False
+    result = PipelineResult.from_dict(reply["result"])
+    assert result.failures[0].missing_tag_ids == (1,)
+
+
+def test_button_start_runs_both_prechecks_before_starting_either_recorder(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class StartableRecorder:
+        active = None
+
+        def poll_active_error(self):
+            return None
+
+        def start(self, **_kwargs):
+            calls.append("local-start")
+            self.active = type("Active", (), {"episode_id": "episode_test"})()
+            return self.active
+
+    remote_result = PipelineResult((CheckResult("gripper_tags", "umi2", True),))
+
+    class ReadyFollower:
+        def precheck(self):
+            calls.append("remote-check")
+            return precheck_ack(remote_result)
+
+        def start_take(self, _session_id: str):
+            calls.append("remote-start")
+            return {"ok": True, "follower_unix_ns": 1}
+
+    class OrderedPipeline(FakePipeline):
+        def run(self):
+            calls.append("local-check")
+            return super().run()
+
+    recorder = StartableRecorder()
+    record.button_loop(
+        recorder,
+        FakeUploader(),
+        {},
+        FakeDisplay(),
+        tmp_path,
+        SequenceButtons(Event.START, Event.QUIT),
+        ReadyFollower(),
+        "umi1",
+        {"v": None},
+        OrderedPipeline(PipelineResult((CheckResult("gripper_tags", "umi1", True),))),
+    )
+
+    assert calls == ["local-check", "remote-check", "remote-start", "local-start"]

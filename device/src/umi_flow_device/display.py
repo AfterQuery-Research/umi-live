@@ -1,7 +1,7 @@
 """LCD status monitor (Waveshare 2" ST7789, 240x320, SPI0, DC=25/RST=4/BL=18).
 
-Shows lidar presence and temperature, REC/IDLE, pending episode count, and the last
-upload result (transient banner on success, persistent on failure).
+Shows lidar presence and temperature, REC/IDLE, pending episode count, the last
+upload result, and persistent pre-recording check failures.
 
 `StatusDisplay` keeps lock-guarded state updated from several threads (monitor
 poller, App loop, uploader) and a background render thread redraws the LCD.
@@ -48,6 +48,12 @@ class Display(ABC):
     def set_sending(self, episode_id: str | None) -> None: ...
 
     @abstractmethod
+    def notify_check_failure(self, lines: tuple[str, ...]) -> None: ...
+
+    @abstractmethod
+    def clear_check_failure(self) -> None: ...
+
+    @abstractmethod
     def start(self) -> None: ...
 
     @abstractmethod
@@ -62,6 +68,8 @@ class NullDisplay(Display):
     def set_episodes(self, count: int) -> None: ...
     def notify_upload(self, state: str) -> None: ...
     def set_sending(self, episode_id: str | None) -> None: ...
+    def notify_check_failure(self, lines: tuple[str, ...]) -> None: ...
+    def clear_check_failure(self) -> None: ...
     def start(self) -> None: ...
     def close(self) -> None: ...
 
@@ -231,6 +239,7 @@ class StatusDisplay(Display):
         self._upload_state: str | None = None
         self._upload_ts = 0.0
         self._sending: str | None = None  # episode streaming to the server right now
+        self._check_failure: tuple[str, ...] = ()
 
     # --- writers -----------------------------------------------------------
     def set_lidar_health(self, umi: str, health: LidarHealth) -> None:
@@ -240,6 +249,8 @@ class StatusDisplay(Display):
     def set_recording(self, recording: bool) -> None:
         with self._lock:
             self._recording = recording
+            if recording:
+                self._check_failure = ()
 
     def set_episodes(self, count: int) -> None:
         with self._lock:
@@ -255,6 +266,15 @@ class StatusDisplay(Display):
         Drives the live SENDING banner; the pending count shows how many remain."""
         with self._lock:
             self._sending = episode_id
+
+    def notify_check_failure(self, lines: tuple[str, ...]) -> None:
+        """Persist a blocked-recording message until the operator retries."""
+        with self._lock:
+            self._check_failure = tuple(str(line) for line in lines if line)
+
+    def clear_check_failure(self) -> None:
+        with self._lock:
+            self._check_failure = ()
 
     # --- lifecycle -----------------------------------------------------------
     def start(self) -> None:
@@ -300,6 +320,7 @@ class StatusDisplay(Display):
             episodes = self._episodes
             banner = self._upload_banner(now)
             sending = self._sending
+            check_failure = self._check_failure
 
         w, h = self._driver.width, self._driver.height  # landscape: 320 x 240
         img = Image.new("RGB", (w, h), _BG)
@@ -347,4 +368,11 @@ class StatusDisplay(Display):
                 text, color = banner
                 d.rectangle([0, h - 34, w, h], fill=color)
                 d.text((16, h - 28), text, fill=(0, 0, 0), font=_font(18))
+
+            if check_failure and not recording:
+                d.rectangle([0, 30, w, h], fill=(92, 20, 24))
+                d.text((14, 42), "CHECK FAILED", fill=_FG, font=_font(24))
+                for index, line in enumerate(check_failure[:3]):
+                    d.text((14, 82 + index * 30), line, fill=_FG, font=_font(18))
+                d.text((14, h - 34), "NOT RECORDING", fill=_AMBER, font=_font(18))
         return img

@@ -181,7 +181,9 @@ fail=0
 getcap "$TCPDUMP" | grep -q cap_net_raw && echo "OK  tcpdump can capture" || { echo "FAIL tcpdump missing capability"; fail=1; }
 [ -x "$REPO/device/v4l2_recorder/target/release/umi-flow-v4l2-recorder" ] \
   && echo "OK  camera recorder built" || { echo "FAIL recorder binary missing"; fail=1; }
-"$REPO/.venv/bin/python" -c "import umi_flow_device.sensors, umi_flow_device.camera" 2>/dev/null \
+"$REPO/.venv/bin/python" -c \
+  "import cv2, umi_flow_device.sensors, umi_flow_device.camera; assert hasattr(cv2, 'aruco')" \
+  2>/dev/null \
   && echo "OK  recorder package imports" || { echo "FAIL recorder import"; fail=1; }
 CAM="$("$REPO/.venv/bin/python" -c \
   'import sys; from umi_flow_core.config import load_rig_config; print(load_rig_config(sys.argv[1]).umis[0].camera.device)' \

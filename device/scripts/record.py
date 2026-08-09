@@ -34,6 +34,12 @@ from umi_flow_device.display import (
 )
 from umi_flow_device.episode import EpisodeRecorder
 from umi_flow_device.lidar_monitor import LidarMonitor
+from umi_flow_device.preflight import (
+    CheckResult,
+    PipelineResult,
+    PreRecordingPipeline,
+    build_gripper_tag_pipeline,
+)
 from umi_flow_device.ptp import chrony_status, probe_ptp
 from umi_flow_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
 from umi_flow_device.uploader import DEFAULT_UPLOAD_TIMEOUT_SECONDS, AsyncUploader
@@ -231,8 +237,69 @@ def _leader_start(leader, session_id, handshake, display) -> bool:
     return True
 
 
+def _failed_precheck(umi: str, message: str) -> PipelineResult:
+    return PipelineResult((CheckResult(check="coordination", umi=umi, ok=False, message=message),))
+
+
+def _remote_precheck(leader) -> PipelineResult:
+    ack = leader.precheck()
+    if ack is None:
+        return _failed_precheck(core_config.FOLLOWER_UMI, "follower unavailable")
+    try:
+        result = PipelineResult.from_dict(ack.get("result"))
+    except (TypeError, ValueError) as exc:
+        return _failed_precheck(core_config.FOLLOWER_UMI, f"invalid follower result: {exc}")
+    if bool(ack.get("ok")) != result.ok:
+        return _failed_precheck(core_config.FOLLOWER_UMI, "inconsistent follower result")
+    return result
+
+
+def _check_failure_lines(failures: tuple[CheckResult, ...]) -> tuple[str, ...]:
+    lines = []
+    for failure in failures:
+        if failure.missing_tag_ids:
+            tag_ids = ",".join(str(tag_id) for tag_id in failure.missing_tag_ids)
+            lines.append(f"{failure.umi} tags missing: {tag_ids}")
+        else:
+            message = failure.message or f"{failure.check} failed"
+            lines.append(f"{failure.umi}: {message}"[:34])
+    return tuple(lines)
+
+
+def _preflight_before_start(local_pipeline: PreRecordingPipeline, leader, display: Display) -> bool:
+    """Run both clients' checks before sending either client a START command."""
+    display.clear_check_failure()
+    local = local_pipeline.run()
+    remote = _remote_precheck(leader)
+    failures = (*local.failures, *remote.failures)
+    if not failures:
+        return True
+    lines = _check_failure_lines(failures)
+    display.notify_check_failure(lines)
+    print(f"recording blocked by pre-recording check: {'; '.join(lines)}")
+    return False
+
+
+def _respond_to_precheck(cmd: coordinator.Command, pipeline: PreRecordingPipeline) -> None:
+    result = pipeline.run()
+    cmd.respond(
+        result.ok,
+        "" if result.ok else "pre-recording check failed",
+        result=result.to_dict(),
+    )
+
+
 def button_loop(
-    recorder, uploader, monitors, display, spool_dir, buttons, leader, role, handshake
+    recorder,
+    uploader,
+    monitors,
+    display,
+    spool_dir,
+    buttons,
+    leader,
+    role,
+    handshake,
+    preflight_pipeline,
 ) -> None:
     """The leader buttons drive synchronized two-client episodes."""
     state = {"last_monitor": 0.0, "last_result_count": 0}
@@ -256,6 +323,8 @@ def button_loop(
         recording = recorder.active is not None
         if event in (Event.TOGGLE, Event.START) and not recording:
             session_id = f"sess_{layout.unix_ns()}"
+            if not _preflight_before_start(preflight_pipeline, leader, display):
+                continue
             if not _leader_start(leader, session_id, handshake, display):
                 continue
             try:
@@ -282,7 +351,15 @@ def button_loop(
 
 
 def follower_loop(
-    recorder, uploader, monitors, display, spool_dir, follower, role, handshake
+    recorder,
+    uploader,
+    monitors,
+    display,
+    spool_dir,
+    follower,
+    role,
+    handshake,
+    preflight_pipeline,
 ) -> None:
     """The headless follower loop: leader commands (not buttons) drive episodes."""
     state = {"last_monitor": 0.0, "last_result_count": 0, "started_at": 0.0}
@@ -305,7 +382,9 @@ def follower_loop(
             time.sleep(0.02)
             continue
 
-        if cmd.cmd == coordinator.CMD_START and recorder.active is None:
+        if cmd.cmd == coordinator.CMD_PRECHECK and recorder.active is None:
+            _respond_to_precheck(cmd, preflight_pipeline)
+        elif cmd.cmd == coordinator.CMD_START and recorder.active is None:
             if cmd.leader_unix_ns is not None:
                 handshake["v"] = time.time_ns() - int(cmd.leader_unix_ns)
             try:
@@ -351,6 +430,7 @@ def main(args: Args) -> None:
 
     manifest_role = rig.umis[0].name
     handshake: dict[str, int | None] = {"v": None}
+    preflight_pipeline = build_gripper_tag_pipeline(rig.umis[0])
 
     def clock_sync_probe():
         cs = chrony_status("system-chrony")
@@ -404,7 +484,15 @@ def main(args: Args) -> None:
         if role == "follower":
             assert follower is not None
             follower_loop(
-                recorder, uploader, monitors, display, spool_dir, follower, manifest_role, handshake
+                recorder,
+                uploader,
+                monitors,
+                display,
+                spool_dir,
+                follower,
+                manifest_role,
+                handshake,
+                preflight_pipeline,
             )
         else:
             assert buttons is not None and leader is not None
@@ -418,6 +506,7 @@ def main(args: Args) -> None:
                 leader,
                 manifest_role,
                 handshake,
+                preflight_pipeline,
             )
     except KeyboardInterrupt:
         print("\ninterrupted")

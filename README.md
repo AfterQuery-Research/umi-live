@@ -96,6 +96,10 @@ Expected output: every service is `active`; the empty upload returns HTTP `400`.
 
 Tap the leader record button to start both clients. Tap it again to stop. Repeat for additional episodes.
 
+Before either client records, each camera checks five frames for its configured gripper-tag
+pair. Every tag must appear at least once in that window. If a tag is missing, the take does
+not start and the leader LCD identifies the UMI and missing tag IDs.
+
 Follow processing on the server:
 
 ```sh
