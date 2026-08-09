@@ -1,0 +1,9 @@
+# Physical labels installed on this rig. This is the source used by provisioning and
+# tools/make_gripper_tags.py. Pair order is not meaningful to the width calculation.
+version: 1
+dictionary: DICT_4X4_50
+umis:
+  umi1:
+    tag_ids: [2, 3]
+  umi2:
+    tag_ids: [0, 1]

@@ -32,7 +32,10 @@ LEADER_UMI = "umi1"
 FOLLOWER_UMI = "umi2"
 BIMANUAL_UMIS = (LEADER_UMI, FOLLOWER_UMI)
 CLIENT_ROLES = {LEADER_UMI: "leader", FOLLOWER_UMI: "follower"}
-GRIPPER_TAGS = {LEADER_UMI: (2, 3), FOLLOWER_UMI: (0, 1)}  # leader wears 2,3 (hardware)
+
+GRIPPER_TAG_CONFIG_VERSION = 1
+GRIPPER_ARUCO_DICTIONARY = "DICT_4X4_50"
+GRIPPER_ARUCO_ID_COUNT = 50
 
 
 class ConfigError(ValueError):
@@ -63,7 +66,7 @@ class LidarConfig:
 
 @dataclass(frozen=True)
 class GripperConfig:
-    tag_ids: tuple[int, int]  # this arm's ArUco pair (DICT_4X4_50); umi1=(0,1), umi2=(2,3)
+    tag_ids: tuple[int, int]  # this arm's configured ArUco pair (DICT_4X4_50)
     stride: int = 2  # detect every Nth frame
     roi_top_frac: float = 0.0
 
@@ -155,6 +158,67 @@ def _reject_unknown(mapping: dict, allowed: set[str], where: str, source: str) -
     extra = sorted(set(mapping) - allowed)
     if extra:
         raise ConfigError(f"{source}: unknown key(s) in {where}: {extra}")
+
+
+def _parse_tag_pair(raw: Any, where: str, source: str) -> tuple[int, int]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ConfigError(f"{source}: {where} must contain exactly 2 ids")
+    if any(type(tag_id) is not int for tag_id in raw):
+        raise ConfigError(f"{source}: {where} ids must be integers")
+    pair = (raw[0], raw[1])
+    if pair[0] == pair[1]:
+        raise ConfigError(f"{source}: {where} must contain 2 distinct ids")
+    if any(not 0 <= tag_id < GRIPPER_ARUCO_ID_COUNT for tag_id in pair):
+        raise ConfigError(
+            f"{source}: {where} ids must be in [0, {GRIPPER_ARUCO_ID_COUNT - 1}] "
+            f"for {GRIPPER_ARUCO_DICTIONARY}"
+        )
+    return pair
+
+
+def load_gripper_tag_pairs(path: str | Path) -> dict[str, tuple[int, int]]:
+    """Load the physical tag pairs used by provisioning and printable-tag tooling.
+
+    The fixed rig still has exactly ``umi1`` and ``umi2``. Their physical label IDs live
+    in one inventory file instead of Python or shell constants. Pair order is not semantic:
+    gripper width is the angle between the two tag rays and is symmetric under swapping.
+    """
+    source = str(path)
+    raw = yaml.safe_load(Path(path).read_text())
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{source}: top level must be a mapping")
+    _reject_unknown(raw, {"version", "dictionary", "umis"}, "top level", source)
+    version = raw.get("version")
+    if version != GRIPPER_TAG_CONFIG_VERSION:
+        raise ConfigError(f"{source}: unsupported gripper tag config version {version}")
+    dictionary = raw.get("dictionary")
+    if dictionary != GRIPPER_ARUCO_DICTIONARY:
+        raise ConfigError(
+            f"{source}: dictionary must be {GRIPPER_ARUCO_DICTIONARY!r}, got {dictionary!r}"
+        )
+    umis = raw.get("umis")
+    if not isinstance(umis, dict):
+        raise ConfigError(f"{source}: 'umis' must be a mapping")
+    if set(umis) != set(BIMANUAL_UMIS):
+        raise ConfigError(
+            f"{source}: gripper tag config must contain exactly {list(BIMANUAL_UMIS)}, "
+            f"got {sorted(umis)}"
+        )
+
+    pairs: dict[str, tuple[int, int]] = {}
+    for name in BIMANUAL_UMIS:
+        item = umis[name]
+        if not isinstance(item, dict):
+            raise ConfigError(f"{source}: umis.{name} must be a mapping")
+        _reject_unknown(item, {"tag_ids"}, f"umis.{name}", source)
+        if "tag_ids" not in item:
+            raise ConfigError(f"{source}: umis.{name}.tag_ids is required")
+        pairs[name] = _parse_tag_pair(item["tag_ids"], f"umis.{name}.tag_ids", source)
+
+    all_tags = [tag_id for pair in pairs.values() for tag_id in pair]
+    if len(set(all_tags)) != len(all_tags):
+        raise ConfigError(f"{source}: gripper tag_ids overlap across UMIs: {all_tags}")
+    return pairs
 
 
 def parse_rig_config(raw: Any, source: str = "<config>") -> RigConfig:
@@ -338,12 +402,14 @@ def _parse_umi(name: str, u: dict, source: str) -> UmiConfig:
     gripper = None
     if "gripper" in u and u["gripper"] is not None:
         g = u["gripper"]
+        if not isinstance(g, dict):
+            raise ConfigError(f"{source}: umis.{name}.gripper must be a mapping")
         _reject_unknown(g, {"tag_ids", "stride", "roi_top_frac"}, f"umis.{name}.gripper", source)
-        tag_ids = tuple(int(t) for t in g["tag_ids"])
-        if len(tag_ids) != 2:
-            raise ConfigError(f"{source}: umis.{name}.gripper.tag_ids must have 2 ids")
+        if "tag_ids" not in g:
+            raise ConfigError(f"{source}: umis.{name}.gripper.tag_ids is required")
+        tag_ids = _parse_tag_pair(g["tag_ids"], f"umis.{name}.gripper.tag_ids", source)
         gripper = GripperConfig(
-            tag_ids=tag_ids,  # type: ignore[arg-type]
+            tag_ids=tag_ids,
             stride=int(g.get("stride", 2)),
             roi_top_frac=float(g.get("roi_top_frac", 0.0)),
         )
@@ -458,9 +524,8 @@ def client_role(cfg: RigConfig) -> str:
             f"{FOLLOWER_UMI!r}, got {list(names)}"
         )
     umi = cfg.umis[0]
-    expected_tags = GRIPPER_TAGS[umi.name]
-    if umi.gripper is None or umi.gripper.tag_ids != expected_tags:
-        raise ConfigError(f"{umi.name} must use ArUco tags {list(expected_tags)}")
+    if umi.gripper is None:
+        raise ConfigError(f"{umi.name} must configure a gripper tag pair")
     return CLIENT_ROLES[umi.name]
 
 
@@ -470,9 +535,8 @@ def require_bimanual(cfg: RigConfig) -> DerivedSchema:
     if names != BIMANUAL_UMIS:
         raise ConfigError(f"dataset config must be paired umi1/umi2, got {list(names)}")
     for umi in cfg.umis:
-        expected_tags = GRIPPER_TAGS[umi.name]
-        if umi.gripper is None or umi.gripper.tag_ids != expected_tags:
-            raise ConfigError(f"{umi.name} must use ArUco tags {list(expected_tags)}")
+        if umi.gripper is None:
+            raise ConfigError(f"{umi.name} must configure a gripper tag pair")
     derived = derive(cfg)
     if derived.state_dim != 12:
         raise ConfigError(f"bimanual dataset state must be 12-D, got {derived.state_dim}")

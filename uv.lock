@@ -2833,6 +2833,22 @@ name = "umi-flow"
 version = "0.1.0"
 source = { virtual = "." }
 
+[package.dev-dependencies]
+tools = [
+    { name = "matplotlib" },
+    { name = "opencv-python-headless" },
+    { name = "umi-flow-core" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+tools = [
+    { name = "matplotlib", specifier = ">=3.10" },
+    { name = "opencv-python-headless", specifier = ">=4.9.0" },
+    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+]
+
 [[package]]
 name = "umi-flow-core"
 version = "0.1.0"

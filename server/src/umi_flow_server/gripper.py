@@ -1,7 +1,7 @@
 """ArUco gripper-width measurement (UMI-style), computed in post-processing.
 
-Two ArUco tags (IDs 0 and 1) ride the gripper's two sliding jaws on a plane fixed
-to the camera. We don't estimate depth from marker size (degenerate for small tags
+Two configured ArUco tags ride the gripper's two sliding jaws on a plane fixed to
+the camera. We don't estimate depth from marker size (degenerate for small tags
 at the fisheye edge); instead we use the FIXED camera->tag-plane geometry: unproject
 each tag's center to a camera ray, take the angle between the rays, and combine with
 the perpendicular distance L = hypot(plane_mm, front_mm) ->  W = 2*L*tan(theta/2),
@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+from umi_flow_core.config import GRIPPER_ARUCO_DICTIONARY
 
-ARUCO_DICT = "DICT_4X4_50"  # the gripper tags' dictionary
-TARGET_IDS = (0, 1)
+ARUCO_DICT = GRIPPER_ARUCO_DICTIONARY
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ def detector_from_config(
     cfg: GripperConfig,
     width: int,
     height: int,
-    target_ids: tuple[int, int] = TARGET_IDS,
+    target_ids: tuple[int, int],
 ) -> GripperDetector:
     """Build a GripperDetector for a frame size, from cfg.calib_path or an identity calib.
 
@@ -115,14 +115,14 @@ def detector_from_config(
     (scripts/run.py) and the post-processing pipeline. A real calib is rescaled to the
     frame resolution (see scale_calib) so it stays metric whatever resolution the camera
     publishes; with no calib, an identity calib is built at the frame resolution.
-    ``target_ids`` are the two ArUco IDs on this arm's gripper (per-arm, so a camera that
-    glimpses the other gripper can't confuse them): umi1 = (0, 1), umi2 = (2, 3).
+    ``target_ids`` are the configured IDs on this arm's gripper. Per-arm pairs prevent a
+    camera that glimpses the other gripper from accepting the wrong markers.
     """
     if cfg.calib_path is not None:
         calib = scale_calib(load_calib(cfg.calib_path), width, height)
     else:
         calib = identity_calib(width, height)
-    return GripperDetector(calib, cfg.geom, cfg.roi_top_frac, target_ids)
+    return GripperDetector(calib, cfg.geom, target_ids, cfg.roi_top_frac)
 
 
 def load_calib(path: str | Path) -> FisheyeCalib:
@@ -189,15 +189,15 @@ class GripperDetector:
         self,
         calib: FisheyeCalib,
         geom: GripperGeometry,
+        target_ids: tuple[int, int],
         roi_top_frac: float = 0.0,
-        target_ids: tuple[int, int] = TARGET_IDS,
     ):
         import cv2  # lazy: only the detector needs cv2; the math above is pure numpy
 
         self.calib = calib
         self.geom = geom
         self.roi_top_frac = min(max(roi_top_frac, 0.0), 0.95)
-        self.target_ids = tuple(target_ids)  # this arm's two gripper tags (e.g. (0,1) or (2,3))
+        self.target_ids = tuple(target_ids)
         dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICT))
         self._detector = cv2.aruco.ArucoDetector(dictionary, cv2.aruco.DetectorParameters())
         self._cv2 = cv2

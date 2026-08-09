@@ -14,7 +14,7 @@ Each client requires:
 
 - [RoboSense Airy](https://store.robosense.ai/products/airy) lidar
 - [Arducam B0495 AR0234](https://www.arducam.com/downloads/datasheet/B0495_AR0234_Global_Shutter_USB3.0_Camera_Module_Datasheet.pdf) USB global-shutter camera
-- Two printed [ArUco gripper tags](tools/make_gripper_tags.py): IDs `0` and `1` on the leader, IDs `2` and `3` on the follower
+- Two printed [ArUco gripper tags](tools/make_gripper_tags.py), using the per-arm pairs in [config/gripper_tags.yaml](config/gripper_tags.yaml)
 
 | Role | Arm | Dataset name | Controls |
 | --- | --- | --- | --- |
@@ -50,6 +50,14 @@ config/calib/umi1_calib.npz
 config/calib/umi2_calib.npz
 ```
 
+The physical gripper-label assignments are defined once in `config/gripper_tags.yaml`.
+Its checked-in values match this rig. If the labels are replaced, update that file before
+generating a new tag sheet or provisioning either client.
+
+```sh
+uv run --group tools python tools/make_gripper_tags.py
+```
+
 Create the pair configuration:
 
 ```sh
@@ -72,7 +80,7 @@ Install the processing server, then both clients:
 ./bin/provision-pair
 ```
 
-The server installer selects GPU or CPU GLIM automatically. The client installer detects each camera, assigns roles, UMI names, tag IDs, ports, and calibration paths, configures clock synchronization, and reboots both Pis.
+The server installer selects GPU or CPU GLIM automatically. The client installer detects each camera, assigns roles and UMI names, reads tag IDs from the hardware config, sets ports and calibration paths, configures clock synchronization, and reboots both Pis.
 
 ## Verify
 

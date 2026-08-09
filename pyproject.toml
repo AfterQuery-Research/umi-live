@@ -11,6 +11,16 @@ package = false
 [tool.uv.workspace]
 members = ["common/umi-flow-core", "device", "server", "test-support"]
 
+[dependency-groups]
+tools = [
+    "matplotlib>=3.10",
+    "opencv-python-headless>=4.9.0",
+    "umi-flow-core",
+]
+
+[tool.uv.sources]
+umi-flow-core = { workspace = true }
+
 [tool.ruff]
 line-length = 100
 

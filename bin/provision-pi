@@ -29,13 +29,27 @@ case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 case "$LEADER" in *@*) ;; *) die "LEADER must be user@host" ;; esac
 case "$FOLLOWER" in *@*) ;; *) die "FOLLOWER must be user@host" ;; esac
 
+PYTHON="$ROOT/.venv/bin/python"; [ -x "$PYTHON" ] || PYTHON="python3"
+GRIPPER_TAG_CONFIG="$ROOT/config/gripper_tags.yaml"
+[ -f "$GRIPPER_TAG_CONFIG" ] || die "gripper tag config not found: $GRIPPER_TAG_CONFIG"
+
 if [ "$ROLE" = leader ]; then
-  PI="$LEADER"; UMI_NAME="umi1"; TAGS="2, 3"; CAMERA_CALIB="config/calib/umi1_calib.npz"
+  PI="$LEADER"; UMI_NAME="umi1"; CAMERA_CALIB="config/calib/umi1_calib.npz"
   DISPLAY_KIND="lcd"; PEER_HOST="${FOLLOWER#*@}"
 else
-  PI="$FOLLOWER"; UMI_NAME="umi2"; TAGS="0, 1"; CAMERA_CALIB="config/calib/umi2_calib.npz"
+  PI="$FOLLOWER"; UMI_NAME="umi2"; CAMERA_CALIB="config/calib/umi2_calib.npz"
   DISPLAY_KIND="none"; PEER_HOST=""
 fi
+TAGS="$(
+  PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" - "$GRIPPER_TAG_CONFIG" "$UMI_NAME" <<'PY'
+import sys
+
+from umi_flow_core.config import load_gripper_tag_pairs
+
+pair = load_gripper_tag_pairs(sys.argv[1])[sys.argv[2]]
+print(", ".join(str(tag_id) for tag_id in pair))
+PY
+)" || die "invalid gripper tag config: $GRIPPER_TAG_CONFIG"
 [ -f "$ROOT/$CAMERA_CALIB" ] || die "$ROLE camera calibration not found: $CAMERA_CALIB"
 
 PI_USER="${PI%@*}"
@@ -43,7 +57,6 @@ REMOTE_REPO="/home/$PI_USER/umi-flow"
 SPOOL_DIR="/home/$PI_USER/umi-recordings"
 SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
 pssh() { ssh "${SSH_OPTS[@]}" "$PI" "$@"; }
-PYTHON="$ROOT/.venv/bin/python"; [ -x "$PYTHON" ] || PYTHON="python3"
 
 CFG_TMP="$(mktemp)"; ENV_TMP="$(mktemp)"; SUDO_TEMP=0
 cleanup() {
@@ -126,7 +139,7 @@ UMI_FLOW_CONFIG=config/umi.yaml
 UMI_FLOW_SPOOL_DIR=$SPOOL_DIR
 $COORD_ENV
 ENV
-echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB spool=$SPOOL_DIR"
+echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB tags=[$TAGS] spool=$SPOOL_DIR"
 
 if [ "$DRY_RUN" = 1 ]; then
   echo "dry run complete: configuration validated; no files changed"

@@ -20,10 +20,10 @@ def _umi(name: str, tags: list[int], calib: str) -> dict:
 
 def test_client_role_is_derived_from_the_single_umi_name() -> None:
     leader = config.parse_rig_config(
-        {"version": 1, "umis": {"umi1": _umi("umi1", [2, 3], "leader.npz")}}
+        {"version": 1, "umis": {"umi1": _umi("umi1", [10, 11], "leader.npz")}}
     )
     follower = config.parse_rig_config(
-        {"version": 1, "umis": {"umi2": _umi("umi2", [0, 1], "follower.npz")}}
+        {"version": 1, "umis": {"umi2": _umi("umi2", [12, 13], "follower.npz")}}
     )
 
     assert config.client_role(leader) == "leader"
@@ -41,8 +41,8 @@ def test_client_role_rejects_solo_or_multi_umi_configs() -> None:
         {
             "version": 1,
             "umis": {
-                "umi1": _umi("umi1", [2, 3], "leader.npz"),
-                "umi2": _umi("umi2", [0, 1], "follower.npz"),
+                "umi1": _umi("umi1", [10, 11], "leader.npz"),
+                "umi2": _umi("umi2", [12, 13], "follower.npz"),
             },
         }
     )

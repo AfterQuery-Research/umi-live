@@ -1,18 +1,17 @@
-"""Generate a printable PDF sheet of ArUco gripper tags, grouped per arm.
+"""Generate a printable PDF sheet of configured ArUco gripper tags, grouped per arm.
 
 The gripper-width detector (server/src/umi_flow_server/gripper.py) reads two ArUco tags from
 DICT_4X4_50 on each gripper's two jaws. To keep the two arms unambiguous (so a camera
-that ever glimpses the other gripper can't confuse them), each arm uses its OWN pair:
-
-    umi1 gripper -> IDs 0 and 1
-    umi2 gripper -> IDs 2 and 3
+that ever glimpses the other gripper can't confuse them), each arm uses its own pair from
+config/gripper_tags.yaml.
 
 This lays out one labeled block per arm, each a grid of that arm's two tags alternating,
 at a fixed physical size INCLUDING the white quiet zone. Print, verify scale with a ruler,
-then cut out 0/1 pairs for umi1 and 2/3 pairs for umi2.
+then install each labeled block on the matching arm.
 
-    uv run --no-sync python tools/make_gripper_tags.py            # 20 mm, US Letter
-    uv run --no-sync python tools/make_gripper_tags.py --tag-mm 20 --page a4 --out tags.pdf
+    uv run --group tools python tools/make_gripper_tags.py            # 20 mm, US Letter
+    uv run --group tools python tools/make_gripper_tags.py --tag-mm 20 --page a4 --out tags.pdf
+    uv run --group tools python tools/make_gripper_tags.py --config config/gripper_tags.yaml
 
 IMPORTANT: print at 100% / "Actual Size" (NOT "Fit to page"), then check the 20 mm
 reference square at the top with a ruler before trusting the tags.
@@ -28,10 +27,10 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
+from umi_flow_core.config import GRIPPER_ARUCO_DICTIONARY, load_gripper_tag_pairs
 
-ARUCO_DICT = "DICT_4X4_50"  # must match server/src/umi_flow_server/gripper.py
-# One (id_a, id_b) pair per arm; must match the per-arm target IDs the detector uses.
-TAG_SETS = [("umi1", (0, 1)), ("umi2", (2, 3))]
+ARUCO_DICT = GRIPPER_ARUCO_DICTIONARY
+DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "gripper_tags.yaml"
 PAGES_MM = {"letter": (215.9, 279.4), "a4": (210.0, 297.0)}
 
 
@@ -80,7 +79,15 @@ def draw_tag(ax, x: float, y: float, tag_mm: float, marker_id: int, quiet_frac: 
     ax.text(x + 0.4, y + 0.4, str(marker_id), va="top", ha="left", fontsize=3.5, color="0.5")
 
 
-def build(out: Path, tag_mm: float, page: str, quiet_frac: float, margin_mm: float, gap_mm: float):
+def build(
+    out: Path,
+    tag_sets: list[tuple[str, tuple[int, int]]],
+    tag_mm: float,
+    page: str,
+    quiet_frac: float,
+    margin_mm: float,
+    gap_mm: float,
+) -> None:
     pw, ph = PAGES_MM[page]
     fig = plt.figure(figsize=(pw / 25.4, ph / 25.4))
     ax = fig.add_axes([0, 0, 1, 1])
@@ -90,7 +97,7 @@ def build(out: Path, tag_mm: float, page: str, quiet_frac: float, margin_mm: flo
     ax.axis("off")
     ax.invert_yaxis()  # origin top-left, like a page
 
-    sets_desc = ", ".join(f"{arm} {a}/{b}" for arm, (a, b) in TAG_SETS)
+    sets_desc = ", ".join(f"{arm} {a}/{b}" for arm, (a, b) in tag_sets)
     ax.text(
         margin_mm,
         8,
@@ -127,12 +134,12 @@ def build(out: Path, tag_mm: float, page: str, quiet_frac: float, margin_mm: flo
     sub_mm = 6.0  # height reserved for each block's subheader
     # split the remaining page height evenly across the arm blocks
     avail = ph - top - margin_mm
-    block_h = (avail - (len(TAG_SETS) - 1) * gap_mm) / len(TAG_SETS)
+    block_h = (avail - (len(tag_sets) - 1) * gap_mm) / len(tag_sets)
     rows_per_block = max(1, int((block_h - sub_mm + gap_mm) // pitch))
 
     total = 0
     y_block = top
-    for arm, ids in TAG_SETS:
+    for arm, ids in tag_sets:
         ax.text(
             margin_mm,
             y_block,
@@ -154,7 +161,7 @@ def build(out: Path, tag_mm: float, page: str, quiet_frac: float, margin_mm: flo
         pdf.savefig(fig)
     plt.close(fig)
     print(
-        f"wrote {out}  ({len(TAG_SETS)} arm blocks, {ncols}x{rows_per_block} tags each = "
+        f"wrote {out}  ({len(tag_sets)} arm blocks, {ncols}x{rows_per_block} tags each = "
         f"{total} total, {sets_desc}, {tag_mm:g} mm on {page})"
     )
 
@@ -162,6 +169,12 @@ def build(out: Path, tag_mm: float, page: str, quiet_frac: float, margin_mm: flo
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--out", type=Path, default=Path("gripper_tags_4x4_20mm.pdf"))
+    p.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="physical tag assignment config (default: config/gripper_tags.yaml)",
+    )
     p.add_argument("--tag-mm", type=float, default=20.0, help="tag size incl. white border (mm)")
     p.add_argument("--page", choices=list(PAGES_MM), default="letter")
     p.add_argument(
@@ -173,7 +186,8 @@ def main() -> None:
     p.add_argument("--margin-mm", type=float, default=12.0)
     p.add_argument("--gap-mm", type=float, default=4.0, help="gutter between tags for cutting")
     a = p.parse_args()
-    build(a.out, a.tag_mm, a.page, a.quiet_frac, a.margin_mm, a.gap_mm)
+    tag_sets = list(load_gripper_tag_pairs(a.config).items())
+    build(a.out, tag_sets, a.tag_mm, a.page, a.quiet_frac, a.margin_mm, a.gap_mm)
 
 
 if __name__ == "__main__":

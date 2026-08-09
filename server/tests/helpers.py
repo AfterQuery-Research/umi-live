@@ -22,6 +22,8 @@ from umi_flow_device.sensors import SensorStats
 from umi_flow_test_support import MockLidarPcapRecorder
 
 FRAME_PERIOD_NS = 33_333_333
+ROOT = Path(__file__).resolve().parents[2]
+GRIPPER_TAG_PAIRS = core_config.load_gripper_tag_pairs(ROOT / "config/gripper_tags.yaml")
 
 
 class CvCameraRecorder:
@@ -94,7 +96,7 @@ def write_client_config(config_root: Path, umi_name: str) -> Path:
                     "calib": f"config/calib/{umi_name}_calib.npz",
                 },
                 "lidar": {"iface": "eth0", "host_ip": "192.168.1.102"},
-                "gripper": {"tag_ids": list(core_config.GRIPPER_TAGS[umi_name])},
+                "gripper": {"tag_ids": list(GRIPPER_TAG_PAIRS[umi_name])},
             }
         },
     }

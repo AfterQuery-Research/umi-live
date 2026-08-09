@@ -220,6 +220,41 @@ def test_rejects_overlapping_tag_ids():
         cfg.parse_rig_config(bad)
 
 
+@pytest.mark.parametrize("tag_ids", [[-1, 2], [2, 50], [2, 2], [2, 3.0], [True, 3]])
+def test_rejects_invalid_gripper_tag_pair(tag_ids):
+    import copy
+
+    bad = copy.deepcopy(CLIENT)
+    bad["umis"]["umi1"]["gripper"]["tag_ids"] = tag_ids
+    with pytest.raises(cfg.ConfigError, match="tag_ids"):
+        cfg.parse_rig_config(bad)
+
+
+def test_loads_physical_gripper_tag_config(tmp_path):
+    path = tmp_path / "gripper_tags.yaml"
+    path.write_text(
+        "version: 1\n"
+        "dictionary: DICT_4X4_50\n"
+        "umis:\n"
+        "  umi1: {tag_ids: [10, 11]}\n"
+        "  umi2: {tag_ids: [12, 13]}\n"
+    )
+    assert cfg.load_gripper_tag_pairs(path) == {"umi1": (10, 11), "umi2": (12, 13)}
+
+
+def test_physical_gripper_tag_config_rejects_overlap(tmp_path):
+    path = tmp_path / "gripper_tags.yaml"
+    path.write_text(
+        "version: 1\n"
+        "dictionary: DICT_4X4_50\n"
+        "umis:\n"
+        "  umi1: {tag_ids: [10, 11]}\n"
+        "  umi2: {tag_ids: [11, 12]}\n"
+    )
+    with pytest.raises(cfg.ConfigError, match="overlap"):
+        cfg.load_gripper_tag_pairs(path)
+
+
 def test_referenced_blobs():
     rig = cfg.parse_rig_config(DUAL)
     blobs = cfg.referenced_blobs(rig)

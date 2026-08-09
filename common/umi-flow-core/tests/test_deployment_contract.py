@@ -6,6 +6,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from umi_flow_core import config
+
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -152,6 +154,8 @@ esac
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "follower client ready" in result.stdout
+    follower_tags = config.load_gripper_tag_pairs(ROOT / "config/gripper_tags.yaml")["umi2"]
+    assert f"tags=[{follower_tags[0]}, {follower_tags[1]}]" in result.stdout
     assert (state / "rebooted").exists()
     assert (state / "cleanup_after_reboot").exists()
     assert not (state / "cleanup_before_reboot").exists()
