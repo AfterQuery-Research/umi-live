@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from robot_umi_server.server import ServerConfig, create_app
+from umi_flow_server.server import ServerConfig, create_app
 
 from tests.helpers import make_episode_tar, make_v2_episode
 

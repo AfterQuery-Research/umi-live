@@ -16,11 +16,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from robot_umi_server import pair_stage
-from robot_umi_server.dataset_stage import run as dataset_run
-from robot_umi_server.runner import Executor, Runner, default_stages
-from robot_umi_server.server import ServerConfig, create_app
-from robot_umi_server.trajectory import PoseTrack, write_tum
+from umi_flow_server import pair_stage
+from umi_flow_server.dataset_stage import run as dataset_run
+from umi_flow_server.runner import Executor, Runner, default_stages
+from umi_flow_server.server import ServerConfig, create_app
+from umi_flow_server.trajectory import PoseTrack, write_tum
 
 from tests.helpers import frame_unix_times, make_arm_episode, make_episode_tar
 

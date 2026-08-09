@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from robot_umi_core import config as core_config
-from robot_umi_core import layout, manifest
-from robot_umi_device.episode import EpisodeRecorder, write_checksums
-from robot_umi_device.mock_lidar import MockLidarPcapRecorder
-from robot_umi_device.pcap import read_udp_packets
-from robot_umi_device.sensors import SensorStats
+from umi_flow_core import config as core_config
+from umi_flow_core import layout, manifest
+from umi_flow_device.episode import EpisodeRecorder, write_checksums
+from umi_flow_device.pcap import read_udp_packets
+from umi_flow_device.sensors import SensorStats
+from umi_flow_test_support import MockLidarPcapRecorder
 
 
 class FakeCameraRecorder:

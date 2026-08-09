@@ -29,7 +29,7 @@
     // override > its own DIFOP packet > this default) and passes it as $T_LIDAR_IMU,
     // which the entrypoint splices in here at run time — so a bimanual rig's two lidars
     // each get their own calibration automatically. Keep this array equal to
-    // robot_umi_core.difop.DEFAULT_AIRY_T_LIDAR_IMU.
+    // umi_flow_core.difop.DEFAULT_AIRY_T_LIDAR_IMU.
     "T_lidar_imu": [0.00425, 0.00418, -0.00446, 0.707999, -0.706198, 0.003362, 0.003284],
     // Field names in the decoded PointCloud2: umi-decode builds rslidar_sdk
     // with POINT_TYPE=XYZIRT -> fields x,y,z,intensity,ring,timestamp.

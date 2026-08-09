@@ -1,6 +1,6 @@
 """Generate a printable PDF sheet of ArUco gripper tags, grouped per arm.
 
-The gripper-width detector (server/src/robot_umi_server/gripper.py) reads two ArUco tags from
+The gripper-width detector (server/src/umi_flow_server/gripper.py) reads two ArUco tags from
 DICT_4X4_50 on each gripper's two jaws. To keep the two arms unambiguous (so a camera
 that ever glimpses the other gripper can't confuse them), each arm uses its OWN pair:
 
@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 
-ARUCO_DICT = "DICT_4X4_50"  # must match server/src/robot_umi_server/gripper.py
+ARUCO_DICT = "DICT_4X4_50"  # must match server/src/umi_flow_server/gripper.py
 # One (id_a, id_b) pair per arm; must match the per-arm target IDs the detector uses.
 TAG_SETS = [("umi1", (0, 1)), ("umi2", (2, 3))]
 PAGES_MM = {"letter": (215.9, 279.4), "a4": (210.0, 297.0)}

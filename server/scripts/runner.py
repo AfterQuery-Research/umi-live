@@ -11,8 +11,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from robot_umi_server import align_stage, dataset_stage, gripper_stage
-from robot_umi_server.runner import Executor, Runner, default_stages
+from umi_flow_server import align_stage, dataset_stage, gripper_stage
+from umi_flow_server.runner import Executor, Runner, default_stages
 
 
 def main() -> None:

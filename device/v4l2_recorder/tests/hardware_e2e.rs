@@ -7,7 +7,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn recorder_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_robot-umi-v4l2-recorder"))
+    PathBuf::from(env!("CARGO_BIN_EXE_umi-flow-v4l2-recorder"))
 }
 
 fn temp_dir() -> PathBuf {
@@ -16,7 +16,7 @@ fn temp_dir() -> PathBuf {
         .unwrap()
         .as_nanos();
     env::temp_dir().join(format!(
-        "robot_umi_v4l2_hardware_e2e_{}_{}",
+        "umi_flow_v4l2_hardware_e2e_{}_{}",
         std::process::id(),
         nanos
     ))
@@ -65,7 +65,7 @@ fn records_real_camera_video_sidecar_and_stats() {
 
     let output = Command::new(recorder_bin())
         .arg("--device")
-        .arg(env_or_default("ROBOT_UMI_V4L2_DEVICE", "/dev/video0"))
+        .arg(env_or_default("UMI_FLOW_V4L2_DEVICE", "/dev/video0"))
         .arg("--output")
         .arg(&output_path)
         .arg("--timestamps")
@@ -73,13 +73,13 @@ fn records_real_camera_video_sidecar_and_stats() {
         .arg("--stats")
         .arg(&stats_path)
         .arg("--width")
-        .arg(env_or_default("ROBOT_UMI_V4L2_WIDTH", "1920"))
+        .arg(env_or_default("UMI_FLOW_V4L2_WIDTH", "1920"))
         .arg("--height")
-        .arg(env_or_default("ROBOT_UMI_V4L2_HEIGHT", "1200"))
+        .arg(env_or_default("UMI_FLOW_V4L2_HEIGHT", "1200"))
         .arg("--fps")
-        .arg(env_or_default("ROBOT_UMI_V4L2_FPS", "30"))
+        .arg(env_or_default("UMI_FLOW_V4L2_FPS", "30"))
         .arg("--seconds")
-        .arg(env_or_default("ROBOT_UMI_V4L2_SECONDS", "3"))
+        .arg(env_or_default("UMI_FLOW_V4L2_SECONDS", "3"))
         .output()
         .unwrap();
 

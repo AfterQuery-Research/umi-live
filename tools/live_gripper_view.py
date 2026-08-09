@@ -2,7 +2,7 @@
 """Live gripper-width viewer: streams both Pis' cameras, overlays ArUco detections and
 the computed width per arm, and serves a browser page. Run from the repo root:
 
-    uv run --package robot-umi-server python tools/live_gripper_view.py
+    uv run --package umi-flow-server python tools/live_gripper_view.py
     # then open http://localhost:8899
 
 Per-frame overlay: every detected tag (outline + id), the arm's configured pair joined
@@ -21,7 +21,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server" / "src"))
-from robot_umi_server import gripper  # noqa: E402
+from umi_flow_server import gripper  # noqa: E402
 
 # Per-arm camera->tag geometry: the cameras were remounted at different forward
 # offsets (2026-08-07), so the arms no longer share one GripperGeometry.

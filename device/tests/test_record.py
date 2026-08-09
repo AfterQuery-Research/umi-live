@@ -6,7 +6,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from robot_umi_device.buttons import Event
+from umi_flow_device.buttons import Event
 
 RECORD_PATH = Path(__file__).resolve().parents[1] / "scripts" / "record.py"
 spec = importlib.util.spec_from_file_location("record", RECORD_PATH)
@@ -59,6 +59,28 @@ class SequenceButtons:
 class UnavailableFollower:
     def start_take(self, _session_id: str):
         return None
+
+
+def test_legacy_environment_names_remain_accepted(tmp_path: Path, monkeypatch):
+    config = tmp_path / "legacy.yaml"
+    spool = tmp_path / "legacy-spool"
+    monkeypatch.delenv(record.core_config.CONFIG_ENV_VAR, raising=False)
+    monkeypatch.delenv(record.SPOOL_DIR_ENV, raising=False)
+    monkeypatch.setenv(record.core_config.LEGACY_CONFIG_ENV_VAR, str(config))
+    monkeypatch.setenv(record.LEGACY_SPOOL_DIR_ENV, str(spool))
+
+    assert record.resolve_config_path(record.Args()) == config
+    assert record.resolve_spool_dir(None) == spool
+
+
+def test_existing_legacy_default_spool_is_not_stranded(tmp_path: Path, monkeypatch):
+    legacy = tmp_path / record.LEGACY_DEFAULT_SPOOL_DIR
+    legacy.mkdir()
+    monkeypatch.delenv(record.SPOOL_DIR_ENV, raising=False)
+    monkeypatch.delenv(record.LEGACY_SPOOL_DIR_ENV, raising=False)
+    monkeypatch.setattr(record, "device_root", lambda: tmp_path)
+
+    assert record.resolve_spool_dir(None) == legacy
 
 
 def test_spool_has_data_ignores_empty_scaffolding(tmp_path: Path):

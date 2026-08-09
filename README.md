@@ -40,7 +40,7 @@ Clone only on the machine running setup. The provisioning commands copy the repo
 git clone https://github.com/AfterQuery-Research/umi-flow.git
 cd umi-flow
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --package robot-umi-core
+uv sync --package umi-flow-core
 ```
 
 Replace the two camera calibrations at these fixed paths:

@@ -112,18 +112,18 @@ umis:
       tag_ids: [$TAGS]
       stride: 2
 YAML
-PYTHONPATH="$ROOT/common/robot-umi-core/src" "$PYTHON" -c \
-  'import sys; from robot_umi_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
+PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" -c \
+  'import sys; from umi_flow_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
   "$CFG_TMP" "$ROLE"
 
 COORD_ENV=""
 if [ "$ROLE" = leader ]; then
-  COORD_ENV="ROBOT_UMI_PEER=$PEER_HOST:9140"
+  COORD_ENV="UMI_FLOW_PEER=$PEER_HOST:9140"
 fi
 cat > "$ENV_TMP" <<ENV
 # Rendered by bin/provision-pi. Re-run bin/provision-pair to change it.
-ROBOT_UMI_CONFIG=config/umi.yaml
-ROBOT_UMI_SPOOL_DIR=$SPOOL_DIR
+UMI_FLOW_CONFIG=config/umi.yaml
+UMI_FLOW_SPOOL_DIR=$SPOOL_DIR
 $COORD_ENV
 ENV
 echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB spool=$SPOOL_DIR"

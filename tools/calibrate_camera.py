@@ -14,7 +14,7 @@ Two input modes:
     uv run tools/calibrate_camera.py --video umi1_camera.mjpeg.avi --board 9x6 \
         --out config/calib/umi1_calib.npz
 
-Output keys (the contract server/src/robot_umi_server/gripper.py:load_calib reads):
+Output keys (the contract server/src/umi_flow_server/gripper.py:load_calib reads):
 K (3,3), dist (4,1) Kannala-Brandt k1..k4, image_size [w,h], model="fisheye".
 Calibrate at the camera's RECORDING resolution — K is rescaled automatically at use,
 but the distortion solve is only as good as the frames it saw. Square size does not

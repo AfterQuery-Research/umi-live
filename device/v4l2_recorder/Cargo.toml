@@ -1,5 +1,5 @@
 [package]
-name = "robot-umi-v4l2-recorder"
+name = "umi-flow-v4l2-recorder"
 version = "0.1.0"
 edition = "2024"
 

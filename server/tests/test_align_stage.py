@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from robot_umi_core import geom
-from robot_umi_server import align_stage as A
-from robot_umi_server.trajectory import PoseTrack
 from scipy.spatial.transform import Rotation as R
+from umi_flow_core import geom
+from umi_flow_server import align_stage as A
+from umi_flow_server.trajectory import PoseTrack
 
 
 def _track(n: int) -> PoseTrack:

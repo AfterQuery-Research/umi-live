@@ -6,9 +6,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from robot_umi_core import config as core_config
-from robot_umi_server.dataset_stage import already_appended, mark_appended, pose_track_for_umi
-from robot_umi_server.trajectory import PoseTrack, write_tum
+from umi_flow_core import config as core_config
+from umi_flow_server.dataset_stage import already_appended, mark_appended, pose_track_for_umi
+from umi_flow_server.trajectory import PoseTrack, write_tum
 
 
 def test_append_ledger_records_and_detects_episodes(tmp_path: Path):

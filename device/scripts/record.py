@@ -18,13 +18,13 @@ from pathlib import Path
 from typing import Literal
 
 import tyro
-from robot_umi_core import config as core_config
-from robot_umi_core import layout
-from robot_umi_core.ports import bpf_filter
-from robot_umi_device import coordinator
-from robot_umi_device.buttons import Buttons, Event, GpioButtons, KeyboardButtons
-from robot_umi_device.camera import RustV4L2Camera
-from robot_umi_device.display import (
+from umi_flow_core import config as core_config
+from umi_flow_core import layout
+from umi_flow_core.ports import bpf_filter
+from umi_flow_device import coordinator
+from umi_flow_device.buttons import Buttons, Event, GpioButtons, KeyboardButtons
+from umi_flow_device.camera import RustV4L2Camera
+from umi_flow_device.display import (
     ST7789,
     UPLOAD_FAIL,
     UPLOAD_OK,
@@ -32,15 +32,18 @@ from robot_umi_device.display import (
     NullDisplay,
     StatusDisplay,
 )
-from robot_umi_device.episode import EpisodeRecorder
-from robot_umi_device.lidar_monitor import LidarMonitor
-from robot_umi_device.mock_lidar import MockLidarPcapRecorder
-from robot_umi_device.ptp import chrony_status, probe_ptp
-from robot_umi_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
-from robot_umi_device.uploader import DEFAULT_UPLOAD_TIMEOUT_SECONDS, AsyncUploader
+from umi_flow_device.episode import EpisodeRecorder
+from umi_flow_device.lidar_monitor import LidarMonitor
+from umi_flow_device.ptp import chrony_status, probe_ptp
+from umi_flow_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
+from umi_flow_device.uploader import DEFAULT_UPLOAD_TIMEOUT_SECONDS, AsyncUploader
 
-SPOOL_DIR_ENV = "ROBOT_UMI_SPOOL_DIR"
-PEER_ENV = "ROBOT_UMI_PEER"
+SPOOL_DIR_ENV = "UMI_FLOW_SPOOL_DIR"
+LEGACY_SPOOL_DIR_ENV = "ROBOT_UMI_SPOOL_DIR"
+PEER_ENV = "UMI_FLOW_PEER"
+LEGACY_PEER_ENV = "ROBOT_UMI_PEER"
+DEFAULT_SPOOL_DIR = "umi_flow_spool"
+LEGACY_DEFAULT_SPOOL_DIR = "robot_umi_spool"
 UPLOAD_URL = "http://127.0.0.1:8080/upload"
 
 # Follower watchdog: if a STOP is ever lost (leader crash / WiFi blip), auto-finish a take
@@ -50,14 +53,13 @@ MAX_TAKE_S = 1800.0
 
 @dataclass
 class Args:
-    config: Path | None = None  # rig YAML; falls back to $ROBOT_UMI_CONFIG
-    spool_dir: Path | None = None  # falls back to $ROBOT_UMI_SPOOL_DIR, else robot_umi_spool
+    config: Path | None = None  # rig YAML; falls back to $UMI_FLOW_CONFIG
+    spool_dir: Path | None = None  # falls back to $UMI_FLOW_SPOOL_DIR, else umi_flow_spool
     buttons: Literal["keyboard", "gpio"] = "keyboard"
     # "auto" = take the LCD kind + control pins from the rig config's controls.display;
     # "none"/"lcd" force it (dev off-Pi wants --display none). Button pins always come
     # from controls.buttons.
     display: Literal["auto", "none", "lcd"] = "auto"
-    mock_lidar: bool = False  # synthetic pcap instead of tcpdump (dev/CI)
     retry_seconds: float = 5.0
     upload_timeout_seconds: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS
     wait_on_quit: bool = False
@@ -71,16 +73,32 @@ def device_root() -> Path:
 def resolve_config_path(args: Args) -> Path:
     if args.config is not None:
         return args.config.expanduser().resolve()
-    env = os.environ.get(core_config.CONFIG_ENV_VAR)
+    env = os.environ.get(core_config.CONFIG_ENV_VAR) or os.environ.get(
+        core_config.LEGACY_CONFIG_ENV_VAR
+    )
     if env:
         return Path(env).expanduser().resolve()
-    raise SystemExit(f"no rig config: pass --config or set ${core_config.CONFIG_ENV_VAR}")
+    raise SystemExit(
+        f"no rig config: pass --config or set ${core_config.CONFIG_ENV_VAR} "
+        f"(legacy ${core_config.LEGACY_CONFIG_ENV_VAR} is also accepted)"
+    )
 
 
 def resolve_spool_dir(path: Path | None) -> Path:
     if path is None:
-        env = os.environ.get(SPOOL_DIR_ENV)
-        path = Path(env) if env else Path("robot_umi_spool")
+        env = os.environ.get(SPOOL_DIR_ENV) or os.environ.get(LEGACY_SPOOL_DIR_ENV)
+        if env:
+            path = Path(env)
+        else:
+            new_default = device_root() / DEFAULT_SPOOL_DIR
+            legacy_default = device_root() / LEGACY_DEFAULT_SPOOL_DIR
+            # Do not strand pending data during the naming migration. New installs use the
+            # UMI Flow path; an existing legacy spool remains authoritative until moved.
+            return (
+                legacy_default
+                if legacy_default.exists() and not new_default.exists()
+                else new_default
+            )
     expanded = path.expanduser()
     return expanded if expanded.is_absolute() else device_root() / expanded
 
@@ -138,12 +156,9 @@ def build_sensors(
         sensors[cam_key] = cam
 
         lidar_key = layout.sensor_key(u.name, layout.KIND_LIDAR)
-        if args.mock_lidar:
-            sensors[lidar_key] = MockLidarPcapRecorder(lidar_key)
-        else:
-            sensors[lidar_key] = LidarPcapRecorder(
-                lidar_key, u.lidar.iface, bpf_filter(u.lidar.host_ip)
-            )
+        sensors[lidar_key] = LidarPcapRecorder(
+            lidar_key, u.lidar.iface, bpf_filter(u.lidar.host_ip)
+        )
         monitor = LidarMonitor()
         monitor.start()
         monitors[u.name] = monitor
@@ -377,9 +392,11 @@ def main(args: Args) -> None:
         )
     else:
         buttons = make_buttons(rig, args)
-        peer = os.environ.get(PEER_ENV)
+        peer = os.environ.get(PEER_ENV) or os.environ.get(LEGACY_PEER_ENV)
         if not peer:
-            raise SystemExit(f"leader config requires ${PEER_ENV}")
+            raise SystemExit(
+                f"leader config requires ${PEER_ENV} (legacy ${LEGACY_PEER_ENV} is also accepted)"
+            )
         leader = coordinator.Leader(peer)
         print(f"rig: {rig.n_umis} UMI, role leader; s/e/c/q or buttons")
 

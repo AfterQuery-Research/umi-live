@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from robot_umi_server.episode import extract_episode
+from umi_flow_server.episode import extract_episode
 
 
 def make_episode(path: Path, episode_name: str = "episode_test") -> Path:

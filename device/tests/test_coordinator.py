@@ -6,7 +6,7 @@ import socket
 import threading
 import time
 
-from robot_umi_device import coordinator
+from umi_flow_device import coordinator
 
 
 def _drain(f: coordinator.Follower, timeout: float = 1.0) -> coordinator.Command:

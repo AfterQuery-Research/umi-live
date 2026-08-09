@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from robot_umi_server.runner import Executor, Runner, StageRun, default_stages
+from umi_flow_server.runner import Executor, Runner, StageRun, default_stages
 
 from tests.helpers import make_paired_episode
 

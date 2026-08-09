@@ -2,7 +2,7 @@
 """Episode-collection dashboard: live view of the record -> upload -> process -> Hub
 pipeline while collecting training data. Run from the repo root on the workstation:
 
-    uv run --package robot-umi-server python tools/collect_dashboard.py
+    uv run --package umi-flow-server python tools/collect_dashboard.py
     # then open http://localhost:8900
 
 Shows, refreshed every ~3 s: episodes on the Hub, episodes mid-pipeline on the server

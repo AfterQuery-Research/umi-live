@@ -1,5 +1,5 @@
 [project]
-name = "robot-umi-server"
+name = "umi-flow-server"
 version = "0.1.0"
 description = "Paired ingest, GLIM pipeline, and local LeRobot dataset generation"
 requires-python = ">=3.12"
@@ -12,7 +12,7 @@ dependencies = [
     # lack the GTK system libraries the default opencv-python wheel loads.
     # Floor sits inside lerobot's opencv-python-headless>=4.9,<4.14 window.
     "opencv-python-headless>=4.9.0",
-    "robot-umi-core",
+    "umi-flow-core",
     "scipy>=1.14",
     "uvicorn>=0.51.0",
 ]
@@ -36,14 +36,16 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "robot-umi-device",
+    "umi-flow-device",
+    "umi-flow-test-support",
     "ruff>=0.15.21",
     "ty>=0.0.57",
 ]
 
 [tool.uv.sources]
-robot-umi-device = { workspace = true }
-robot-umi-core = { workspace = true }
+umi-flow-device = { workspace = true }
+umi-flow-core = { workspace = true }
+umi-flow-test-support = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

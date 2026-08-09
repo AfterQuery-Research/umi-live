@@ -7,11 +7,11 @@ WORKDIR /app
 COPY docker/ingest/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY common/robot-umi-core/src ./common/robot-umi-core/src
+COPY common/umi-flow-core/src ./common/umi-flow-core/src
 COPY server/src ./server/src
 COPY server/scripts/server.py ./server/scripts/server.py
 
-ENV PYTHONPATH="/app/common/robot-umi-core/src:/app/server/src"
+ENV PYTHONPATH="/app/common/umi-flow-core/src:/app/server/src"
 EXPOSE 8080
 
 ENTRYPOINT ["python", "server/scripts/server.py"]

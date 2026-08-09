@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 import uvicorn
-from robot_umi_server.server import ServerConfig, create_app
+from umi_flow_server.server import ServerConfig, create_app
 
 
 def main() -> None:

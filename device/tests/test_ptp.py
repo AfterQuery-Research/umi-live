@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from robot_umi_device import ptp
+from umi_flow_device import ptp
 
 _TRACKING = """Reference ID    : 0A000001 (10.0.0.1)
 Stratum         : 3
