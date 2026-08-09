@@ -17,6 +17,9 @@ MANIFEST_FILE = "manifest.json"
 # rejected if the extracted members would exceed this budget. Sized for the
 # largest expected episode (a ~3 min 1920x1200@30 MJPEG capture is a few GiB).
 DEFAULT_MAX_EXTRACT_BYTES = 8 * 1024 * 1024 * 1024
+# Keep enough space for the OS and for stages to fail cleanly instead of filling
+# the processing server's filesystem completely.
+DEFAULT_MIN_FREE_BYTES = 16 * 1024 * 1024 * 1024
 
 
 def extract_episode(

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+import umi_flow_server.runner as runner_module
 from umi_flow_server.runner import Executor, Runner, StageRun, default_stages
 
 from tests.helpers import make_paired_episode
@@ -109,6 +113,66 @@ def test_failed_stage_blocks_dependents_not_siblings(tmp_path: Path):
     assert ("glim", "umi2") not in calls  # blocked by its failed decode
     assert ("dataset", "") not in calls  # needs glim for BOTH lidar umis
     assert len(runner.failed) == 1
+
+
+def test_failed_stage_retries_after_backoff(tmp_path: Path):
+    data_dir, _ = publish(tmp_path)
+    calls = 0
+    now = [100.0]
+
+    def flaky(_episode_dir: Path, _out_dir: Path, _scope: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("transient")
+
+    stage = runner_module.StageDef(name="flaky", scopes=lambda _m, _rig: [""], fn=flaky)
+    runner = Runner(
+        data_dir=data_dir,
+        stages=[stage],
+        executor=Executor(data_dir),
+        retry_initial_s=10.0,
+        retry_max_s=60.0,
+        now_fn=lambda: now[0],
+    )
+
+    assert runner.scan_once() == 0
+    assert calls == 1
+    assert runner.scan_once() == 0
+    assert calls == 1
+    now[0] += 10.0
+    assert runner.scan_once() == 1
+    assert calls == 2
+    assert runner.failed == {}
+
+
+def test_runner_pauses_when_disk_reserve_is_reached(tmp_path: Path, monkeypatch):
+    data_dir, _ = publish(tmp_path)
+    runner = make_runner(data_dir, [])
+    runner.min_free_bytes = 100
+    monkeypatch.setattr(runner_module.shutil, "disk_usage", lambda _path: SimpleNamespace(free=99))
+
+    assert runner.ready_runs() == []
+
+
+def test_executor_reports_stage_timeout(tmp_path: Path, monkeypatch):
+    calls: list[list[str]] = []
+
+    def timeout(cmd, **_kwargs):
+        calls.append(cmd)
+        if "compose" in cmd:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=7)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(runner_module.subprocess, "run", timeout)
+    executor = Executor(tmp_path, timeout_s=7)
+    stage = default_stages()[0]
+    run = StageRun("episode", stage.name, "umi1")
+
+    with pytest.raises(RuntimeError, match="timed out after 7s"):
+        executor.run(stage, run, tmp_path / "input", tmp_path / "output")
+    assert calls[0][4:6] == ["--name", executor._container_name(run)]
+    assert calls[1] == ["docker", "rm", "-f", executor._container_name(run)]
 
 
 def test_glim_stage_carries_extrinsic_env_fn():

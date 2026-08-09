@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,43 +51,70 @@ DEFAULT_RGB_ENCODER_VCODEC = "h264"
 
 @dataclass(frozen=True)
 class FrameStream:
-    """One UMI's decoded video + per-frame unix timestamps (seconds)."""
+    """One UMI's video path + per-frame unix timestamps (seconds)."""
 
-    images: list[np.ndarray]
+    video_path: Path
     t: np.ndarray
 
 
-def decode_video(path: Path) -> list[np.ndarray]:
-    import cv2
+class _SequentialVideoReader:
+    """Decode monotonically requested frames while retaining only the latest one."""
 
-    cap = cv2.VideoCapture(str(path))
-    try:
-        frames: list[np.ndarray] = []
-        while True:
-            ok, frame_bgr = cap.read()
+    def __init__(self, path: Path, expected_frames: int):
+        import cv2
+
+        self.path = path
+        self._cv2 = cv2
+        self._cap = cv2.VideoCapture(str(path))
+        self._index = -1
+        self._image: np.ndarray | None = None
+        if not self._cap.isOpened():
+            self._cap.release()
+            raise ValueError(f"{path}: cannot open video")
+        reported_frames = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if reported_frames > 0 and reported_frames != expected_frames:
+            self._cap.release()
+            raise ValueError(
+                f"{path}: frames jsonl count {expected_frames} "
+                f"!= video frames {reported_frames}"
+            )
+
+    def frame(self, index: int) -> np.ndarray:
+        if index < self._index:
+            raise ValueError(f"{self.path}: cannot seek backward from {self._index} to {index}")
+        while self._index < index:
+            ok, frame_bgr = self._cap.read()
             if not ok:
-                break
-            frames.append(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-        return frames
-    finally:
-        cap.release()
+                raise ValueError(f"{self.path}: video ended at frame {self._index + 1}")
+            self._image = self._cv2.cvtColor(frame_bgr, self._cv2.COLOR_BGR2RGB)
+            self._index += 1
+        if self._image is None:
+            raise ValueError(f"{self.path}: video has no frames")
+        return self._image
+
+    def close(self) -> None:
+        self._cap.release()
+
+    def __enter__(self) -> _SequentialVideoReader:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
 
 
 def load_frame_stream(episode_dir: Path, umi: str) -> FrameStream:
     files = layout.sensor_files(layout.sensor_key(umi, layout.KIND_CAMERA))
-    images = decode_video(episode_dir / files["video"])
     ts = []
     for line in (episode_dir / files["frames"]).read_text().splitlines():
         if not line.strip():
             continue
         ts.append(int(json.loads(line)["time_unix_ns"]) / 1e9)
-    if not images:
-        raise ValueError(f"{umi}: video has no frames")
-    if len(images) != len(ts):
-        raise ValueError(
-            f"{umi}: frames jsonl count {len(ts)} != decoded video frames {len(images)}"
-        )
-    return FrameStream(images=images, t=np.asarray(ts, dtype=np.float64))
+    if not ts:
+        raise ValueError(f"{umi}: frames jsonl has no frames")
+    return FrameStream(
+        video_path=episode_dir / files["video"],
+        t=np.asarray(ts, dtype=np.float64),
+    )
 
 
 def pose_track_for_umi(
@@ -303,27 +331,34 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     }
 
     # --- write the LeRobot episode -----------------------------------------------------
-    dataset = open_dataset(repo_id, dataset_root, derived)
-
-    task = m.get("task", rig.task)
-    for i in range(n_frames):
-        frame: dict[str, Any] = {
-            "observation.state": states[i],
-            "action": actions[i],
-            "task": task,
+    with ExitStack() as stack:
+        readers = {
+            name: stack.enter_context(_SequentialVideoReader(stream.video_path, len(stream.t)))
+            for name, stream in streams.items()
         }
-        for u in rig.umis:
-            stream = streams[u.name]
-            # umi1 defines the timeline; other UMIs use their nearest-past frame.
-            j = i if u.name == rig.umis[0].name else _nearest_past(stream.t, timeline[i])
-            frame[derived.video_keys[u.name]] = stream.images[j]
-            width = grippers.get(u.name)
-            if width is not None:
-                frame[derived.gripper_keys[u.name]] = np.asarray([width[i]], dtype=np.float32)
-            elif u.name in derived.gripper_keys:
-                frame[derived.gripper_keys[u.name]] = np.zeros(1, dtype=np.float32)
-        dataset.add_frame(frame)
-    dataset.save_episode()
+        dataset = open_dataset(repo_id, dataset_root, derived)
+
+        task = m.get("task", rig.task)
+        for i in range(n_frames):
+            frame: dict[str, Any] = {
+                "observation.state": states[i],
+                "action": actions[i],
+                "task": task,
+            }
+            for u in rig.umis:
+                stream = streams[u.name]
+                # umi1 defines the timeline; other UMIs use their nearest-past frame.
+                j = i if u.name == rig.umis[0].name else _nearest_past(stream.t, timeline[i])
+                frame[derived.video_keys[u.name]] = readers[u.name].frame(j)
+                width = grippers.get(u.name)
+                if width is not None:
+                    frame[derived.gripper_keys[u.name]] = np.asarray(
+                        [width[i]], dtype=np.float32
+                    )
+                elif u.name in derived.gripper_keys:
+                    frame[derived.gripper_keys[u.name]] = np.zeros(1, dtype=np.float32)
+            dataset.add_frame(frame)
+        dataset.save_episode()
     # LeRobot v3.0 buffers each episode's footer metadata in the DatasetWriter: save_episode()
     # writes data/*.parquet + info.json but buffers the episode footer until finalize().
     dataset.finalize()

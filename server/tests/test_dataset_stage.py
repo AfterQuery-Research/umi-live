@@ -6,8 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 from umi_flow_core import config as core_config
-from umi_flow_server.dataset_stage import already_appended, mark_appended, pose_track_for_umi
+from umi_flow_server.dataset_stage import (
+    _SequentialVideoReader,
+    already_appended,
+    mark_appended,
+    pose_track_for_umi,
+)
 from umi_flow_server.trajectory import PoseTrack, write_tum
 
 
@@ -34,6 +40,58 @@ def test_append_ledger_is_substring_safe(tmp_path: Path):
     assert already_appended(dataset_dir, "episode_10")
     assert not already_appended(dataset_dir, "episode_1")
     assert not already_appended(dataset_dir, "ep")
+
+
+class _FakeCapture:
+    def __init__(self, frames: list[np.ndarray]):
+        self.frames = frames
+        self.read_count = 0
+        self.released = False
+
+    def isOpened(self) -> bool:
+        return True
+
+    def get(self, _prop: int) -> float:
+        return float(len(self.frames))
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        if self.read_count >= len(self.frames):
+            return False, None
+        frame = self.frames[self.read_count]
+        self.read_count += 1
+        return True, frame
+
+    def release(self) -> None:
+        self.released = True
+
+
+def test_sequential_video_reader_keeps_only_current_frame(tmp_path: Path, monkeypatch):
+    import cv2
+
+    capture = _FakeCapture([np.full((2, 3, 3), value, np.uint8) for value in range(4)])
+    monkeypatch.setattr(cv2, "VideoCapture", lambda _path: capture)
+
+    with _SequentialVideoReader(tmp_path / "camera.avi", expected_frames=4) as reader:
+        first = reader.frame(0)
+        assert reader.frame(0) is first  # repeated alignment index reuses the cached frame
+        assert capture.read_count == 1
+        assert np.all(reader.frame(3) == 3)
+        assert capture.read_count == 4
+        with pytest.raises(ValueError, match="cannot seek backward"):
+            reader.frame(2)
+
+    assert capture.released
+
+
+def test_sequential_video_reader_rejects_frame_count_mismatch(tmp_path: Path, monkeypatch):
+    import cv2
+
+    capture = _FakeCapture([np.zeros((2, 3, 3), np.uint8)])
+    monkeypatch.setattr(cv2, "VideoCapture", lambda _path: capture)
+
+    with pytest.raises(ValueError, match="frames jsonl count 2 != video frames 1"):
+        _SequentialVideoReader(tmp_path / "camera.avi", expected_frames=2)
+    assert capture.released
 
 
 def _write_tum(path: Path, x: float) -> None:

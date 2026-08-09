@@ -21,6 +21,7 @@ config exist, dataset when every input it needs is done.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 import time
@@ -32,6 +33,7 @@ from umi_flow_core import config as core_config
 from umi_flow_core import layout, manifest
 
 from umi_flow_server import extrinsic
+from umi_flow_server.episode import DEFAULT_MIN_FREE_BYTES
 
 COMPLETE = layout.COMPLETE_FILE
 
@@ -40,6 +42,9 @@ COMPLETE = layout.COMPLETE_FILE
 # dataset never parallelizes (see run_forever). 5 keeps 2-3 episodes fully in
 # flight without starving anything.
 MAX_STAGE_WORKERS = 5
+DEFAULT_STAGE_TIMEOUT_S = 2 * 60 * 60
+DEFAULT_RETRY_INITIAL_S = 30.0
+DEFAULT_RETRY_MAX_S = 15 * 60.0
 
 # A stage callable runs in-process: (episode_dir, out_dir, scope) -> None.
 StageFn = Callable[[Path, Path, str], None]
@@ -85,9 +90,15 @@ class StageDef:
 class Executor:
     """Runs one StageRun into a staging dir. Compose in production, callable in-process."""
 
-    def __init__(self, data_dir: Path, compose_cmd: list[str] | None = None):
+    def __init__(
+        self,
+        data_dir: Path,
+        compose_cmd: list[str] | None = None,
+        timeout_s: float = DEFAULT_STAGE_TIMEOUT_S,
+    ):
         self.data_dir = data_dir
         self.compose_cmd = compose_cmd or ["docker", "compose"]
+        self.timeout_s = timeout_s
 
     def _containerize(self, p: Path) -> str:
         """Host path -> the stage container's view (DATA_DIR is mounted at /data)."""
@@ -114,17 +125,54 @@ class Executor:
             *self.compose_cmd,
             "run",
             "--rm",
+            "--name",
+            self._container_name(run),
             *env_flags,
             f"umi-{stage.name}",
             self._containerize(input_dir),
             self._containerize(staging),
             *([run.scope] if run.scope else []),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # Killing the compose client alone can leave its one-shot container
+            # running and writing into the staging directory during a retry.
+            subprocess.run(
+                [*self._docker_cli(), "rm", "-f", self._container_name(run)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            raise RuntimeError(
+                f"stage {stage.name} timed out after {self.timeout_s:g}s"
+            ) from exc
         if result.returncode != 0:
             raise RuntimeError(
                 f"stage {stage.name} failed (rc={result.returncode}): {result.stderr.strip()[:500]}"
             )
+
+    def _container_name(self, run: StageRun) -> str:
+        identity = f"{run.episode_id}\0{run.stage}\0{run.scope}".encode()
+        return f"umi-flow-{run.stage}-{hashlib.sha256(identity).hexdigest()[:12]}"
+
+    def _docker_cli(self) -> list[str]:
+        # Production uses `docker compose`; preserve wrappers such as `sudo docker`.
+        if self.compose_cmd and self.compose_cmd[-1] == "compose":
+            return self.compose_cmd[:-1]
+        return ["docker"]
+
+
+@dataclass(frozen=True)
+class FailureState:
+    error: str
+    attempts: int
+    retry_at: float
 
 
 @dataclass
@@ -132,7 +180,12 @@ class Runner:
     data_dir: Path
     stages: list[StageDef]
     executor: Executor | None = None
-    failed: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    failed: dict[tuple[str, str, str], FailureState] = field(default_factory=dict)
+    retry_initial_s: float = DEFAULT_RETRY_INITIAL_S
+    retry_max_s: float = DEFAULT_RETRY_MAX_S
+    min_free_bytes: int = DEFAULT_MIN_FREE_BYTES
+    now_fn: Callable[[], float] = field(default=time.monotonic, repr=False)
+    _disk_blocked: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.executor is None:
@@ -154,6 +207,21 @@ class Runner:
     def is_done(self, run: StageRun) -> bool:
         return (self.out_dir(run) / COMPLETE).exists()
 
+    def _has_disk_headroom(self) -> bool:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(self.data_dir).free
+        blocked = free < self.min_free_bytes
+        if blocked and not self._disk_blocked:
+            print(
+                f"pipeline paused: only {free} bytes free; "
+                f"requires {self.min_free_bytes}",
+                flush=True,
+            )
+        elif not blocked and self._disk_blocked:
+            print("pipeline resumed: disk space recovered", flush=True)
+        self._disk_blocked = blocked
+        return not blocked
+
     def _episodes(self) -> list[Path]:
         if not self.raw_root.exists():
             return []
@@ -163,6 +231,8 @@ class Runner:
 
     def ready_runs(self) -> list[tuple[StageDef, StageRun, Path]]:
         """Every (stage, run) whose inputs are complete and output isn't."""
+        if not self._has_disk_headroom():
+            return []
         ready = []
         for episode_dir in self._episodes():
             try:
@@ -179,7 +249,10 @@ class Runner:
                 for scope in stage.scopes(m, rig):
                     run = StageRun(episode_dir.name, stage.name, scope)
                     key = (run.episode_id, run.stage, run.scope)
-                    if key in self.failed or self.is_done(run):
+                    failure = self.failed.get(key)
+                    if failure is not None and self.now_fn() < failure.retry_at:
+                        continue
+                    if self.is_done(run):
                         continue
                     deps_done = all(
                         self.is_done(StageRun(run.episode_id, dep, scope)) for dep in stage.needs
@@ -197,6 +270,17 @@ class Runner:
 
     # --- execution --------------------------------------------------------------------
 
+    def _record_failure(self, run: StageRun, exc: Exception) -> float:
+        key = (run.episode_id, run.stage, run.scope)
+        previous = self.failed.get(key)
+        attempts = 1 if previous is None else previous.attempts + 1
+        delay = min(
+            self.retry_max_s,
+            self.retry_initial_s * (2 ** min(attempts - 1, 20)),
+        )
+        self.failed[key] = FailureState(str(exc), attempts, self.now_fn() + delay)
+        return delay
+
     def execute(self, stage: StageDef, run: StageRun, episode_dir: Path) -> bool:
         input_dir = episode_dir
         if stage.input_from is not None:
@@ -207,7 +291,7 @@ class Runner:
         # prior run failed and left a root-owned tree here, an unguarded rmtree
         # raises PermissionError — which, before this guard, propagated out of
         # scan_once() and killed the runner on EVERY rescan. Treat it as a stage
-        # failure (blacklisted until restart) with an actionable message instead.
+        # failure with bounded-backoff retry and an actionable message instead.
         try:
             if out.exists() and not (out / COMPLETE).exists():
                 shutil.rmtree(out)  # crashed half-output: tear down and re-run
@@ -215,11 +299,11 @@ class Runner:
                 shutil.rmtree(staging)
             staging.mkdir(parents=True)
         except OSError as exc:
-            self.failed[(run.episode_id, run.stage, run.scope)] = str(exc)
+            delay = self._record_failure(run, exc)
             print(
                 f"[{run.episode_id}] {run.stage}({run.scope}) FAILED to clear stale "
                 f"output (root-owned stage files? try `sudo rm -rf {out} {staging}`): "
-                f"{exc}",
+                f"{exc}; retry in {delay:g}s",
                 flush=True,
             )
             return False
@@ -233,14 +317,19 @@ class Runner:
             )
             self.executor.run(stage, run, input_dir, staging, env=env)
         except Exception as exc:
-            self.failed[(run.episode_id, run.stage, run.scope)] = str(exc)
-            print(f"[{run.episode_id}] {run.stage}({run.scope}) FAILED: {exc}", flush=True)
+            delay = self._record_failure(run, exc)
+            print(
+                f"[{run.episode_id}] {run.stage}({run.scope}) FAILED: {exc}; "
+                f"retry in {delay:g}s",
+                flush=True,
+            )
             shutil.rmtree(staging, ignore_errors=True)
             return False
         staging.rename(out)
         marker = out / COMPLETE
         if not marker.exists():
             marker.write_text("complete\n")
+        self.failed.pop((run.episode_id, run.stage, run.scope), None)
         print(f"[{run.episode_id}] {run.stage}({run.scope}) done -> {out}", flush=True)
         return True
 

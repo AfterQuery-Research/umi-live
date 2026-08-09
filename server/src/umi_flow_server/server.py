@@ -15,6 +15,7 @@ a whole tar that startup recovery re-processes. An episode directory only appear
 from __future__ import annotations
 
 import queue
+import shutil
 import threading
 import time
 import uuid
@@ -27,6 +28,7 @@ from starlette.concurrency import run_in_threadpool
 
 from umi_flow_server.episode import (
     DEFAULT_MAX_EXTRACT_BYTES,
+    DEFAULT_MIN_FREE_BYTES,
     extract_episode,
     safe_name,
     validate_episode,
@@ -41,6 +43,7 @@ class ServerConfig:
     data_dir: Path = Path("data")
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_extract_bytes: int = DEFAULT_MAX_EXTRACT_BYTES
+    min_free_bytes: int = DEFAULT_MIN_FREE_BYTES
     shutdown_drain_seconds: float = DEFAULT_SHUTDOWN_DRAIN_SECONDS
 
 
@@ -162,6 +165,14 @@ def create_app(cfg: ServerConfig) -> FastAPI:
                     bytes_written += len(chunk)
                     if bytes_written > cfg.max_upload_bytes:
                         raise HTTPException(status_code=413, detail="upload exceeds maximum size")
+                    # Extraction temporarily needs space for both the completed tar and
+                    # its unpacked contents. Preserve that headroom plus an OS reserve.
+                    required_free = cfg.min_free_bytes + cfg.max_extract_bytes + len(chunk)
+                    if shutil.disk_usage(upload_dir).free < required_free:
+                        raise HTTPException(
+                            status_code=507,
+                            detail="insufficient server disk space for upload and extraction",
+                        )
                     await run_in_threadpool(f.write, chunk)
             finally:
                 f.close()

@@ -6,7 +6,9 @@ import io
 import tarfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+import umi_flow_server.server as server_module
 from fastapi.testclient import TestClient
 from umi_flow_server.server import ServerConfig, create_app
 
@@ -75,6 +77,29 @@ def test_empty_upload_rejected(tmp_path: Path):
     with TestClient(app) as client:
         r = client.post("/upload", content=b"", headers={"X-Episode-Id": "x"})
         assert r.status_code == 400
+
+
+def test_upload_rejected_when_disk_headroom_is_exhausted(tmp_path: Path, monkeypatch):
+    episode = make_v2_episode(tmp_path)
+    tar_path = make_episode_tar(episode, tmp_path / "out")
+    monkeypatch.setattr(
+        server_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=100),
+    )
+    app = create_app(
+        ServerConfig(
+            data_dir=tmp_path / "data",
+            max_extract_bytes=100,
+            min_free_bytes=100,
+        )
+    )
+    with TestClient(app) as client:
+        response = upload(client, tar_path, episode.name)
+
+    assert response.status_code == 507
+    assert "disk space" in response.json()["detail"]
+    assert not list((tmp_path / "data" / "uploads").iterdir())
 
 
 def test_episode_id_mismatch_fails(tmp_path: Path):
