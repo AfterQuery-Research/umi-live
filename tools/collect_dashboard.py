@@ -18,7 +18,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SERVER = "ubuntu@192.222.52.98"
-PIS = [("lidar-umi", "lidar-umi@10.103.0.240"), ("lidar-umi-2", "lidar-umi-2@10.103.0.239")]
+PIS = [("lidar-umi", "lidar-umi@lidar-umi.local"), ("lidar-umi-2", "lidar-umi-2@lidar-umi-2.local")]
 PORT = 8900
 
 # Runs ON the box each poll: one JSON blob describing queue, stages, dataset, events.

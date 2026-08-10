@@ -26,9 +26,9 @@ from robot_umi_server import gripper  # noqa: E402
 # Per-arm camera->tag geometry: the cameras were remounted at different forward
 # offsets (2026-08-07), so the arms no longer share one GripperGeometry.
 ARMS = [
-    dict(name="umi1", host="umi1@umi1.local", calib="config/calib/umi1_calib.npz",
+    dict(name="umi1", host="lidar-umi@lidar-umi.local", calib="config/calib/umi1_calib.npz",
          tags=(2, 3), geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1)),
-    dict(name="umi2", host="umi2@umi2.local", calib="config/calib/umi2_calib.npz",
+    dict(name="umi2", host="lidar-umi-2@lidar-umi-2.local", calib="config/calib/umi2_calib.npz",
          tags=(0, 1), geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1)),
 ]
 W, H, PORT = 800, 600, 8899
