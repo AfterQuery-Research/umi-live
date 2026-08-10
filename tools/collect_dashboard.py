@@ -67,7 +67,8 @@ lock = threading.Lock()
 
 
 def _ssh(host: str, cmd: str, timeout: int = 20) -> str:
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6", host, cmd],
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6",
+         "-o", "StrictHostKeyChecking=accept-new", host, cmd],
                        capture_output=True, text=True, timeout=timeout)
     return r.stdout.strip()
 
