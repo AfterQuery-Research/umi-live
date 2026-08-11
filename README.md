@@ -43,21 +43,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --package umi-flow-core
 ```
 
-Generate and display the [ChArUco board](tools/make_charuco.py), then calibrate each idle
-UMI with [tools/calibrate_camera.py](tools/calibrate_camera.py). The command opens a live
-coverage viewer; sweep the board until it solves automatically.
-
-```sh
-uv run --group tools python tools/make_charuco.py --open
-uv run --group tools python tools/calibrate_camera.py --host umi1@umi1.local --out config/calib/umi1_calib.npz
-uv run --group tools python tools/calibrate_camera.py --host umi2@umi2.local --out config/calib/umi2_calib.npz
-```
-
-```text
-config/calib/umi1_calib.npz
-config/calib/umi2_calib.npz
-```
-
 The physical gripper-label assignments are defined once in `config/gripper_tags.yaml`.
 Its checked-in values match this rig. If the labels are replaced, update that file before
 generating a new tag sheet or provisioning either client.
@@ -89,6 +74,16 @@ Install the processing server, then both clients:
 ```
 
 The server installer selects GPU or CPU GLIM automatically. The client installer detects each camera, assigns roles and UMI names, reads tag IDs from the hardware config, sets ports and calibration paths, configures clock synchronization, and reboots both Pis.
+
+After provisioning, calibrate both idle cameras:
+
+```sh
+./bin/calibrate-pair
+```
+
+This opens the [ChArUco board](tools/make_charuco.py) and a live coverage viewer for each
+camera. Sweep the board until every calibration passes; the command then atomically updates
+`config/calib/umi1_calib.npz`, `config/calib/umi2_calib.npz`, and their corresponding clients.
 
 ## Verify
 

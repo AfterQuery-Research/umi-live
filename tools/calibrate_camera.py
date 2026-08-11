@@ -42,6 +42,45 @@ SQUARE_LEN, MARKER_LEN = 0.030, 0.022
 BOARD_DICT = "DICT_5X5_100"
 MIN_CORNERS = 8
 DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS = 800, 600, 30
+MAX_GOOD_RMS_PX = 1.5
+MIN_INVERTIBLE_DEG = 73.0
+SSH_OPTIONS = (
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=8",
+    "-o",
+    "StrictHostKeyChecking=accept-new",
+)
+
+
+def ssh_command(host: str, remote: str) -> list[str]:
+    return ["ssh", *SSH_OPTIONS, host, remote]
+
+
+def preflight_live_host(host: str) -> None:
+    """Read-only proof that provisioning completed and the camera is idle."""
+    remote = (
+        "set -eu; "
+        "command -v v4l2-ctl >/dev/null || "
+        "{ echo 'v4l2-ctl missing; run ./bin/provision-pair first' >&2; exit 20; }; "
+        "systemctl is-active --quiet umi-recorder || "
+        "{ echo 'umi-recorder is not active; finish provisioning first' >&2; exit 21; }; "
+        "if pgrep -f '[u]mi-flow-v4l2-recorder' >/dev/null; then "
+        "echo 'camera is recording; stop the take before calibration' >&2; exit 22; fi; "
+        "dev=$(ls /dev/v4l/by-path/*usb-*-video-index0 2>/dev/null | head -1 || true); "
+        "test -n \"$dev\" || { echo 'no UMI camera found' >&2; exit 23; }"
+    )
+    result = subprocess.run(
+        ssh_command(host, remote),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise SystemExit(f"{host} is not ready for calibration: {detail}")
 
 
 def make_board():
@@ -149,17 +188,7 @@ def frames_from_ssh(
     )
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
-            [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=8",
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                host,
-                remote,
-            ],
+            ssh_command(host, remote),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=errors,
@@ -438,20 +467,10 @@ def solve_and_save(
     if not np.isfinite(matrix).all() or not np.isfinite(distortion).all():
         raise SystemExit("fisheye solve produced non-finite parameters; recapture")
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(output.name + ".tmp")
-    with temporary.open("wb") as file:
-        np.savez(
-            file,
-            K=matrix,
-            dist=distortion,
-            image_size=np.array(image_size, dtype=np.int64),
-            model="fisheye",
-        )
-    temporary.replace(output)
-
-    quality = "GOOD" if rms < 1.5 else ("marginal" if rms < 4 else "BAD - recapture")
     invertible_to = turning_point_deg(distortion)
+    rms_good = rms < MAX_GOOD_RMS_PX
+    invertible = invertible_to > MIN_INVERTIBLE_DEG
+    quality = "GOOD" if rms_good else ("marginal" if rms < 4 else "BAD - recapture")
     print(
         f"RMS {rms:.2f} px at {width}x{height} ({len(views)} views; "
         f"dropped {sparse} sparse + {outliers_dropped} outliers): {quality}"
@@ -463,8 +482,25 @@ def solve_and_save(
     print(f"dist: {distortion.ravel().round(6).tolist()}")
     print(
         f"invertible to {invertible_to:.1f} deg: "
-        + ("GOOD" if invertible_to > 73 else "LOW - capture more edge and bottom coverage")
+        + ("GOOD" if invertible else "LOW - capture more edge and bottom coverage")
     )
+    if not rms_good or not invertible:
+        raise SystemExit(
+            "calibration rejected; existing output was not changed. "
+            "Capture more varied views with strong edge and bottom coverage."
+        )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(output.name + ".tmp")
+    with temporary.open("wb") as file:
+        np.savez(
+            file,
+            K=matrix,
+            dist=distortion,
+            image_size=np.array(image_size, dtype=np.int64),
+            model="fisheye",
+        )
+    temporary.replace(output)
     print(f"wrote {output}")
     return float(rms), matrix, distortion
 
@@ -578,7 +614,8 @@ def main() -> None:
     source.add_argument("--video", help="recorded camera video")
     source.add_argument("--images", help="quoted glob of still frames")
     source.add_argument("--from-views", help="re-solve a previously saved .views.npz")
-    parser.add_argument("--out", type=Path, required=True, help="output calibration .npz")
+    source.add_argument("--preflight-host", help="check that a provisioned Pi is ready, then exit")
+    parser.add_argument("--out", type=Path, help="output calibration .npz")
     parser.add_argument("--device", default="auto", help="remote V4L2 device (default: detect it)")
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
@@ -592,6 +629,12 @@ def main() -> None:
     parser.add_argument("--no-open", action="store_true", help="do not open the browser viewer")
     args = parser.parse_args()
 
+    if args.preflight_host:
+        preflight_live_host(args.preflight_host)
+        print(f"{args.preflight_host} is ready for camera calibration")
+        return
+    if args.out is None:
+        parser.error("--out is required for calibration")
     if args.from_views:
         views, image_size = load_raw_views(args.from_views)
         print(f"loaded {len(views)} raw views at {image_size[0]}x{image_size[1]}")
@@ -604,6 +647,7 @@ def main() -> None:
 
     detector = cv2.aruco.CharucoDetector(make_board())
     if args.host:
+        preflight_live_host(args.host)
         viewer = BrowserViewer(args.viewer_port)
         viewer.start(open_browser=not args.no_open)
         frames = frames_from_ssh(args.host, args.device, args.width, args.height, args.fps)
