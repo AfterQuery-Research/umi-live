@@ -43,7 +43,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --package umi-flow-core
 ```
 
-Replace the two camera calibrations at these fixed paths:
+Generate the two camera calibrations with [tools/calibrate_camera.py](tools/calibrate_camera.py), then replace them at these fixed paths:
 
 ```text
 config/calib/umi1_calib.npz
