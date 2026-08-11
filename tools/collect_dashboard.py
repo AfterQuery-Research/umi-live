@@ -18,7 +18,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SERVER = "ubuntu@192.222.52.98"
-PIS = [("lidar-umi", "lidar-umi@10.103.0.240"), ("lidar-umi-2", "lidar-umi-2@10.103.0.239")]
+PIS = [("umi1", "umi1@umi1.local"), ("umi2", "umi2@umi2.local")]
 PORT = 8900
 
 # Runs ON the box each poll: one JSON blob describing queue, stages, dataset, events.
@@ -67,7 +67,8 @@ lock = threading.Lock()
 
 
 def _ssh(host: str, cmd: str, timeout: int = 20) -> str:
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6", host, cmd],
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6",
+         "-o", "StrictHostKeyChecking=accept-new", host, cmd],
                        capture_output=True, text=True, timeout=timeout)
     return r.stdout.strip()
 
