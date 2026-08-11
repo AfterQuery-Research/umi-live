@@ -29,11 +29,10 @@ def test_pair_inventory_has_only_supported_inputs() -> None:
 
 
 def test_only_one_readme_and_no_legacy_inventory() -> None:
-    readmes = [
-        path
-        for path in ROOT.rglob("README*")
-        if not {".git", ".pytest_cache", ".venv", "target"}.intersection(path.parts)
-    ]
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    readmes = [ROOT / relative for relative in tracked if Path(relative).name.startswith("README")]
     assert readmes == [ROOT / "README.md"]
     for relative in (
         ".env.example",
@@ -64,6 +63,21 @@ def test_provisioning_scripts_are_valid_and_have_no_removed_inputs() -> None:
         "SERVER_URL",
     ):
         assert removed not in text
+
+
+def test_rsync_deployment_excludes_internal_workspaces() -> None:
+    exclude_file = ROOT / "config" / "rsync-excludes"
+    patterns = {
+        line for line in exclude_file.read_text().splitlines() if line and not line.startswith("#")
+    }
+    assert patterns == {
+        "/dataset-filtering/",
+        "/dataset-filtering-tests/",
+        "/*CODEBASE_REVIEW.md",
+        "/*.SCOPE.md",
+    }
+    for script in (ROOT / "bin/provision-server", ROOT / "bin/provision-pi"):
+        assert '--exclude-from "$ROOT/config/rsync-excludes"' in script.read_text()
 
 
 def test_upload_service_is_loopback_only() -> None:

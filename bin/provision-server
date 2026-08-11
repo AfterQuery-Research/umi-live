@@ -37,6 +37,7 @@ server_ssh 'sudo -n true' >/dev/null 2>&1 || die "$SERVER requires passwordless 
 log "2/4 deploy repository"
 server_ssh "mkdir -p '$REMOTE_REPO'"
 rsync -a --delete \
+  --exclude-from "$ROOT/config/rsync-excludes" \
   --exclude '.git' --exclude '.venv' --exclude 'data' --exclude '__pycache__' \
   --exclude 'provisioning' --exclude '.env' --exclude 'config/umi.yaml' \
   --exclude 'device/v4l2_recorder/target' --exclude '*.rrd' \

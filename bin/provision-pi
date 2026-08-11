@@ -149,6 +149,7 @@ fi
 log "3/7 deploy repository and runtime configuration"
 pssh "mkdir -p '$REMOTE_REPO/config' '$SPOOL_DIR'"
 rsync -a --delete \
+  --exclude-from "$ROOT/config/rsync-excludes" \
   --exclude '.git' --exclude '.venv' --exclude 'target' --exclude '__pycache__' \
   --exclude 'data' --exclude 'provisioning' --exclude '.env' --exclude 'config/umi.yaml' \
   --exclude 'docker-compose.override.yml' \
