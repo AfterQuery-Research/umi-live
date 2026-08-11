@@ -11,13 +11,21 @@ from umi_flow_core import config
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_pair_inventory_has_only_variable_connection_and_task_inputs() -> None:
+def test_pair_inventory_has_only_supported_inputs() -> None:
     lines = [
         line.split("=", 1)[0]
         for line in (ROOT / "provisioning/pair.env.example").read_text().splitlines()
         if line and not line.startswith("#")
     ]
-    assert lines == ["SERVER", "LEADER", "FOLLOWER", "TASK", "HF_REPO_ID", "HF_TOKEN"]
+    assert lines == [
+        "SERVER",
+        "LEADER",
+        "FOLLOWER",
+        "TASK",
+        "DATA_NAMESPACE",
+        "HF_REPO_ID",
+        "HF_TOKEN",
+    ]
 
 
 def test_only_one_readme_and_no_legacy_inventory() -> None:

@@ -127,3 +127,7 @@ LeRobot dataset to that Hub repo (created private on first push) and archives th
 episode under `raw_episodes/` — the offsite copy of everything. Blank fields (the
 default) keep the dataset local-only. A failed push never loses the local append; the
 next take's push re-syncs.
+
+For a new physical pair or collection campaign, set `DATA_NAMESPACE` as well. This gives
+the server an isolated raw/derived/LeRobot data tree, so publishing to a new Hub repo cannot
+mirror episodes from an earlier collection. Existing data is left untouched.

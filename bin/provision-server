@@ -20,6 +20,13 @@ case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 
 SERVER_USER="${SERVER%@*}"
 REMOTE_REPO="/home/$SERVER_USER/umi-flow"
+case "${DATA_NAMESPACE:-}" in
+  "") SERVER_DATA_DIR="$REMOTE_REPO/data" ;;
+  "."|".."|*[!A-Za-z0-9._-]*)
+    die "DATA_NAMESPACE may contain only letters, numbers, dot, underscore, and hyphen"
+    ;;
+  *) SERVER_DATA_DIR="$REMOTE_REPO/data/$DATA_NAMESPACE" ;;
+esac
 SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
 server_ssh() { ssh "${SSH_OPTS[@]}" "$SERVER" "$@"; }
 
@@ -40,7 +47,7 @@ log "3/4 render internal server environment"
 # HF_REPO_ID/HF_TOKEN come from pair.env; blank = local-only dataset (no Hub push).
 server_ssh "cat > '$REMOTE_REPO/.env'" <<ENV
 # Rendered by bin/provision-server. Edit provisioning/pair.env and re-provision, not this.
-DATA_DIR=$REMOTE_REPO/data
+DATA_DIR=$SERVER_DATA_DIR
 HF_REPO_ID=${HF_REPO_ID:-}
 HF_TOKEN=${HF_TOKEN:-}
 ENV
