@@ -24,10 +24,14 @@ def test_pair_inventory_has_only_supported_inputs() -> None:
         "TASK",
         "DATA_NAMESPACE",
         "ALIGNMENT_ENABLED",
+        "LEADER_HOTSPOT_ENABLED",
         "PAIR_WIFI_SSID",
         "PAIR_WIFI_PASSWORD",
         "PAIR_WIFI_CHANNEL",
         "PAIR_WIFI_COUNTRY",
+        "PAIR_WIFI_LEADER_RADIO_IFACE",
+        "PAIR_WIFI_FOLLOWER_RADIO_IFACE",
+        "PAIR_WIFI_UPLINK_IFACE",
         "HF_REPO_ID",
         "HF_TOKEN",
     ]
@@ -99,10 +103,18 @@ def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> Non
     unit = (ROOT / "config/systemd/umi-pair-wifi@.service").read_text()
 
     assert "UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140" in provision
+    assert 'COORD_ENV="UMI_FLOW_PEER=${FOLLOWER#*@}:9140"' in provision
+    assert "PAIR_WIFI_LEADER_RADIO_IFACE" in provision
+    assert "PAIR_WIFI_FOLLOWER_RADIO_IFACE" in provision
+    assert 'PAIR_WIFI_IFACE="$PAIR_WIFI_RADIO_IFACE"' in provision
     assert 'exec hostapd "$HOSTAPD_CONFIG"' in runtime
-    assert 'exec wpa_supplicant -D nl80211' in runtime
+    assert 'wpa_cli -i "$UMI_PAIR_IFACE" select_network' in runtime
+    assert 'wpa_cli -i "$UMI_PAIR_IFACE" set ap_scan 2' in runtime
+    assert 'wpa_cli -i "$UMI_PAIR_IFACE" reconfigure' in runtime
+    assert 'resolvectl dns "$UMI_PAIR_IFACE"' in runtime
     assert "local stratum 10 orphan" in installer
     assert "server $UMI_PAIR_LEADER_IP" in installer
+    assert 'if [ "$UMI_LEADER_HOTSPOT_ENABLED" = true ]; then' in installer
     assert "Before=umi-recorder.service umi-upload-tunnel.service" in unit
 
 

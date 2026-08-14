@@ -2,8 +2,8 @@
 # Runtime for the dedicated UMI-to-UMI Wi-Fi link.
 #
 # The leader creates a virtual AP while preserving wlan0 as its optional uplink.
-# The follower creates a second managed interface, leaving its normal wlan0 connection
-# untouched. Static addresses keep the recorder control path independent of DHCP/mDNS.
+# The follower temporarily dedicates its configured radio to the leader network. Static
+# addresses keep the recorder control path independent of DHCP and mDNS.
 set -euo pipefail
 
 die() { echo "pair-wifi: $*" >&2; exit 1; }
@@ -21,7 +21,7 @@ case "$UMI_PAIR_ROLE" in leader|follower) ;; *) die "invalid role $UMI_PAIR_ROLE
 
 RUNTIME_DIR=/run/umi-flow-pair
 HOSTAPD_CONFIG="$RUNTIME_DIR/hostapd.conf"
-WPA_CONFIG="$RUNTIME_DIR/wpa_supplicant.conf"
+WPA_NETWORK_ID_FILE="$RUNTIME_DIR/follower-network-id"
 
 interface_exists() {
   iw dev "$UMI_PAIR_IFACE" info >/dev/null 2>&1
@@ -32,7 +32,8 @@ ensure_interface() {
     if [ "$UMI_PAIR_ROLE" = leader ]; then
       iw dev "$UMI_PAIR_RADIO_IFACE" interface add "$UMI_PAIR_IFACE" type __ap
     else
-      iw dev "$UMI_PAIR_RADIO_IFACE" interface add "$UMI_PAIR_IFACE" type managed
+      [ "$UMI_PAIR_IFACE" = "$UMI_PAIR_RADIO_IFACE" ] \
+        || iw dev "$UMI_PAIR_RADIO_IFACE" interface add "$UMI_PAIR_IFACE" type managed
     fi
   fi
   ip link set "$UMI_PAIR_IFACE" up
@@ -81,21 +82,99 @@ write_leader_config() {
   } > "$HOSTAPD_CONFIG"
 }
 
-write_follower_config() {
-  umask 077
+wait_for_follower_supplicant() {
+  for _ in $(seq 1 30); do
+    [ "$(wpa_cli -i "$UMI_PAIR_IFACE" ping 2>/dev/null | tail -1)" = PONG ] && return
+    sleep 1
+  done
+  die "system wpa_supplicant did not become ready on $UMI_PAIR_IFACE"
+}
+
+configure_follower_network() {
+  local network_id frequency result
   mkdir -p "$RUNTIME_DIR"
-  {
-    printf 'ctrl_interface=/run/wpa_supplicant\n'
-    printf 'country=%s\nap_scan=1\n' "$UMI_PAIR_COUNTRY"
-    # wlan0 already owns the radio's single scheduled-scan plan and P2P device.
-    # Force ordinary periodic scans on this second managed interface instead.
-    printf 'disable_scan_offload=1\np2p_disabled=1\nautoscan=periodic:5\n'
-    printf 'network={\n'
-    printf '  ssid="%s"\n' "$UMI_PAIR_SSID"
-    printf '  psk="%s"\n' "$UMI_PAIR_PSK"
-    printf '  key_mgmt=WPA-PSK\n  scan_ssid=1\n'
-    printf '}\n'
-  } > "$WPA_CONFIG"
+  wait_for_follower_supplicant
+  [ "$(wpa_cli -i "$UMI_PAIR_IFACE" set ap_scan 2 | tail -1)" = OK ] \
+    || die "could not enable direct follower association"
+  network_id="$(wpa_cli -i "$UMI_PAIR_IFACE" add_network | tail -1)"
+  case "$network_id" in *[!0-9]*|"") die "could not add follower Wi-Fi network" ;; esac
+  printf '%s\n' "$network_id" > "$WPA_NETWORK_ID_FILE"
+  if [ "$UMI_PAIR_CHANNEL" -eq 14 ]; then
+    frequency=2484
+  elif [ "$UMI_PAIR_CHANNEL" -le 13 ]; then
+    frequency=$((2407 + UMI_PAIR_CHANNEL * 5))
+  else
+    frequency=$((5000 + UMI_PAIR_CHANNEL * 5))
+  fi
+  for setting in \
+    "ssid \"$UMI_PAIR_SSID\"" \
+    "psk \"$UMI_PAIR_PSK\"" \
+    "key_mgmt WPA-PSK" \
+    "scan_ssid 1" \
+    "scan_freq $frequency"; do
+    # setting is generated solely from the validated provisioning inventory.
+    # shellcheck disable=SC2086
+    result="$(wpa_cli -i "$UMI_PAIR_IFACE" set_network "$network_id" $setting | tail -1)"
+    [ "$result" = OK ] || die "could not configure follower Wi-Fi network"
+  done
+  [ "$(wpa_cli -i "$UMI_PAIR_IFACE" select_network "$network_id" | tail -1)" = OK ] \
+    || die "could not select follower Wi-Fi network"
+}
+
+configure_follower_ip() {
+  ip -4 address flush dev "$UMI_PAIR_IFACE"
+  ip -4 route flush dev "$UMI_PAIR_IFACE"
+  ip address replace "$UMI_PAIR_FOLLOWER_IP/24" dev "$UMI_PAIR_IFACE"
+  ip route replace default via "$UMI_PAIR_LEADER_IP" dev "$UMI_PAIR_IFACE" metric 900
+  resolvectl dns "$UMI_PAIR_IFACE" 1.1.1.1 1.0.0.1
+  resolvectl default-route "$UMI_PAIR_IFACE" yes
+}
+
+clear_follower_ip() {
+  resolvectl revert "$UMI_PAIR_IFACE" 2>/dev/null || true
+  ip route del default via "$UMI_PAIR_LEADER_IP" dev "$UMI_PAIR_IFACE" \
+    metric 900 2>/dev/null || true
+  ip address del "$UMI_PAIR_FOLLOWER_IP/24" dev "$UMI_PAIR_IFACE" 2>/dev/null || true
+}
+
+run_follower() {
+  local configured=0 missed=0 state ssid status
+  while true; do
+    status="$(wpa_cli -i "$UMI_PAIR_IFACE" status 2>/dev/null || true)"
+    state="$(printf '%s\n' "$status" | sed -n 's/^wpa_state=//p')"
+    ssid="$(printf '%s\n' "$status" | sed -n 's/^ssid=//p')"
+    if [ "$state" = COMPLETED ] && [ "$ssid" = "$UMI_PAIR_SSID" ]; then
+      if [ "$configured" = 0 ]; then
+        configure_follower_ip
+        configured=1
+      fi
+      missed=0
+    else
+      configured=0
+      missed=$((missed + 1))
+      if [ "$missed" -ge 60 ]; then
+        echo "pair-wifi: leader hotspot unavailable; restoring normal Wi-Fi for 60 seconds" >&2
+        remove_follower_network
+        clear_follower_ip
+        sleep 60
+        return 1
+      fi
+    fi
+    sleep 1
+  done
+}
+
+remove_follower_network() {
+  local network_id=""
+  if [ -f "$WPA_NETWORK_ID_FILE" ]; then
+    network_id="$(cat "$WPA_NETWORK_ID_FILE")"
+  fi
+  case "$network_id" in
+    *[!0-9]*|"") ;;
+    *) wpa_cli -i "$UMI_PAIR_IFACE" remove_network "$network_id" >/dev/null 2>&1 || true ;;
+  esac
+  wpa_cli -i "$UMI_PAIR_IFACE" set ap_scan 1 >/dev/null 2>&1 || true
+  wpa_cli -i "$UMI_PAIR_IFACE" reconfigure >/dev/null 2>&1 || true
 }
 
 case "$ACTION" in
@@ -106,29 +185,28 @@ case "$ACTION" in
       write_leader_config
       add_forwarding_rules
     else
-      ip address replace "$UMI_PAIR_FOLLOWER_IP/24" dev "$UMI_PAIR_IFACE"
-      ip route replace default via "$UMI_PAIR_LEADER_IP" dev "$UMI_PAIR_IFACE" metric 900
-      write_follower_config
+      iw dev "$UMI_PAIR_IFACE" set power_save off
+      configure_follower_network
     fi
     ;;
   run)
     if [ "$UMI_PAIR_ROLE" = leader ]; then
       exec hostapd "$HOSTAPD_CONFIG"
     else
-      exec wpa_supplicant -D nl80211 -i "$UMI_PAIR_IFACE" -c "$WPA_CONFIG"
+      run_follower
     fi
     ;;
   down)
     if [ "$UMI_PAIR_ROLE" = leader ]; then
       remove_forwarding_rules
     else
-      ip route del default via "$UMI_PAIR_LEADER_IP" dev "$UMI_PAIR_IFACE" \
-        metric 900 2>/dev/null || true
+      remove_follower_network
+      clear_follower_ip
     fi
-    if interface_exists; then
+    if interface_exists && [ "$UMI_PAIR_IFACE" != "$UMI_PAIR_RADIO_IFACE" ]; then
       iw dev "$UMI_PAIR_IFACE" del
     fi
-    rm -f "$HOSTAPD_CONFIG" "$WPA_CONFIG"
+    rm -f "$HOSTAPD_CONFIG" "$WPA_NETWORK_ID_FILE"
     rmdir "$RUNTIME_DIR" 2>/dev/null || true
     ;;
   *) die "usage: pair_wifi_service.sh up|run|down" ;;

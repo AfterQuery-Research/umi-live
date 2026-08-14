@@ -20,17 +20,18 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-echo "=== follower: ${FOLLOWER:-<unset>} (right / umi2) ==="
-# EXTRA_ARGS contains only the two fixed flag literals accepted above.
-# shellcheck disable=SC2086
-PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role follower $EXTRA_ARGS
-
-echo
 echo "=== leader: ${LEADER:-<unset>} (left / umi1) ==="
+# EXTRA_ARGS contains only the two fixed flag literals accepted above.
 # shellcheck disable=SC2086
 PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role leader $EXTRA_ARGS
 
-if [ "${EXTRA_ARGS#*--dry-run}" = "$EXTRA_ARGS" ]; then
+echo
+echo "=== follower: ${FOLLOWER:-<unset>} (right / umi2) ==="
+# shellcheck disable=SC2086
+PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role follower $EXTRA_ARGS
+
+if [ "${LEADER_HOTSPOT_ENABLED:-false}" = true ] \
+  && [ "${EXTRA_ARGS#*--dry-run}" = "$EXTRA_ARGS" ]; then
   echo
   echo "=== verify private leader/follower link ==="
   ready=0
@@ -49,6 +50,9 @@ if [ "${EXTRA_ARGS#*--dry-run}" = "$EXTRA_ARGS" ]; then
     exit 1
   }
   echo "private pair link ready: 10.42.0.1 -> 10.42.0.2:9140"
+elif [ "${LEADER_HOTSPOT_ENABLED:-false}" != true ]; then
+  echo
+  echo "private pair Wi-Fi disabled; coordinator uses ${FOLLOWER#*@}:9140"
 fi
 
 echo

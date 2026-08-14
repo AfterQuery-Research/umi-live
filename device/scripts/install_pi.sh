@@ -126,6 +126,8 @@ PAIR_WIFI_ENV="$REPO/.pair-wifi.env"
 [ -f "$PAIR_WIFI_ENV" ] || { echo "missing rendered pair Wi-Fi config $PAIR_WIFI_ENV" >&2; exit 1; }
 # shellcheck disable=SC1090
 set -a; . "$PAIR_WIFI_ENV"; set +a
+[ "${UMI_LEADER_HOTSPOT_ENABLED:-false}" = true ] || [ "${UMI_LEADER_HOTSPOT_ENABLED:-false}" = false ] \
+  || { echo "invalid UMI_LEADER_HOTSPOT_ENABLED=${UMI_LEADER_HOTSPOT_ENABLED:-unset}" >&2; exit 1; }
 [ "${UMI_PAIR_ROLE:-}" = "$ROLE" ] \
   || { echo "pair Wi-Fi role ${UMI_PAIR_ROLE:-unset} != rig role $ROLE" >&2; exit 1; }
 
@@ -156,25 +158,34 @@ sed -e "s#@REPO@#$REPO#g" \
   "$REPO/config/systemd/umi-pair-wifi@.service" \
   | sudo tee "/etc/systemd/system/umi-pair-wifi@.service" >/dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable "umi-pair-wifi@$ROLE" >/dev/null
-sudo systemctl restart "umi-pair-wifi@$ROLE"
-
-# Remove the line written by older installers, then own one role-specific drop-in.
-# The leader follows Cloudflare when online and advertises itself as an offline local
-# reference. The follower always follows the leader over 10.42.0.0/24, so paired takes
-# retain sub-frame relative timing with no infrastructure Wi-Fi.
 LEGACY_CHRONY_LINE="server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer"
-sudo sed -i "\#^$LEGACY_CHRONY_LINE\$#d" /etc/chrony/chrony.conf
-if [ "$ROLE" = leader ]; then
-  sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
+if [ "$UMI_LEADER_HOTSPOT_ENABLED" = true ]; then
+  sudo systemctl enable "umi-pair-wifi@$ROLE" >/dev/null
+  if [ "$ROLE" = leader ]; then
+    sudo systemctl restart "umi-pair-wifi@$ROLE"
+  else
+    echo "follower private Wi-Fi enabled; it takes over wlan0 on reboot"
+  fi
+
+  # The leader follows Cloudflare when online and advertises itself as an offline local
+  # reference. The follower always follows the leader over 10.42.0.0/24.
+  sudo sed -i "\#^$LEGACY_CHRONY_LINE\$#d" /etc/chrony/chrony.conf
+  if [ "$ROLE" = leader ]; then
+    sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
 server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer
 allow $UMI_PAIR_SUBNET
 local stratum 10 orphan
 EOF
-else
-  sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
+  else
+    sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
 server $UMI_PAIR_LEADER_IP iburst minpoll 2 maxpoll 4 prefer
 EOF
+  fi
+else
+  sudo systemctl disable --now "umi-pair-wifi@$ROLE" >/dev/null 2>&1 || true
+  sudo rm -f /etc/chrony/conf.d/90-umi-flow-pair.conf
+  grep -qF "$LEGACY_CHRONY_LINE" /etc/chrony/chrony.conf 2>/dev/null \
+    || echo "$LEGACY_CHRONY_LINE" | sudo tee -a /etc/chrony/chrony.conf >/dev/null
 fi
 sudo systemctl enable --now chrony >/dev/null 2>&1 \
   || sudo systemctl enable --now chronyd >/dev/null 2>&1
@@ -220,9 +231,21 @@ for i in $IFACES; do
 done
 chronyc tracking >/dev/null 2>&1 && echo "OK  chrony clock synchronization active" \
   || echo "CHECK chrony is not synchronized yet"
-systemctl is-active --quiet "umi-pair-wifi@$ROLE" \
-  && echo "OK  private pair Wi-Fi service active ($UMI_PAIR_IFACE)" \
-  || { echo "FAIL private pair Wi-Fi service inactive"; fail=1; }
+if [ "$UMI_LEADER_HOTSPOT_ENABLED" = true ]; then
+  if [ "$ROLE" = leader ]; then
+    systemctl is-active --quiet "umi-pair-wifi@$ROLE" \
+      && echo "OK  private pair Wi-Fi service active ($UMI_PAIR_IFACE)" \
+      || { echo "FAIL private pair Wi-Fi service inactive"; fail=1; }
+  else
+    systemctl is-enabled --quiet "umi-pair-wifi@$ROLE" \
+      && echo "OK  private pair Wi-Fi service enabled ($UMI_PAIR_IFACE; active after reboot)" \
+      || { echo "FAIL private pair Wi-Fi service disabled"; fail=1; }
+  fi
+else
+  ! systemctl is-active --quiet "umi-pair-wifi@$ROLE" \
+    && echo "OK  private pair Wi-Fi disabled" \
+    || { echo "FAIL private pair Wi-Fi service active while disabled"; fail=1; }
+fi
 [ "$NEED_RELOGIN" = "1" ] && echo "ACTION log out/in (or reboot) for new group membership (GPIO/SPI/camera)."
 grep -q '^dtparam=spi=on' "$BOOTCFG" 2>/dev/null && ! [ -e /dev/spidev0.0 ] && echo "ACTION reboot to activate SPI (LCD)."
 

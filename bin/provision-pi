@@ -25,34 +25,57 @@ case "$ROLE" in leader|follower) ;; *) die "--role must be leader or follower" ;
 for name in SERVER LEADER FOLLOWER TASK; do
   [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
 done
-for name in PAIR_WIFI_SSID PAIR_WIFI_PASSWORD PAIR_WIFI_CHANNEL PAIR_WIFI_COUNTRY; do
-  [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
-done
 case "${ALIGNMENT_ENABLED:-false}" in
   true|false) ;;
   *) die "ALIGNMENT_ENABLED must be true or false in $PAIR_CONFIG" ;;
 esac
-case "$PAIR_WIFI_SSID" in *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_SSID has unsafe characters" ;; esac
-case "$PAIR_WIFI_PASSWORD" in
-  *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_PASSWORD has unsafe characters" ;;
+LEADER_HOTSPOT_ENABLED="${LEADER_HOTSPOT_ENABLED:-false}"
+PAIR_WIFI_SSID="${PAIR_WIFI_SSID:-}"
+PAIR_WIFI_PASSWORD="${PAIR_WIFI_PASSWORD:-}"
+PAIR_WIFI_CHANNEL="${PAIR_WIFI_CHANNEL:-44}"
+PAIR_WIFI_COUNTRY="${PAIR_WIFI_COUNTRY:-US}"
+case "$LEADER_HOTSPOT_ENABLED" in
+  true|false) ;;
+  *) die "LEADER_HOTSPOT_ENABLED must be true or false in $PAIR_CONFIG" ;;
 esac
-[ "${#PAIR_WIFI_SSID}" -le 32 ] || die "PAIR_WIFI_SSID must be at most 32 characters"
-[ "${#PAIR_WIFI_PASSWORD}" -ge 8 ] && [ "${#PAIR_WIFI_PASSWORD}" -le 63 ] \
-  || die "PAIR_WIFI_PASSWORD must be 8-63 characters"
-case "$PAIR_WIFI_CHANNEL" in *[!0-9]*|"") die "PAIR_WIFI_CHANNEL must be numeric" ;; esac
-[ "$PAIR_WIFI_CHANNEL" -ge 1 ] && [ "$PAIR_WIFI_CHANNEL" -le 165 ] \
-  || die "PAIR_WIFI_CHANNEL must be in [1, 165]"
-case "$PAIR_WIFI_COUNTRY" in [A-Z][A-Z]) ;; *) die "PAIR_WIFI_COUNTRY must be two uppercase letters" ;; esac
 case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 case "$LEADER" in *@*) ;; *) die "LEADER must be user@host" ;; esac
 case "$FOLLOWER" in *@*) ;; *) die "FOLLOWER must be user@host" ;; esac
 
-PAIR_WIFI_RADIO_IFACE="${PAIR_WIFI_RADIO_IFACE:-wlan0}"
+if [ "$ROLE" = leader ]; then
+  PAIR_WIFI_RADIO_IFACE="${PAIR_WIFI_LEADER_RADIO_IFACE:-wlan0}"
+else
+  PAIR_WIFI_RADIO_IFACE="${PAIR_WIFI_FOLLOWER_RADIO_IFACE:-wlan0}"
+fi
 PAIR_WIFI_UPLINK_IFACE="${PAIR_WIFI_UPLINK_IFACE:-wlan0}"
 PAIR_WIFI_IFACE="umi-pair0"
+if [ "$ROLE" = follower ]; then
+  PAIR_WIFI_IFACE="$PAIR_WIFI_RADIO_IFACE"
+fi
 PAIR_WIFI_LEADER_IP="10.42.0.1"
 PAIR_WIFI_FOLLOWER_IP="10.42.0.2"
 PAIR_WIFI_SUBNET="10.42.0.0/24"
+if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  for name in PAIR_WIFI_SSID PAIR_WIFI_PASSWORD PAIR_WIFI_CHANNEL PAIR_WIFI_COUNTRY; do
+    [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
+  done
+  for name in PAIR_WIFI_RADIO_IFACE PAIR_WIFI_UPLINK_IFACE; do
+    case "${!name}" in
+      *[!A-Za-z0-9._:-]*|"") die "$name has unsafe characters" ;;
+    esac
+  done
+  case "$PAIR_WIFI_SSID" in *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_SSID has unsafe characters" ;; esac
+  case "$PAIR_WIFI_PASSWORD" in
+    *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_PASSWORD has unsafe characters" ;;
+  esac
+  [ "${#PAIR_WIFI_SSID}" -le 32 ] || die "PAIR_WIFI_SSID must be at most 32 characters"
+  [ "${#PAIR_WIFI_PASSWORD}" -ge 8 ] && [ "${#PAIR_WIFI_PASSWORD}" -le 63 ] \
+    || die "PAIR_WIFI_PASSWORD must be 8-63 characters"
+  case "$PAIR_WIFI_CHANNEL" in *[!0-9]*|"") die "PAIR_WIFI_CHANNEL must be numeric" ;; esac
+  [ "$PAIR_WIFI_CHANNEL" -ge 1 ] && [ "$PAIR_WIFI_CHANNEL" -le 165 ] \
+    || die "PAIR_WIFI_CHANNEL must be in [1, 165]"
+  case "$PAIR_WIFI_COUNTRY" in [A-Z][A-Z]) ;; *) die "PAIR_WIFI_COUNTRY must be two uppercase letters" ;; esac
+fi
 
 PYTHON="$ROOT/.venv/bin/python"; [ -x "$PYTHON" ] || PYTHON="python3"
 GRIPPER_TAG_CONFIG="$ROOT/config/gripper_tags.yaml"
@@ -114,7 +137,33 @@ PI_USER="${PI%@*}"
 REMOTE_REPO="/home/$PI_USER/umi-flow"
 SPOOL_DIR="/home/$PI_USER/umi-recordings"
 SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
-pssh() { ssh "${SSH_OPTS[@]}" "$PI" "$@"; }
+SSH_JUMP=""
+SSH_TARGET="$PI"
+use_private_follower_transport() {
+  SSH_JUMP="$LEADER"
+  SSH_TARGET="$PI_USER@$PAIR_WIFI_FOLLOWER_IP"
+}
+if [ "$ROLE" = follower ] && [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  use_private_follower_transport
+  if ! ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" true >/dev/null 2>&1; then
+    SSH_JUMP=""
+    SSH_TARGET="$PI"
+  fi
+fi
+pssh() {
+  if [ -n "$SSH_JUMP" ]; then
+    ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" "$@"
+  else
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "$@"
+  fi
+}
+pcopy() {
+  if [ -n "$SSH_JUMP" ]; then
+    scp "${SSH_OPTS[@]}" -J "$SSH_JUMP" -q "$1" "$SSH_TARGET:$2"
+  else
+    scp "${SSH_OPTS[@]}" -q "$1" "$SSH_TARGET:$2"
+  fi
+}
 
 CFG_TMP="$(mktemp)"; ENV_TMP="$(mktemp)"; PAIR_WIFI_TMP="$(mktemp)"; SUDO_TEMP=0
 cleanup() {
@@ -156,7 +205,12 @@ fi
 log "2/7 render fixed $ROLE configuration"
 CAMERA_DEVICE="$(pssh 'ls /dev/v4l/by-path/*usb-*-video-index0 2>/dev/null | head -1' || true)"
 [ -n "$CAMERA_DEVICE" ] || die "no USB camera found on $PI"
-if [ "$ROLE" = leader ] && [ "$PAIR_WIFI_RADIO_IFACE" = "$PAIR_WIFI_UPLINK_IFACE" ]; then
+if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  pssh "iw dev '$PAIR_WIFI_RADIO_IFACE' info >/dev/null" \
+    || die "$ROLE pair Wi-Fi radio $PAIR_WIFI_RADIO_IFACE not found on $PI"
+fi
+if [ "$LEADER_HOTSPOT_ENABLED" = true ] && [ "$ROLE" = leader ] \
+  && [ "$PAIR_WIFI_RADIO_IFACE" = "$PAIR_WIFI_UPLINK_IFACE" ]; then
   ACTIVE_CHANNEL="$(pssh "iw dev '$PAIR_WIFI_UPLINK_IFACE' link 2>/dev/null | sed -n 's/.*freq: //p' | head -1" || true)"
   if [ -n "$ACTIVE_CHANNEL" ]; then
     ACTIVE_CHANNEL="${ACTIVE_CHANNEL%%.*}"
@@ -211,7 +265,11 @@ PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" -c \
 
 COORD_ENV=""
 if [ "$ROLE" = leader ]; then
-  COORD_ENV="UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140"
+  if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+    COORD_ENV="UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140"
+  else
+    COORD_ENV="UMI_FLOW_PEER=${FOLLOWER#*@}:9140"
+  fi
 fi
 cat > "$ENV_TMP" <<ENV
 # Rendered by bin/provision-pi. Re-run bin/provision-pair to change it.
@@ -221,6 +279,7 @@ $COORD_ENV
 ENV
 cat > "$PAIR_WIFI_TMP" <<ENV
 # Rendered by bin/provision-pi. Contains the private pair-network credential.
+UMI_LEADER_HOTSPOT_ENABLED=$LEADER_HOTSPOT_ENABLED
 UMI_PAIR_ROLE=$ROLE
 UMI_PAIR_RADIO_IFACE=$PAIR_WIFI_RADIO_IFACE
 UMI_PAIR_UPLINK_IFACE=$PAIR_WIFI_UPLINK_IFACE
@@ -233,7 +292,12 @@ UMI_PAIR_LEADER_IP=$PAIR_WIFI_LEADER_IP
 UMI_PAIR_FOLLOWER_IP=$PAIR_WIFI_FOLLOWER_IP
 UMI_PAIR_SUBNET=$PAIR_WIFI_SUBNET
 ENV
-echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB tags=[$TAGS] gripper=$GRIPPER_REPORT pair_wifi=$PAIR_WIFI_SSID/$PAIR_WIFI_CHANNEL spool=$SPOOL_DIR"
+if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  PAIR_WIFI_REPORT="$PAIR_WIFI_SSID/$PAIR_WIFI_CHANNEL radio=$PAIR_WIFI_RADIO_IFACE uplink=$PAIR_WIFI_UPLINK_IFACE"
+else
+  PAIR_WIFI_REPORT="disabled"
+fi
+echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB tags=[$TAGS] gripper=$GRIPPER_REPORT pair_wifi=$PAIR_WIFI_REPORT spool=$SPOOL_DIR"
 
 if [ "$DRY_RUN" = 1 ]; then
   echo "dry run complete: configuration validated; no files changed"
@@ -242,6 +306,10 @@ fi
 
 log "3/7 deploy repository and runtime configuration"
 pssh "mkdir -p '$REMOTE_REPO/config' '$SPOOL_DIR'"
+RSYNC_SSH="ssh ${SSH_OPTS[*]}"
+if [ -n "$SSH_JUMP" ]; then
+  RSYNC_SSH="$RSYNC_SSH -J $SSH_JUMP"
+fi
 rsync -a --delete \
   --exclude-from "$ROOT/config/rsync-excludes" \
   --exclude '.git' --exclude '.venv' --exclude 'target' --exclude '__pycache__' \
@@ -250,10 +318,10 @@ rsync -a --delete \
   --exclude 'demo-output' --exclude 'bin/render-demo' \
   --exclude 'tools/render_slam_demo.py' --exclude 'server/tests/test_slam_demo.py' \
   --exclude 'docker-compose.override.yml' \
-  -e "ssh ${SSH_OPTS[*]}" "$ROOT/" "$PI:$REMOTE_REPO/"
-scp "${SSH_OPTS[@]}" -q "$CFG_TMP" "$PI:$REMOTE_REPO/config/umi.yaml"
-scp "${SSH_OPTS[@]}" -q "$ENV_TMP" "$PI:$REMOTE_REPO/.env"
-scp "${SSH_OPTS[@]}" -q "$PAIR_WIFI_TMP" "$PI:$REMOTE_REPO/.pair-wifi.env"
+  -e "$RSYNC_SSH" "$ROOT/" "$SSH_TARGET:$REMOTE_REPO/"
+pcopy "$CFG_TMP" "$REMOTE_REPO/config/umi.yaml"
+pcopy "$ENV_TMP" "$REMOTE_REPO/.env"
+pcopy "$PAIR_WIFI_TMP" "$REMOTE_REPO/.pair-wifi.env"
 pssh "chmod 600 '$REMOTE_REPO/.pair-wifi.env'"
 
 log "4/7 install recorder"
@@ -284,6 +352,9 @@ BOOT_ID_BEFORE="$(pssh 'cat /proc/sys/kernel/random/boot_id')"
 [ -n "$BOOT_ID_BEFORE" ] || die "could not read boot ID from $PI"
 pssh 'sudo -n true' >/dev/null 2>&1 || die "lost sudo access before rebooting $PI"
 pssh 'sudo -n systemctl reboot' >/dev/null 2>&1 || true
+if [ "$ROLE" = follower ] && [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  use_private_follower_transport
+fi
 echo "waiting for $PI to reboot..."
 sleep 5
 rebooted=0
@@ -301,7 +372,11 @@ log "7/7 remove temporary sudo access and verify"
 remove_temporary_sudo
 services_ready=0
 for _ in $(seq 1 20); do
-  if pssh "systemctl is-active --quiet umi-pair-wifi@$ROLE && systemctl is-active --quiet umi-recorder && systemctl is-active --quiet umi-upload-tunnel && test -d '$SPOOL_DIR'"; then
+  WIFI_READY="true"
+  if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+    WIFI_READY="systemctl is-active --quiet umi-pair-wifi@$ROLE"
+  fi
+  if pssh "$WIFI_READY && systemctl is-active --quiet umi-recorder && systemctl is-active --quiet umi-upload-tunnel && test -d '$SPOOL_DIR'"; then
     services_ready=1
     break
   fi

@@ -30,7 +30,8 @@ elif command -v netplan >/dev/null 2>&1; then
   # A higher-numbered file overrides cloud-init's dhcp on this iface. No gateway/route,
   # so ${IFACE} never becomes the default route (internet stays on wlan0).
   NP="/etc/netplan/99-lidar-${IFACE}.yaml"
-  cat > "${NP}" <<EOF
+  NP_NEW="$(mktemp)"
+  cat > "${NP_NEW}" <<EOF
 network:
   version: 2
   ethernets:
@@ -40,9 +41,15 @@ network:
       optional: true
       addresses: [${HOST_CIDR}]
 EOF
-  chmod 600 "${NP}"
-  netplan generate
-  netplan apply
+  if cmp -s "${NP_NEW}" "${NP}"; then
+    echo "netplan lidar configuration unchanged"
+    rm -f "${NP_NEW}"
+  else
+    install -m 600 "${NP_NEW}" "${NP}"
+    rm -f "${NP_NEW}"
+    netplan generate
+    netplan apply
+  fi
 else
   echo "ERROR: neither nmcli (NetworkManager) nor netplan found — cannot set a" >&2
   echo "persistent static IP on ${IFACE}. Install one, or set it by hand:" >&2
