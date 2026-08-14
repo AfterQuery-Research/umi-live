@@ -22,6 +22,8 @@ docker-compose.override.yml
 config/calib/*_gripper_range.json
 # The single user-edited deployment inventory.
 provisioning/pair.env
+# Generated once and reused so re-provisioning cannot strand the follower.
+provisioning/.pair-wifi-psk
 # Ignore inventories created by versions before the dual-only setup.
 provisioning/secrets
 provisioning/server.env

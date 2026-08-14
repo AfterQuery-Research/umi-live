@@ -25,13 +25,6 @@ def test_pair_inventory_has_only_supported_inputs() -> None:
         "DATA_NAMESPACE",
         "ALIGNMENT_ENABLED",
         "LEADER_HOTSPOT_ENABLED",
-        "PAIR_WIFI_SSID",
-        "PAIR_WIFI_PASSWORD",
-        "PAIR_WIFI_CHANNEL",
-        "PAIR_WIFI_COUNTRY",
-        "PAIR_WIFI_LEADER_RADIO_IFACE",
-        "PAIR_WIFI_FOLLOWER_RADIO_IFACE",
-        "PAIR_WIFI_UPLINK_IFACE",
         "HF_REPO_ID",
         "HF_TOKEN",
     ]
@@ -104,8 +97,9 @@ def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> Non
 
     assert "UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140" in provision
     assert 'COORD_ENV="UMI_FLOW_PEER=${FOLLOWER#*@}:9140"' in provision
-    assert "PAIR_WIFI_LEADER_RADIO_IFACE" in provision
-    assert "PAIR_WIFI_FOLLOWER_RADIO_IFACE" in provision
+    assert "ID_BUS=usb" in provision
+    assert 'PAIR_WIFI_RADIO_IFACE="wlan0"' in provision
+    assert 'PAIR_WIFI_UPLINK_IFACE="wlan0"' in provision
     assert 'PAIR_WIFI_IFACE="$PAIR_WIFI_RADIO_IFACE"' in provision
     assert 'exec hostapd "$HOSTAPD_CONFIG"' in runtime
     assert 'wpa_cli -i "$UMI_PAIR_IFACE" select_network' in runtime
@@ -120,6 +114,70 @@ def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> Non
     assert "Before=umi-recorder.service umi-upload-tunnel.service" in unit
 
 
+def test_pair_provisioning_generates_and_reuses_private_wifi_secret(tmp_path: Path) -> None:
+    pair_config = tmp_path / "pair.env"
+    pair_config.write_text(
+        'SERVER="server@test"\n'
+        'LEADER="leader@test"\n'
+        'FOLLOWER="follower@test"\n'
+        'TASK="deployment test"\n'
+        "LEADER_HOTSPOT_ENABLED=true\n"
+    )
+    secret_file = tmp_path / "pair-wifi-psk"
+    calls = tmp_path / "calls"
+    provision_pi = tmp_path / "provision-pi"
+    provision_pi.write_text(
+        '#!/usr/bin/env bash\nprintf "%s %s\\n" "$*" "$UMI_PAIR_PROVISION_PSK" >> "$CALLS_FILE"\n'
+    )
+    provision_pi.chmod(0o755)
+    mock_bin = tmp_path / "bin"
+    mock_bin.mkdir()
+    ssh = mock_bin / "ssh"
+    ssh.write_text("#!/usr/bin/env bash\nexit 1\n")
+    ssh.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "CALLS_FILE": str(calls),
+            "PAIR_CONFIG": str(pair_config),
+            "PAIR_WIFI_SECRET_FILE": str(secret_file),
+            "PROVISION_PI": str(provision_pi),
+            "PATH": f"{mock_bin}{os.pathsep}{env['PATH']}",
+        }
+    )
+
+    first = subprocess.run(
+        [str(ROOT / "bin/provision-pair"), "--dry-run"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    secret = secret_file.read_text().strip()
+    assert "generated" in first.stdout
+    assert secret not in first.stdout
+    assert 8 <= len(secret) <= 63
+    assert secret_file.stat().st_mode & 0o777 == 0o600
+
+    second = subprocess.run(
+        [str(ROOT / "bin/provision-pair"), "--dry-run"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert "reused" in second.stdout
+    assert secret_file.read_text().strip() == secret
+    assert calls.read_text().splitlines() == [
+        f"--role leader --dry-run {secret}",
+        f"--role follower --dry-run {secret}",
+        f"--role leader --dry-run {secret}",
+        f"--role follower --dry-run {secret}",
+    ]
+
+
 def test_gptp_sync_uses_the_802_1as_multicast_address() -> None:
     config_text = (ROOT / "config/ptp/umi-gptp.cfg").read_text()
     assert "transportSpecific 0x1" in config_text
@@ -130,6 +188,49 @@ def test_phc_follows_system_clock_across_late_ntp_steps() -> None:
     service = (ROOT / "config/systemd/umi-phc2sys@.service").read_text()
     assert "-s CLOCK_REALTIME -c %i" in service
     assert "-S 0.001" in service
+
+
+def test_hotspot_dry_run_auto_detects_the_leader_usb_wifi_adapter(tmp_path: Path) -> None:
+    mock_bin = tmp_path / "bin"
+    mock_bin.mkdir()
+    ssh = mock_bin / "ssh"
+    ssh.write_text(
+        r"""#!/usr/bin/env bash
+remote="${!#}"
+case "$remote" in
+  *"ls /dev/v4l/by-path/"*) echo /dev/v4l/by-path/mock-usb-video-index0 ;;
+  *"/sys/class/net/"*"ID_BUS=usb"*) echo wlxmockusb ;;
+esac
+"""
+    )
+    ssh.chmod(0o755)
+    pair_config = tmp_path / "pair.env"
+    pair_config.write_text(
+        'SERVER="server@test"\n'
+        'LEADER="leader@test"\n'
+        'FOLLOWER="follower@test"\n'
+        'TASK="deployment test"\n'
+        "LEADER_HOTSPOT_ENABLED=true\n"
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "PAIR_CONFIG": str(pair_config),
+            "UMI_PAIR_PROVISION_PSK": "generated-test-password",
+            "PATH": f"{mock_bin}{os.pathsep}{env['PATH']}",
+        }
+    )
+
+    result = subprocess.run(
+        [str(ROOT / "bin/provision-pi"), "--role", "leader", "--dry-run"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "radio=wlxmockusb uplink=wlan0" in result.stdout
 
 
 def test_password_bootstrap_survives_a_verified_client_reboot(tmp_path: Path) -> None:
@@ -202,10 +303,6 @@ esac
         'LEADER="leader@test"\n'
         'FOLLOWER="follower@test"\n'
         'TASK="deployment test"\n'
-        'PAIR_WIFI_SSID="umi-flow-test"\n'
-        'PAIR_WIFI_PASSWORD="test-password"\n'
-        'PAIR_WIFI_CHANNEL=44\n'
-        'PAIR_WIFI_COUNTRY="US"\n'
     )
     gripper_calib = tmp_path / "gripper-calib"
     gripper_calib.mkdir()

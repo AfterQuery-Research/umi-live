@@ -30,10 +30,10 @@ case "${ALIGNMENT_ENABLED:-false}" in
   *) die "ALIGNMENT_ENABLED must be true or false in $PAIR_CONFIG" ;;
 esac
 LEADER_HOTSPOT_ENABLED="${LEADER_HOTSPOT_ENABLED:-false}"
-PAIR_WIFI_SSID="${PAIR_WIFI_SSID:-}"
-PAIR_WIFI_PASSWORD="${PAIR_WIFI_PASSWORD:-}"
-PAIR_WIFI_CHANNEL="${PAIR_WIFI_CHANNEL:-44}"
-PAIR_WIFI_COUNTRY="${PAIR_WIFI_COUNTRY:-US}"
+PAIR_WIFI_SSID="umi-flow-pair"
+PAIR_WIFI_PASSWORD="${UMI_PAIR_PROVISION_PSK:-}"
+PAIR_WIFI_CHANNEL=44
+PAIR_WIFI_COUNTRY="US"
 case "$LEADER_HOTSPOT_ENABLED" in
   true|false) ;;
   *) die "LEADER_HOTSPOT_ENABLED must be true or false in $PAIR_CONFIG" ;;
@@ -42,12 +42,8 @@ case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 case "$LEADER" in *@*) ;; *) die "LEADER must be user@host" ;; esac
 case "$FOLLOWER" in *@*) ;; *) die "FOLLOWER must be user@host" ;; esac
 
-if [ "$ROLE" = leader ]; then
-  PAIR_WIFI_RADIO_IFACE="${PAIR_WIFI_LEADER_RADIO_IFACE:-wlan0}"
-else
-  PAIR_WIFI_RADIO_IFACE="${PAIR_WIFI_FOLLOWER_RADIO_IFACE:-wlan0}"
-fi
-PAIR_WIFI_UPLINK_IFACE="${PAIR_WIFI_UPLINK_IFACE:-wlan0}"
+PAIR_WIFI_RADIO_IFACE="wlan0"
+PAIR_WIFI_UPLINK_IFACE="wlan0"
 PAIR_WIFI_IFACE="umi-pair0"
 if [ "$ROLE" = follower ]; then
   PAIR_WIFI_IFACE="$PAIR_WIFI_RADIO_IFACE"
@@ -56,25 +52,13 @@ PAIR_WIFI_LEADER_IP="10.42.0.1"
 PAIR_WIFI_FOLLOWER_IP="10.42.0.2"
 PAIR_WIFI_SUBNET="10.42.0.0/24"
 if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
-  for name in PAIR_WIFI_SSID PAIR_WIFI_PASSWORD PAIR_WIFI_CHANNEL PAIR_WIFI_COUNTRY; do
-    [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
-  done
-  for name in PAIR_WIFI_RADIO_IFACE PAIR_WIFI_UPLINK_IFACE; do
-    case "${!name}" in
-      *[!A-Za-z0-9._:-]*|"") die "$name has unsafe characters" ;;
-    esac
-  done
-  case "$PAIR_WIFI_SSID" in *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_SSID has unsafe characters" ;; esac
   case "$PAIR_WIFI_PASSWORD" in
-    *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_PASSWORD has unsafe characters" ;;
+    *[!A-Za-z0-9._-]*|"")
+      die "pair Wi-Fi credential is missing; run bin/provision-pair instead"
+      ;;
   esac
-  [ "${#PAIR_WIFI_SSID}" -le 32 ] || die "PAIR_WIFI_SSID must be at most 32 characters"
   [ "${#PAIR_WIFI_PASSWORD}" -ge 8 ] && [ "${#PAIR_WIFI_PASSWORD}" -le 63 ] \
-    || die "PAIR_WIFI_PASSWORD must be 8-63 characters"
-  case "$PAIR_WIFI_CHANNEL" in *[!0-9]*|"") die "PAIR_WIFI_CHANNEL must be numeric" ;; esac
-  [ "$PAIR_WIFI_CHANNEL" -ge 1 ] && [ "$PAIR_WIFI_CHANNEL" -le 165 ] \
-    || die "PAIR_WIFI_CHANNEL must be in [1, 165]"
-  case "$PAIR_WIFI_COUNTRY" in [A-Z][A-Z]) ;; *) die "PAIR_WIFI_COUNTRY must be two uppercase letters" ;; esac
+    || die "pair Wi-Fi credential must be 8-63 characters"
 fi
 
 PYTHON="$ROOT/.venv/bin/python"; [ -x "$PYTHON" ] || PYTHON="python3"
@@ -224,30 +208,28 @@ fi
 log "2/7 render fixed $ROLE configuration"
 CAMERA_DEVICE="$(pssh 'ls /dev/v4l/by-path/*usb-*-video-index0 2>/dev/null | head -1' || true)"
 [ -n "$CAMERA_DEVICE" ] || die "no USB camera found on $PI"
+if [ "$LEADER_HOTSPOT_ENABLED" = true ] && [ "$ROLE" = leader ]; then
+  USB_WIFI_IFACES="$(pssh '
+    for path in /sys/class/net/*/wireless; do
+      [ -e "$path" ] || continue
+      iface="${path%/wireless}"
+      iface="${iface##*/}"
+      [ "$iface" = umi-pair0 ] && continue
+      if udevadm info --query=property --path="/sys/class/net/$iface" 2>/dev/null \
+        | grep -qx "ID_BUS=usb"; then
+        printf "%s\n" "$iface"
+      fi
+    done
+  ' || true)"
+  case "$USB_WIFI_IFACES" in
+    "") die "leader needs exactly one USB Wi-Fi adapter; found none" ;;
+    *$'\n'*) die "leader needs exactly one USB Wi-Fi adapter; found: $USB_WIFI_IFACES" ;;
+    *) PAIR_WIFI_RADIO_IFACE="$USB_WIFI_IFACES" ;;
+  esac
+fi
 if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
   pssh "iw dev '$PAIR_WIFI_RADIO_IFACE' info >/dev/null" \
     || die "$ROLE pair Wi-Fi radio $PAIR_WIFI_RADIO_IFACE not found on $PI"
-fi
-if [ "$LEADER_HOTSPOT_ENABLED" = true ] && [ "$ROLE" = leader ] \
-  && [ "$PAIR_WIFI_RADIO_IFACE" = "$PAIR_WIFI_UPLINK_IFACE" ]; then
-  ACTIVE_CHANNEL="$(pssh "iw dev '$PAIR_WIFI_UPLINK_IFACE' link 2>/dev/null | sed -n 's/.*freq: //p' | head -1" || true)"
-  if [ -n "$ACTIVE_CHANNEL" ]; then
-    ACTIVE_CHANNEL="${ACTIVE_CHANNEL%%.*}"
-    CONFIGURED_FREQ="$("$PYTHON" - "$PAIR_WIFI_CHANNEL" <<'PY'
-import sys
-
-channel = int(sys.argv[1])
-if channel == 14:
-    print(2484)
-elif channel <= 13:
-    print(2407 + channel * 5)
-else:
-    print(5000 + channel * 5)
-PY
-)"
-    [ "$ACTIVE_CHANNEL" = "$CONFIGURED_FREQ" ] \
-      || die "leader uplink is on ${ACTIVE_CHANNEL}MHz but pair hotspot channel $PAIR_WIFI_CHANNEL is ${CONFIGURED_FREQ}MHz; one radio requires a shared channel"
-  fi
 fi
 json_string() { "$PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
 TASK_YAML="$(json_string "$TASK")"

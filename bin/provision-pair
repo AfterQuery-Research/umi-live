@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PAIR_CONFIG="${PAIR_CONFIG:-$ROOT/provisioning/pair.env}"
+PROVISION_PI="${PROVISION_PI:-$ROOT/bin/provision-pi}"
 [ -f "$PAIR_CONFIG" ] || {
   echo "provision-pair: missing $PAIR_CONFIG (copy provisioning/pair.env.example)" >&2
   exit 1
@@ -20,15 +21,63 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "${LEADER_HOTSPOT_ENABLED:-false}" = true ]; then
+  PAIR_WIFI_SECRET_FILE="${PAIR_WIFI_SECRET_FILE:-$ROOT/provisioning/.pair-wifi-psk}"
+  PAIR_WIFI_SECRET=""
+  SECRET_SOURCE=""
+  if [ -s "$PAIR_WIFI_SECRET_FILE" ]; then
+    PAIR_WIFI_SECRET="$(sed -n '1p' "$PAIR_WIFI_SECRET_FILE")"
+    SECRET_SOURCE="reused"
+  elif [ -n "${PAIR_WIFI_PASSWORD:-}" ]; then
+    # One-time migration from inventories created before the credential was automatic.
+    PAIR_WIFI_SECRET="$PAIR_WIFI_PASSWORD"
+    SECRET_SOURCE="migrated"
+  else
+    PAIR_WIFI_SECRET="$(
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+        "${LEADER:-}" \
+        'sed -n "s/^UMI_PAIR_PSK=//p" ~/umi-flow/.pair-wifi.env 2>/dev/null | head -1' \
+        2>/dev/null || true
+    )"
+    if [ -n "$PAIR_WIFI_SECRET" ]; then
+      SECRET_SOURCE="recovered"
+    else
+      command -v python3 >/dev/null 2>&1 || {
+        echo "provision-pair: python3 is required to generate the pair Wi-Fi credential" >&2
+        exit 1
+      }
+      PAIR_WIFI_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+      SECRET_SOURCE="generated"
+    fi
+  fi
+  case "$PAIR_WIFI_SECRET" in
+    *[!A-Za-z0-9._-]*|"")
+      echo "provision-pair: generated pair Wi-Fi credential has unsafe characters" >&2
+      exit 1
+      ;;
+  esac
+  [ "${#PAIR_WIFI_SECRET}" -ge 8 ] && [ "${#PAIR_WIFI_SECRET}" -le 63 ] || {
+    echo "provision-pair: pair Wi-Fi credential must be 8-63 characters" >&2
+    exit 1
+  }
+  mkdir -p "$(dirname "$PAIR_WIFI_SECRET_FILE")"
+  (umask 077; printf '%s\n' "$PAIR_WIFI_SECRET" > "$PAIR_WIFI_SECRET_FILE")
+  chmod 600 "$PAIR_WIFI_SECRET_FILE"
+  UMI_PAIR_PROVISION_PSK="$PAIR_WIFI_SECRET"
+  export UMI_PAIR_PROVISION_PSK
+  unset PAIR_WIFI_SECRET PAIR_WIFI_PASSWORD
+  echo "pair Wi-Fi credential: $SECRET_SOURCE $PAIR_WIFI_SECRET_FILE"
+fi
+
 echo "=== leader: ${LEADER:-<unset>} (left / umi1) ==="
 # EXTRA_ARGS contains only the two fixed flag literals accepted above.
 # shellcheck disable=SC2086
-PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role leader $EXTRA_ARGS
+PAIR_CONFIG="$PAIR_CONFIG" "$PROVISION_PI" --role leader $EXTRA_ARGS
 
 echo
 echo "=== follower: ${FOLLOWER:-<unset>} (right / umi2) ==="
 # shellcheck disable=SC2086
-PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role follower $EXTRA_ARGS
+PAIR_CONFIG="$PAIR_CONFIG" "$PROVISION_PI" --role follower $EXTRA_ARGS
 
 if [ "${LEADER_HOTSPOT_ENABLED:-false}" = true ] \
   && [ "${EXTRA_ARGS#*--dry-run}" = "$EXTRA_ARGS" ]; then

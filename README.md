@@ -66,13 +66,6 @@ FOLLOWER="<follower-user>@<follower-address>"
 TASK="<task name>"
 ALIGNMENT_ENABLED="true"
 LEADER_HOTSPOT_ENABLED="true"
-PAIR_WIFI_SSID="umi-flow-pair"
-PAIR_WIFI_PASSWORD="<private-wpa-password>"
-PAIR_WIFI_CHANNEL=44
-PAIR_WIFI_COUNTRY="US"
-PAIR_WIFI_LEADER_RADIO_IFACE="<leader-hotspot-interface>"
-PAIR_WIFI_FOLLOWER_RADIO_IFACE="wlan0"
-PAIR_WIFI_UPLINK_IFACE="wlan0"
 ```
 
 Set `ALIGNMENT_ENABLED=true` to register both LiDAR trajectories into umi1's metric
@@ -81,9 +74,10 @@ frame during processing. Set it to `false` to retain independent episode-relativ
 Set `LEADER_HOTSPOT_ENABLED=false` to use the follower address in `FOLLOWER` instead. When
 enabled, the leader hosts the private pair network at `10.42.0.1`; the follower joins at
 `10.42.0.2`. Recording coordination and follower clock sync therefore work without
-infrastructure Wi-Fi. The follower uses that link exclusively and uploads through the
-leader. Set `PAIR_WIFI_LEADER_RADIO_IFACE` to a second adapter to keep the leader hotspot
-independent of its `PAIR_WIFI_UPLINK_IFACE` internet connection.
+infrastructure Wi-Fi. Provisioning automatically uses the leader's sole USB Wi-Fi adapter,
+keeps its built-in `wlan0` as the uplink, and generates a private credential that is reused
+from the gitignored `provisioning/.pair-wifi-psk`. The follower dedicates `wlan0` to the
+private link and uploads through the leader.
 
 Install the processing server, then both clients:
 
