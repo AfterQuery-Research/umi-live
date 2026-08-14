@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 from queue import Queue
 
@@ -136,6 +137,36 @@ def test_leader_start_records_clock_handshake():
     assert record._leader_start(AvailableFollower(), "sess_1", handshake, display)
     assert isinstance(handshake["v"], int)
     assert display.uploads == []
+
+
+def test_finish_paired_starts_local_and_follower_stops_concurrently(tmp_path: Path) -> None:
+    local_started = threading.Event()
+    follower_started = threading.Event()
+    episode_dir = tmp_path / "episode_test"
+
+    class StoppingRecorder:
+        last_stop_issues: tuple = ()
+
+        def stop(self):
+            local_started.set()
+            assert follower_started.wait(timeout=1)
+            return episode_dir
+
+    class StoppingFollower:
+        def stop_take(self):
+            follower_started.set()
+            assert local_started.wait(timeout=1)
+            return {"ok": True}
+
+    submitted: list[Path] = []
+
+    class CapturingUploader:
+        def submit(self, path: Path) -> None:
+            submitted.append(path)
+
+    record.finish_paired(StoppingRecorder(), CapturingUploader(), StoppingFollower())
+
+    assert submitted == [episode_dir]
 
 
 def test_unavailable_follower_aborts_before_local_recording(tmp_path: Path):

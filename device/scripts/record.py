@@ -13,6 +13,7 @@ import contextlib
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
@@ -207,6 +208,18 @@ def finish_active(recorder: EpisodeRecorder, uploader: AsyncUploader) -> None:
     uploader.submit(episode_dir)
 
 
+def finish_paired(recorder: EpisodeRecorder, uploader: AsyncUploader, leader) -> None:
+    """Stop both recorders concurrently, then wait for the follower acknowledgement."""
+    if leader is None:
+        finish_active(recorder, uploader)
+        return
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        follower_stop = executor.submit(leader.stop_take)
+        finish_active(recorder, uploader)
+        follower_stop.result()
+
+
 def _refresh_status(display, monitors, spool_dir, uploader, state) -> None:
     """The 2 Hz LCD/monitor/upload housekeeping shared by both loops."""
     now = time.monotonic()
@@ -311,9 +324,7 @@ def button_loop(
             error = recorder.poll_active_error()
             if error is not None:
                 print(f"sensor failed mid-episode ({error}); stopping + keeping data")
-                if leader is not None:
-                    leader.stop_take()
-                finish_active(recorder, uploader)
+                finish_paired(recorder, uploader, leader)
                 display.set_recording(False)
 
         if event is None:
@@ -336,9 +347,7 @@ def button_loop(
                 if leader is not None:
                     leader.cancel_take()  # keep the follower from recording alone
         elif event in (Event.TOGGLE, Event.STOP) and recording:
-            if leader is not None:
-                leader.stop_take()
-            finish_active(recorder, uploader)
+            finish_paired(recorder, uploader, leader)
             display.set_recording(False)
         elif event is Event.CANCEL and recording:
             if leader is not None:
