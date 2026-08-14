@@ -35,7 +35,7 @@ SPOOL_DIR="${UMI_FLOW_SPOOL_DIR:-${ROBOT_UMI_SPOOL_DIR:-$REPO/device/umi_flow_sp
 # downloads fail ("could not resolve host"). Suspend it; the final reboot restarts all.
 export NEEDRESTART_SUSPEND=1
 
-echo "=== [1/11] apt packages ==="
+echo "=== [1/12] apt packages ==="
 # Fresh RPi Ubuntu images sometimes ship -updates packages already installed but omit
 # the -updates POCKET from the sources (only <codename> + <codename>-security). Then
 # `apt install <foo>-dev` can only see the OLDER -dev, which conflicts with the newer
@@ -50,26 +50,27 @@ fi
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
   git curl ca-certificates build-essential pkg-config \
-  chrony tcpdump ethtool linuxptp libcap2-bin v4l-utils python3-dev
+  chrony tcpdump ethtool linuxptp libcap2-bin v4l-utils python3-dev \
+  hostapd iptables
 
-echo "=== [2/11] uv (Python) ==="
+echo "=== [2/12] uv (Python) ==="
 if ! command -v uv >/dev/null && [ ! -x "$HOME/.local/bin/uv" ]; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 export PATH="$HOME/.local/bin:$PATH"
 uv --version
 
-echo "=== [3/11] Rust (camera recorder) ==="
+echo "=== [3/12] Rust (camera recorder) ==="
 if ! command -v cargo >/dev/null && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 fi
 export PATH="$HOME/.cargo/bin:$PATH"
 cargo --version
 
-echo "=== [4/11] Python env (device + Pi extras: GPIO/LCD) ==="
+echo "=== [4/12] Python env (device + Pi extras: GPIO/LCD) ==="
 uv sync --frozen --no-dev --package umi-flow-device --extra pi
 
-echo "=== [5/11] build the Rust V4L2 recorder ==="
+echo "=== [5/12] build the Rust V4L2 recorder ==="
 # Force a recompile of the current source. rsync -a preserves the source's (possibly
 # older) mtime, which can be OLDER than a stale binary left by a prior build — cargo
 # would then skip the rebuild and ship outdated code (e.g. a camera binary missing
@@ -77,14 +78,14 @@ echo "=== [5/11] build the Rust V4L2 recorder ==="
 find "$REPO/device/v4l2_recorder/src" -name '*.rs' -exec touch {} +
 cargo build --release --manifest-path "$REPO/device/v4l2_recorder/Cargo.toml"
 
-echo "=== [6/11] tcpdump capture capability (setcap) ==="
+echo "=== [6/12] tcpdump capture capability (setcap) ==="
 # Without this, record.py's tcpdump dies instantly and every episode records
 # camera-only, marked dataset_eligible=false — the #1 silent bring-up failure.
 TCPDUMP="$(command -v tcpdump)"
 sudo setcap cap_net_raw,cap_net_admin+eip "$TCPDUMP"
 getcap "$TCPDUMP"
 
-echo "=== [7/11] SPI overlay + device groups + udev (LCD / GPIO / camera) ==="
+echo "=== [7/12] SPI overlay + device groups + udev (LCD / GPIO / camera) ==="
 BOOTCFG=/boot/firmware/config.txt
 [ -f "$BOOTCFG" ] || BOOTCFG=/boot/config.txt
 if [ -f "$BOOTCFG" ] && ! grep -q '^dtparam=spi=on' "$BOOTCFG"; then
@@ -110,7 +111,7 @@ KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"
 UDEV
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
-echo "=== [8/11] rig config ==="
+echo "=== [8/12] rig config ==="
 [ -f "$CONFIG_PATH" ] || { echo "missing rendered client config $CONFIG_PATH" >&2; exit 1; }
 # Fail loudly on an unparseable config NOW (unknown key, bad YAML) instead of
 # silently skipping lidar/PTP below and reporting a false "install complete".
@@ -120,8 +121,15 @@ if ! ERR="$("$REPO/.venv/bin/python" -c \
   echo "config error in $CONFIG_REL:" >&2; echo "$ERR" >&2
   echo "edit $CONFIG_REL and re-run." >&2; exit 1
 fi
+ROLE="$ERR"
+PAIR_WIFI_ENV="$REPO/.pair-wifi.env"
+[ -f "$PAIR_WIFI_ENV" ] || { echo "missing rendered pair Wi-Fi config $PAIR_WIFI_ENV" >&2; exit 1; }
+# shellcheck disable=SC1090
+set -a; . "$PAIR_WIFI_ENV"; set +a
+[ "${UMI_PAIR_ROLE:-}" = "$ROLE" ] \
+  || { echo "pair Wi-Fi role ${UMI_PAIR_ROLE:-unset} != rig role $ROLE" >&2; exit 1; }
 
-echo "=== [9/11] lidar network + PTP (from the rig config) ==="
+echo "=== [9/12] lidar network + PTP (from the rig config) ==="
 IFACES=""
 LIDARS="$("$REPO/.venv/bin/python" - "$CONFIG_PATH" <<'PY'
 import sys
@@ -143,23 +151,40 @@ if [ -n "$LIDARS" ]; then
   sudo "$REPO/device/scripts/setup_ptp.sh" $IFACES || echo "WARN: PTP setup incomplete"
 fi
 
-# Both clients MUST discipline against the SAME time reference: the pair stage's
-# cross-Pi gate subtracts each Pi's offset-to-its-reference, which only measures the
-# true inter-Pi skew when the reference is shared. chrony's default pools pick a
-# DIFFERENT internet server per machine, making that subtraction noise at the few-ms
-# scale of the 5 ms gate — so pin one shared server (prefer biases selection to it).
-CHRONY_LINE="server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer"
-grep -qF "$CHRONY_LINE" /etc/chrony/chrony.conf 2>/dev/null \
-  || echo "$CHRONY_LINE" | sudo tee -a /etc/chrony/chrony.conf >/dev/null
+echo "=== [10/12] private pair Wi-Fi + cross-Pi clock ==="
+sed -e "s#@REPO@#$REPO#g" \
+  "$REPO/config/systemd/umi-pair-wifi@.service" \
+  | sudo tee "/etc/systemd/system/umi-pair-wifi@.service" >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable "umi-pair-wifi@$ROLE" >/dev/null
+sudo systemctl restart "umi-pair-wifi@$ROLE"
+
+# Remove the line written by older installers, then own one role-specific drop-in.
+# The leader follows Cloudflare when online and advertises itself as an offline local
+# reference. The follower always follows the leader over 10.42.0.0/24, so paired takes
+# retain sub-frame relative timing with no infrastructure Wi-Fi.
+LEGACY_CHRONY_LINE="server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer"
+sudo sed -i "\#^$LEGACY_CHRONY_LINE\$#d" /etc/chrony/chrony.conf
+if [ "$ROLE" = leader ]; then
+  sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
+server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer
+allow $UMI_PAIR_SUBNET
+local stratum 10 orphan
+EOF
+else
+  sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
+server $UMI_PAIR_LEADER_IP iburst minpoll 2 maxpoll 4 prefer
+EOF
+fi
 sudo systemctl enable --now chrony >/dev/null 2>&1 \
   || sudo systemctl enable --now chronyd >/dev/null 2>&1
 sudo systemctl restart chrony >/dev/null 2>&1 || sudo systemctl restart chronyd >/dev/null 2>&1
 
-echo "=== [10/11] episode spool ==="
+echo "=== [11/12] episode spool ==="
 mkdir -p "$SPOOL_DIR"
 echo "recordings spool to the microSD card at $SPOOL_DIR"
 
-echo "=== [11/11] recorder systemd unit ==="
+echo "=== [12/12] recorder systemd unit ==="
 sed -e "s#@REPO@#$REPO#g" -e "s#@USER@#$USER_NAME#g" \
     "$REPO/config/systemd/umi-recorder.service" | sudo tee /etc/systemd/system/umi-recorder.service >/dev/null
 sudo systemctl daemon-reload
@@ -195,6 +220,9 @@ for i in $IFACES; do
 done
 chronyc tracking >/dev/null 2>&1 && echo "OK  chrony clock synchronization active" \
   || echo "CHECK chrony is not synchronized yet"
+systemctl is-active --quiet "umi-pair-wifi@$ROLE" \
+  && echo "OK  private pair Wi-Fi service active ($UMI_PAIR_IFACE)" \
+  || { echo "FAIL private pair Wi-Fi service inactive"; fail=1; }
 [ "$NEED_RELOGIN" = "1" ] && echo "ACTION log out/in (or reboot) for new group membership (GPIO/SPI/camera)."
 grep -q '^dtparam=spi=on' "$BOOTCFG" 2>/dev/null && ! [ -e /dev/spidev0.0 ] && echo "ACTION reboot to activate SPI (LCD)."
 

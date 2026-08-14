@@ -165,8 +165,8 @@ def test_upload_timeout_is_passed_to_http_client(tmp_path: Path):
     assert seen_timeout == [1.25]
 
 
-def test_default_upload_timeout_is_shorter_than_old_timeout():
-    assert DEFAULT_UPLOAD_TIMEOUT_SECONDS == 10.0
+def test_default_upload_timeout_allows_large_tunnel_uploads_to_drain():
+    assert DEFAULT_UPLOAD_TIMEOUT_SECONDS == 300.0
 
 
 def test_invalid_server_url_rejected_at_startup(tmp_path: Path):

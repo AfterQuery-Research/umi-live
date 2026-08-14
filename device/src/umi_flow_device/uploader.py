@@ -18,7 +18,10 @@ from urllib.parse import urlparse
 
 from umi_flow_core.layout import COMPLETE_FILE
 
-DEFAULT_UPLOAD_TIMEOUT_SECONDS = 10.0
+# The client writes into a local SSH tunnel, so its socket can fill before the tunnel has
+# delivered a large episode and received the server's response. Ten seconds caused valid
+# uploads to time out and retry while their earlier tunnel streams were still draining.
+DEFAULT_UPLOAD_TIMEOUT_SECONDS = 300.0
 REACHABILITY_TIMEOUT_SECONDS = 3.0
 PostFile = Callable[[str, Path, str, float], dict[str, Any]]
 

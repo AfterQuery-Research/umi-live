@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from umi_flow_device.preflight import (
     CHECK_FRAME_COUNT,
+    AiryTimeSyncCheck,
     ArucoTagDetector,
     CheckResult,
     GripperTagVisibilityCheck,
@@ -114,6 +115,35 @@ def test_pipeline_result_roundtrips_through_coordinator_payload() -> None:
     )
 
     assert PipelineResult.from_dict(original.to_dict()) == original
+
+
+def test_airy_time_sync_check_requires_sensor_reported_gptp_lock() -> None:
+    responses = iter(
+        [
+            {"sync_mode": "GPTP", "sync_sts": "Lock"},
+            {"sync_mode": "GPTP", "sync_sts": "UnLock"},
+        ]
+    )
+    def fetch(_url: str, _timeout: float):
+        return next(responses)
+
+    check = AiryTimeSyncCheck("umi1", "192.168.1.200", fetch_json=fetch)
+
+    assert check.run().ok
+    failure = check.run()
+    assert not failure.ok
+    assert failure.check == "lidar_time_sync"
+    assert "UnLock" in failure.message
+
+
+def test_airy_time_sync_check_blocks_on_diagnostic_failure() -> None:
+    def fail(_url: str, _timeout: float):
+        raise TimeoutError("sensor did not respond")
+
+    result = AiryTimeSyncCheck("umi2", "192.168.1.200", fetch_json=fail).run()
+
+    assert not result.ok
+    assert "sensor did not respond" in result.message
 
 
 def test_real_aruco_detector_reports_generated_marker_ids() -> None:

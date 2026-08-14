@@ -8,17 +8,20 @@ disciplining the lidar's clock to Pi time. What we can observe host-side:
   eth0 has a PHC, USB-GbE dongles usually don't -> software),
 - the phc2sys system<->PHC residual when hardware timestamping is active.
 
-The lidar-side (slave) offset is not directly observable from the master; the
-decode stage cross-checks it offline (payload time vs pcap arrival time). Every
-probe failure degrades gracefully to an honest "not locked / none" — the manifest
-must never lie about sync quality.
+The Airy's own diagnostics endpoint is the authority for slave lock. A running
+master service alone is insufficient: the service can be healthy while sending
+Sync packets to a multicast address the sensor does not consume. The decode stage
+independently cross-checks the clock offline (payload time vs PCAP arrival time).
+Every probe failure degrades to an honest "not locked / none".
 """
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
+from urllib.request import urlopen
 
 from umi_flow_core import manifest
 
@@ -103,15 +106,30 @@ def chrony_status(ref: str = "") -> manifest.ClockSyncStatus | None:
     )
 
 
-def probe_ptp(ifaces: list[str]) -> dict[str, manifest.PtpStatus]:
+def _airy_reports_lock(lidar_ip: str, timeout: float = 2.0) -> bool:
+    try:
+        with urlopen(  # noqa: S310 - fixed private-network LiDAR address from rig config
+            f"http://{lidar_ip}/diag_data.json", timeout=timeout
+        ) as response:
+            raw = json.load(response)
+    except Exception:
+        return False
+    return bool(
+        isinstance(raw, dict)
+        and str(raw.get("sync_mode", "")).strip().upper() == "GPTP"
+        and str(raw.get("sync_sts", "")).strip().lower() in {"lock", "locked"}
+    )
+
+
+def probe_ptp(iface_lidar_ips: dict[str, str]) -> dict[str, manifest.PtpStatus]:
     """One PtpStatus per lidar interface, all best-effort."""
     statuses: dict[str, manifest.PtpStatus] = {}
-    for iface in ifaces:
+    for iface, lidar_ip in iface_lidar_ips.items():
         mode = timestamping_mode(iface)
-        active = service_active(iface)
+        locked = service_active(iface) and _airy_reports_lock(lidar_ip)
         residual = phc2sys_residual_ns(iface) if mode == manifest.PTP_MODE_HARDWARE else None
         statuses[iface] = manifest.PtpStatus(
-            locked=active,
+            locked=locked,
             timestamping_mode=mode,
             residual_offset_ns=residual,
         )

@@ -25,9 +25,34 @@ case "$ROLE" in leader|follower) ;; *) die "--role must be leader or follower" ;
 for name in SERVER LEADER FOLLOWER TASK; do
   [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
 done
+for name in PAIR_WIFI_SSID PAIR_WIFI_PASSWORD PAIR_WIFI_CHANNEL PAIR_WIFI_COUNTRY; do
+  [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
+done
+case "${ALIGNMENT_ENABLED:-false}" in
+  true|false) ;;
+  *) die "ALIGNMENT_ENABLED must be true or false in $PAIR_CONFIG" ;;
+esac
+case "$PAIR_WIFI_SSID" in *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_SSID has unsafe characters" ;; esac
+case "$PAIR_WIFI_PASSWORD" in
+  *[!A-Za-z0-9._-]*|"") die "PAIR_WIFI_PASSWORD has unsafe characters" ;;
+esac
+[ "${#PAIR_WIFI_SSID}" -le 32 ] || die "PAIR_WIFI_SSID must be at most 32 characters"
+[ "${#PAIR_WIFI_PASSWORD}" -ge 8 ] && [ "${#PAIR_WIFI_PASSWORD}" -le 63 ] \
+  || die "PAIR_WIFI_PASSWORD must be 8-63 characters"
+case "$PAIR_WIFI_CHANNEL" in *[!0-9]*|"") die "PAIR_WIFI_CHANNEL must be numeric" ;; esac
+[ "$PAIR_WIFI_CHANNEL" -ge 1 ] && [ "$PAIR_WIFI_CHANNEL" -le 165 ] \
+  || die "PAIR_WIFI_CHANNEL must be in [1, 165]"
+case "$PAIR_WIFI_COUNTRY" in [A-Z][A-Z]) ;; *) die "PAIR_WIFI_COUNTRY must be two uppercase letters" ;; esac
 case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 case "$LEADER" in *@*) ;; *) die "LEADER must be user@host" ;; esac
 case "$FOLLOWER" in *@*) ;; *) die "FOLLOWER must be user@host" ;; esac
+
+PAIR_WIFI_RADIO_IFACE="${PAIR_WIFI_RADIO_IFACE:-wlan0}"
+PAIR_WIFI_UPLINK_IFACE="${PAIR_WIFI_UPLINK_IFACE:-wlan0}"
+PAIR_WIFI_IFACE="umi-pair0"
+PAIR_WIFI_LEADER_IP="10.42.0.1"
+PAIR_WIFI_FOLLOWER_IP="10.42.0.2"
+PAIR_WIFI_SUBNET="10.42.0.0/24"
 
 PYTHON="$ROOT/.venv/bin/python"; [ -x "$PYTHON" ] || PYTHON="python3"
 GRIPPER_TAG_CONFIG="$ROOT/config/gripper_tags.yaml"
@@ -35,11 +60,20 @@ GRIPPER_TAG_CONFIG="$ROOT/config/gripper_tags.yaml"
 
 if [ "$ROLE" = leader ]; then
   PI="$LEADER"; UMI_NAME="umi1"; CAMERA_CALIB="config/calib/umi1_calib.npz"
-  DISPLAY_KIND="lcd"; PEER_HOST="${FOLLOWER#*@}"
+  DISPLAY_KIND="lcd"
 else
   PI="$FOLLOWER"; UMI_NAME="umi2"; CAMERA_CALIB="config/calib/umi2_calib.npz"
-  DISPLAY_KIND="none"; PEER_HOST=""
+  DISPLAY_KIND="none"
 fi
+ALIGNMENT_YAML=""
+if [ "$ROLE" = leader ] && [ "${ALIGNMENT_ENABLED:-false}" = true ]; then
+  ALIGNMENT_YAML="alignment:
+  enabled: true
+  reference: umi1
+  tier: 1"
+fi
+GRIPPER_CALIB_DIR="${GRIPPER_CALIB_DIR:-$ROOT/config/calib}"
+GRIPPER_RANGE="$GRIPPER_CALIB_DIR/${UMI_NAME}_gripper_range.json"
 TAGS="$(
   PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" - "$GRIPPER_TAG_CONFIG" "$UMI_NAME" <<'PY'
 import sys
@@ -51,6 +85,30 @@ print(", ".join(str(tag_id) for tag_id in pair))
 PY
 )" || die "invalid gripper tag config: $GRIPPER_TAG_CONFIG"
 [ -f "$ROOT/$CAMERA_CALIB" ] || die "$ROLE camera calibration not found: $CAMERA_CALIB"
+GRIPPER_CALIB_YAML=""
+GRIPPER_REPORT="uncalibrated (legacy millimetre feature)"
+if [ -f "$GRIPPER_RANGE" ]; then
+  read -r GRIPPER_CLOSED_MM GRIPPER_OPEN_MM <<EOF
+$("$PYTHON" - "$GRIPPER_RANGE" "$UMI_NAME" <<'PY'
+import json, math, sys
+
+report = json.load(open(sys.argv[1]))
+if report.get("gripper") != sys.argv[2]:
+    raise SystemExit(f"calibration gripper {report.get('gripper')!r} != {sys.argv[2]!r}")
+closed = float(report["closed_width_mm"])
+opened = float(report["open_width_mm"])
+if not math.isfinite(closed) or not math.isfinite(opened) or opened <= closed:
+    raise SystemExit("gripper calibration endpoints must be finite and open > closed")
+print(closed, opened)
+PY
+)
+EOF
+  GRIPPER_CALIB_YAML="      closed_width_mm: $GRIPPER_CLOSED_MM
+      open_width_mm: $GRIPPER_OPEN_MM"
+  GRIPPER_REPORT="calibrated [$GRIPPER_CLOSED_MM, $GRIPPER_OPEN_MM] mm -> [0, 1]"
+else
+  echo "WARN: $GRIPPER_RANGE missing; run the interactive calibration and re-provision"
+fi
 
 PI_USER="${PI%@*}"
 REMOTE_REPO="/home/$PI_USER/umi-flow"
@@ -58,9 +116,9 @@ SPOOL_DIR="/home/$PI_USER/umi-recordings"
 SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
 pssh() { ssh "${SSH_OPTS[@]}" "$PI" "$@"; }
 
-CFG_TMP="$(mktemp)"; ENV_TMP="$(mktemp)"; SUDO_TEMP=0
+CFG_TMP="$(mktemp)"; ENV_TMP="$(mktemp)"; PAIR_WIFI_TMP="$(mktemp)"; SUDO_TEMP=0
 cleanup() {
-  rm -f "$CFG_TMP" "$ENV_TMP"
+  rm -f "$CFG_TMP" "$ENV_TMP" "$PAIR_WIFI_TMP"
   if [ "$SUDO_TEMP" = 1 ]; then
     pssh 'sudo -n rm -f /etc/sudoers.d/90-umi-provision' >/dev/null 2>&1 || true
   fi
@@ -98,6 +156,26 @@ fi
 log "2/7 render fixed $ROLE configuration"
 CAMERA_DEVICE="$(pssh 'ls /dev/v4l/by-path/*usb-*-video-index0 2>/dev/null | head -1' || true)"
 [ -n "$CAMERA_DEVICE" ] || die "no USB camera found on $PI"
+if [ "$ROLE" = leader ] && [ "$PAIR_WIFI_RADIO_IFACE" = "$PAIR_WIFI_UPLINK_IFACE" ]; then
+  ACTIVE_CHANNEL="$(pssh "iw dev '$PAIR_WIFI_UPLINK_IFACE' link 2>/dev/null | sed -n 's/.*freq: //p' | head -1" || true)"
+  if [ -n "$ACTIVE_CHANNEL" ]; then
+    ACTIVE_CHANNEL="${ACTIVE_CHANNEL%%.*}"
+    CONFIGURED_FREQ="$("$PYTHON" - "$PAIR_WIFI_CHANNEL" <<'PY'
+import sys
+
+channel = int(sys.argv[1])
+if channel == 14:
+    print(2484)
+elif channel <= 13:
+    print(2407 + channel * 5)
+else:
+    print(5000 + channel * 5)
+PY
+)"
+    [ "$ACTIVE_CHANNEL" = "$CONFIGURED_FREQ" ] \
+      || die "leader uplink is on ${ACTIVE_CHANNEL}MHz but pair hotspot channel $PAIR_WIFI_CHANNEL is ${CONFIGURED_FREQ}MHz; one radio requires a shared channel"
+  fi
+fi
 json_string() { "$PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
 TASK_YAML="$(json_string "$TASK")"
 CAMERA_YAML="$(json_string "$CAMERA_DEVICE")"
@@ -105,6 +183,7 @@ CALIB_YAML="$(json_string "$CAMERA_CALIB")"
 cat > "$CFG_TMP" <<YAML
 version: 1
 task: $TASK_YAML
+$ALIGNMENT_YAML
 controls:
   buttons: { record: 12, quit: 16 }
   display: { kind: $DISPLAY_KIND, dc: 25, rst: 27, bl: 18 }
@@ -124,6 +203,7 @@ umis:
     gripper:
       tag_ids: [$TAGS]
       stride: 2
+$GRIPPER_CALIB_YAML
 YAML
 PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" -c \
   'import sys; from umi_flow_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
@@ -131,7 +211,7 @@ PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" -c \
 
 COORD_ENV=""
 if [ "$ROLE" = leader ]; then
-  COORD_ENV="UMI_FLOW_PEER=$PEER_HOST:9140"
+  COORD_ENV="UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140"
 fi
 cat > "$ENV_TMP" <<ENV
 # Rendered by bin/provision-pi. Re-run bin/provision-pair to change it.
@@ -139,7 +219,21 @@ UMI_FLOW_CONFIG=config/umi.yaml
 UMI_FLOW_SPOOL_DIR=$SPOOL_DIR
 $COORD_ENV
 ENV
-echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB tags=[$TAGS] spool=$SPOOL_DIR"
+cat > "$PAIR_WIFI_TMP" <<ENV
+# Rendered by bin/provision-pi. Contains the private pair-network credential.
+UMI_PAIR_ROLE=$ROLE
+UMI_PAIR_RADIO_IFACE=$PAIR_WIFI_RADIO_IFACE
+UMI_PAIR_UPLINK_IFACE=$PAIR_WIFI_UPLINK_IFACE
+UMI_PAIR_IFACE=$PAIR_WIFI_IFACE
+UMI_PAIR_SSID=$PAIR_WIFI_SSID
+UMI_PAIR_PSK=$PAIR_WIFI_PASSWORD
+UMI_PAIR_CHANNEL=$PAIR_WIFI_CHANNEL
+UMI_PAIR_COUNTRY=$PAIR_WIFI_COUNTRY
+UMI_PAIR_LEADER_IP=$PAIR_WIFI_LEADER_IP
+UMI_PAIR_FOLLOWER_IP=$PAIR_WIFI_FOLLOWER_IP
+UMI_PAIR_SUBNET=$PAIR_WIFI_SUBNET
+ENV
+echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB tags=[$TAGS] gripper=$GRIPPER_REPORT pair_wifi=$PAIR_WIFI_SSID/$PAIR_WIFI_CHANNEL spool=$SPOOL_DIR"
 
 if [ "$DRY_RUN" = 1 ]; then
   echo "dry run complete: configuration validated; no files changed"
@@ -152,10 +246,15 @@ rsync -a --delete \
   --exclude-from "$ROOT/config/rsync-excludes" \
   --exclude '.git' --exclude '.venv' --exclude 'target' --exclude '__pycache__' \
   --exclude 'data' --exclude 'provisioning' --exclude '.env' --exclude 'config/umi.yaml' \
+  --exclude '.pair-wifi.env' \
+  --exclude 'demo-output' --exclude 'bin/render-demo' \
+  --exclude 'tools/render_slam_demo.py' --exclude 'server/tests/test_slam_demo.py' \
   --exclude 'docker-compose.override.yml' \
   -e "ssh ${SSH_OPTS[*]}" "$ROOT/" "$PI:$REMOTE_REPO/"
 scp "${SSH_OPTS[@]}" -q "$CFG_TMP" "$PI:$REMOTE_REPO/config/umi.yaml"
 scp "${SSH_OPTS[@]}" -q "$ENV_TMP" "$PI:$REMOTE_REPO/.env"
+scp "${SSH_OPTS[@]}" -q "$PAIR_WIFI_TMP" "$PI:$REMOTE_REPO/.pair-wifi.env"
+pssh "chmod 600 '$REMOTE_REPO/.pair-wifi.env'"
 
 log "4/7 install recorder"
 pssh "cd '$REMOTE_REPO' && DEBIAN_FRONTEND=noninteractive PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH device/scripts/install_pi.sh" \
@@ -200,6 +299,13 @@ done
 
 log "7/7 remove temporary sudo access and verify"
 remove_temporary_sudo
-pssh "systemctl is-active --quiet umi-recorder && systemctl is-active --quiet umi-upload-tunnel && test -d '$SPOOL_DIR'" \
-  || die "$ROLE services failed verification on $PI"
+services_ready=0
+for _ in $(seq 1 20); do
+  if pssh "systemctl is-active --quiet umi-pair-wifi@$ROLE && systemctl is-active --quiet umi-recorder && systemctl is-active --quiet umi-upload-tunnel && test -d '$SPOOL_DIR'"; then
+    services_ready=1
+    break
+  fi
+  sleep 2
+done
+[ "$services_ready" = 1 ] || die "$ROLE services failed verification on $PI"
 echo "$ROLE client ready: $PI"

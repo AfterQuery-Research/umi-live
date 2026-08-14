@@ -109,6 +109,40 @@ def test_dual_umi_schema():
     assert d.features["action"]["shape"] == (12,)
 
 
+def test_calibrated_grippers_are_interleaved_in_state():
+    import copy
+
+    calibrated = copy.deepcopy(DUAL)
+    for arm in calibrated["umis"].values():
+        arm["gripper"].update(closed_width_mm=40.0, open_width_mm=120.0)
+    d = cfg.derive(cfg.parse_rig_config(calibrated))
+    assert d.state_dim == 14
+    assert d.action_dim == 12
+    assert d.state_names[6] == "umi1_gripper"
+    assert d.state_names[7] == "umi2_x"
+    assert d.state_names[13] == "umi2_gripper"
+    assert d.features["observation.state"]["shape"] == (14,)
+    assert d.features["action"]["shape"] == (12,)
+    assert "observation.gripper_width.umi1" not in d.features
+    assert "observation.gripper_width.umi2" not in d.features
+
+
+def test_gripper_calibration_requires_valid_endpoint_pair():
+    import copy
+
+    partial = copy.deepcopy(CLIENT)
+    partial["umis"]["umi1"]["gripper"]["closed_width_mm"] = 40.0
+    with pytest.raises(cfg.ConfigError, match="both closed_width_mm and open_width_mm"):
+        cfg.parse_rig_config(partial)
+
+    reversed_range = copy.deepcopy(CLIENT)
+    reversed_range["umis"]["umi1"]["gripper"].update(
+        closed_width_mm=120.0, open_width_mm=40.0
+    )
+    with pytest.raises(cfg.ConfigError, match="greater than closed_width_mm"):
+        cfg.parse_rig_config(reversed_range)
+
+
 def test_fixed_capture_plan():
     rig = cfg.parse_rig_config(DUAL)
     assert cfg.capture_plan(rig) == [

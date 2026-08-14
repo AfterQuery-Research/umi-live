@@ -1,6 +1,6 @@
 # UMI Flow
 
-UMI Flow records synchronized bimanual demonstrations from two handheld UMI clients and produces a local 12-D [LeRobot](https://github.com/huggingface/lerobot) dataset.
+UMI Flow records synchronized bimanual demonstrations from two handheld UMI clients and produces a local [LeRobot](https://github.com/huggingface/lerobot) dataset. Each arm contributes a 6-D pose plus a calibrated 0–1 gripper value to the 14-D `observation.state`; pose-delta `action` remains 12-D.
 
 ## Requirements
 
@@ -57,14 +57,28 @@ Create the pair configuration:
 cp provisioning/pair.env.example provisioning/pair.env
 ```
 
-Set its four values:
+Set its deployment values:
 
 ```sh
 SERVER="<server-user>@<server-address>"
 LEADER="<leader-user>@<leader-address>"
 FOLLOWER="<follower-user>@<follower-address>"
 TASK="<task name>"
+ALIGNMENT_ENABLED="true"
+PAIR_WIFI_SSID="umi-flow-pair"
+PAIR_WIFI_PASSWORD="<private-wpa-password>"
+PAIR_WIFI_CHANNEL=44
+PAIR_WIFI_COUNTRY="US"
 ```
+
+Set `ALIGNMENT_ENABLED=true` to register both LiDAR trajectories into umi1's metric
+frame during processing. Set it to `false` to retain independent episode-relative frames.
+
+The leader hosts the private pair network at `10.42.0.1`; the follower joins at
+`10.42.0.2`. Recording coordination and follower clock sync therefore work without
+infrastructure Wi-Fi. Each Pi retains its normal `wlan0` connection for provisioning and
+uploads when available. On the built-in Pi radio, the leader's hotspot and uplink must use
+the same channel; use a second Wi-Fi adapter for an independent uplink channel.
 
 Install the processing server, then both clients:
 
@@ -75,15 +89,30 @@ Install the processing server, then both clients:
 
 The server installer selects GPU or CPU GLIM automatically. The client installer detects each camera, assigns roles and UMI names, reads tag IDs from the hardware config, sets ports and calibration paths, configures clock synchronization, and reboots both Pis.
 
-After provisioning, calibrate both idle cameras:
+The repository includes default camera intrinsics and provisioning deploys them to both
+clients. To replace them with intrinsics calibrated for your cameras, run:
 
 ```sh
 ./bin/calibrate-pair
 ```
 
 This opens the [ChArUco board](tools/make_charuco.py) and a live coverage viewer for each
-camera. Sweep the board until every calibration passes; the command then atomically updates
+idle camera. Sweep the board until every calibration passes; the command then atomically updates
 `config/calib/umi1_calib.npz`, `config/calib/umi2_calib.npz`, and their corresponding clients.
+
+Before collecting a new dataset, calibrate each physical gripper's fully closed/open endpoints:
+
+```sh
+uv run --package umi-flow-server python \
+  dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi1
+uv run --package umi-flow-server python \
+  dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi2
+./bin/provision-pair
+```
+
+Each calibration asks you to close the selected gripper and press Enter, then open it and press
+Enter. Provisioning embeds those endpoints in every recording snapshot. The server clips the
+physical width to `[0, 1]` and stores it after that arm's pose in `observation.state`.
 
 ## Verify
 

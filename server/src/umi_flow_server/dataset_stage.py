@@ -8,7 +8,11 @@ exactly one place.
 
 Timeline: the first UMI's camera frames (unix ns, PTP axis). Every pose track is
 resampled onto it (interp1d + Slerp); a second UMI's video uses its nearest-past
-frame. States are episode-relative, zeroed to umi1's first pose.
+frame. Poses are episode-relative. With alignment disabled, each UMI is zeroed to
+its own first pose. With alignment enabled, both are zeroed to umi1's first pose in
+the aligned common frame. When each gripper has closed/open calibration in the
+episode snapshot, its clipped 0–1 value is interleaved after that arm's pose in
+``observation.state``; pose-delta actions remain 12-D.
 
 Cross-arm frame: each lidar is SLAM'd independently, so two lidars land in two
 unrelated GLIM frames. Zeroing both to umi1's origin only yields metric cross-arm
@@ -137,12 +141,18 @@ def pose_track_for_umi(
         else derived_episode_dir / umi.name / DEFAULT_ENGINE / "trajectory.tum"
     )
     track = read_tum(traj_tum)
-    # GLIM stamps poses in the lidar clock; realign onto the host/camera clock.
+    # GLIM stamps poses in the LiDAR clock. Recover both its offset and rate from
+    # packet-embedded LiDAR timestamps paired with PCAP host-arrival timestamps.
     pcap = episode_dir / layout.sensor_files(lidar_key)["pcap"]
-    skew = lidar_clock.pcap_host_skew(pcap) if pcap.is_file() else None
-    if skew is not None:
-        print(f"  {umi.name}: lidar->host clock skew {skew:+.3f}s (realigned)", flush=True)
-        track = PoseTrack(t=track.t + skew, pos=track.pos, quat=track.quat)
+    mapping = lidar_clock.pcap_host_clock_mapping(pcap) if pcap.is_file() else None
+    if mapping is not None:
+        residual_ms = 1000 * (mapping.residual_p99_s - mapping.residual_p01_s)
+        print(
+            f"  {umi.name}: lidar->host clock rate {mapping.rate:.9f}, "
+            f"residual p01-p99 {residual_ms:.1f}ms (affine realignment)",
+            flush=True,
+        )
+        track = PoseTrack(t=mapping.to_host(track.t), pos=track.pos, quat=track.quat)
     # Shift the tracked lidar body to the gripper end-effector (TCP).
     lever_body = geom.UMI_FROM_LIDAR_BODY.T @ geom.LIDAR_EE_LEVER_M
     ee_pos = track.pos + Rotation.from_quat(track.quat).apply(lever_body)
@@ -168,12 +178,26 @@ def load_gripper_widths(
     return np.interp(timeline_t, np.asarray(ts), np.asarray(ws)).astype(np.float32)
 
 
+def normalize_gripper_widths(
+    widths_mm: np.ndarray, config: core_config.GripperConfig
+) -> np.ndarray:
+    """Map calibrated physical widths to closed=0/open=1, clipping sensor overshoot."""
+    if not config.normalized_in_state:
+        raise ValueError("gripper config has no closed/open normalization endpoints")
+    assert config.closed_width_mm is not None and config.open_width_mm is not None
+    span = config.open_width_mm - config.closed_width_mm
+    return np.clip((np.asarray(widths_mm) - config.closed_width_mm) / span, 0.0, 1.0).astype(
+        np.float32
+    )
+
+
 # The LeRobot append is a global side effect that lives OUTSIDE the
 # runner's staging dir, so the runner's "tear down a stage dir without COMPLETE and
 # re-run it" crash recovery would otherwise re-append the same episode's frames.
 # This append-only ledger (one episode_id per line, next to the dataset) records
 # what has already landed so a re-run skips cleanly. It travels with the dataset.
 APPENDED_LEDGER = ".umi_appended_episodes.txt"
+GRIPPER_NORMALIZATION_METADATA = "gripper_normalization.json"
 
 
 def already_appended(dataset_dir: Path, episode_id: str) -> bool:
@@ -188,6 +212,44 @@ def mark_appended(dataset_dir: Path, episode_id: str) -> None:
     with (dataset_dir / APPENDED_LEDGER).open("a", encoding="utf-8") as f:
         f.write(f"{episode_id}\n")
         f.flush()
+
+
+def ensure_gripper_normalization_metadata(
+    dataset_dir: Path, rig: core_config.RigConfig, derived: core_config.DerivedSchema
+) -> None:
+    """Persist the physical endpoints and reject calibration changes within one dataset."""
+    if derived.state_dim != 14:
+        return
+    grippers: dict[str, Any] = {}
+    indices: dict[str, int] = {}
+    for umi in rig.umis:
+        assert umi.gripper is not None
+        assert umi.gripper.closed_width_mm is not None
+        assert umi.gripper.open_width_mm is not None
+        grippers[umi.name] = {
+            "closed_width_mm": umi.gripper.closed_width_mm,
+            "open_width_mm": umi.gripper.open_width_mm,
+        }
+        indices[umi.name] = derived.state_names.index(f"{umi.name}_gripper")
+    expected = {
+        "schema_version": 1,
+        "method": "per_arm_calibrated_physical_min_max",
+        "formula": "clip((width_mm - closed_width_mm) / (open_width_mm - closed_width_mm), 0, 1)",
+        "normalized_semantics": {"0": "closed", "1": "open"},
+        "observation_state_indices": indices,
+        "grippers": grippers,
+    }
+    path = dataset_dir / "meta" / GRIPPER_NORMALIZATION_METADATA
+    if path.is_file():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if existing != expected:
+            raise ValueError(
+                "gripper calibration differs from this dataset's metadata; "
+                "use a fresh DATA_NAMESPACE for the new calibration"
+            )
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(expected, indent=2) + "\n", encoding="utf-8")
 
 
 def _assert_local_dataset_consistent(dataset_dir: Path) -> None:
@@ -239,7 +301,13 @@ def open_dataset(
         if existing_state != (derived.state_dim,):
             raise ValueError(
                 f"episode state_dim {derived.state_dim} != dataset {existing_state}; "
-                "the local dataset schema is fixed at 12-D"
+                "use a fresh DATA_NAMESPACE when changing the state schema"
+            )
+        existing_action = tuple(info["features"]["action"]["shape"])
+        if existing_action != (derived.action_dim,):
+            raise ValueError(
+                f"episode action_dim {derived.action_dim} != dataset {existing_action}; "
+                "use a fresh DATA_NAMESPACE when changing the action schema"
             )
         return LeRobotDataset.resume(
             repo_id=repo_id,
@@ -310,25 +378,49 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     timeline = streams[rig.umis[0].name].t
     n_frames = len(timeline)
 
-    ref_pos: np.ndarray | None = None
-    ref_quat: np.ndarray | None = None
-    state_blocks: list[np.ndarray] = []
+    shared_ref_pos: np.ndarray | None = None
+    shared_ref_quat: np.ndarray | None = None
+    pose_blocks: list[np.ndarray] = []
     for u in rig.umis:
         track, basis = pose_track_for_umi(episode_dir, derived_episode_dir, m, u)
         aligned = resample(track, timeline)
-        if ref_pos is None:
-            ref_pos, ref_quat = aligned.pos[0], aligned.quat[0]
-        state_blocks.append(states_from_track(aligned, ref_pos, ref_quat, basis=basis))
-    states = np.concatenate(state_blocks, axis=1)
-    if states.shape != (n_frames, 12):
-        raise RuntimeError(f"expected bimanual state shape {(n_frames, 12)}, got {states.shape}")
-    actions = actions_from_states(states)
+        if rig.alignment.enabled:
+            if shared_ref_pos is None:
+                shared_ref_pos, shared_ref_quat = aligned.pos[0], aligned.quat[0]
+            pose_blocks.append(
+                states_from_track(aligned, shared_ref_pos, shared_ref_quat, basis=basis)
+            )
+        else:
+            pose_blocks.append(states_from_track(aligned, basis=basis))
+    poses = np.concatenate(pose_blocks, axis=1)
+    if poses.shape != (n_frames, 12):
+        raise RuntimeError(f"expected bimanual pose shape {(n_frames, 12)}, got {poses.shape}")
+    actions = actions_from_states(poses)
 
     grippers = {
         u.name: load_gripper_widths(derived_episode_dir, u.name, timeline)
         for u in rig.umis
         if u.name in derived.gripper_keys
     }
+    if derived.state_dim == 14:
+        calibrated_blocks: list[np.ndarray] = []
+        for pose, umi in zip(pose_blocks, rig.umis, strict=True):
+            assert umi.gripper is not None
+            width = grippers.get(umi.name)
+            if width is None:
+                raise ValueError(
+                    f"{umi.name}: calibrated gripper is missing width measurements; "
+                    "refusing to write a false closed value into observation.state"
+                )
+            normalized = normalize_gripper_widths(width, umi.gripper)
+            calibrated_blocks.append(np.column_stack((pose, normalized)))
+        states = np.concatenate(calibrated_blocks, axis=1).astype(np.float32)
+    else:
+        states = poses.astype(np.float32)
+    if states.shape != (n_frames, derived.state_dim):
+        raise RuntimeError(
+            f"expected bimanual state shape {(n_frames, derived.state_dim)}, got {states.shape}"
+        )
 
     # --- write the LeRobot episode -----------------------------------------------------
     with ExitStack() as stack:
@@ -337,6 +429,7 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
             for name, stream in streams.items()
         }
         dataset = open_dataset(repo_id, dataset_root, derived)
+        ensure_gripper_normalization_metadata(dataset_dir, rig, derived)
 
         task = m.get("task", rig.task)
         for i in range(n_frames):
@@ -351,11 +444,11 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
                 j = i if u.name == rig.umis[0].name else _nearest_past(stream.t, timeline[i])
                 frame[derived.video_keys[u.name]] = readers[u.name].frame(j)
                 width = grippers.get(u.name)
-                if width is not None:
+                if width is not None and derived.gripper_keys[u.name] in derived.features:
                     frame[derived.gripper_keys[u.name]] = np.asarray(
                         [width[i]], dtype=np.float32
                     )
-                elif u.name in derived.gripper_keys:
+                elif derived.gripper_keys[u.name] in derived.features:
                     frame[derived.gripper_keys[u.name]] = np.zeros(1, dtype=np.float32)
             dataset.add_frame(frame)
         dataset.save_episode()
@@ -366,7 +459,12 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     mark_appended(dataset_dir, m["episode_id"])
     hf_repo = os.environ.get("HF_REPO_ID", "").strip()
     pushed = _push_to_hub(dataset_dir, episode_dir, hf_repo) if hf_repo else False
-    receipt.update(frames=n_frames, state_dim=int(states.shape[1]), pushed=pushed)
+    receipt.update(
+        frames=n_frames,
+        state_dim=int(states.shape[1]),
+        grippers_normalized_in_state=derived.state_dim == 14,
+        pushed=pushed,
+    )
     (out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2))
     print(
         f"dataset: appended {n_frames} frames ({m['episode_id']}) pushed={pushed}",

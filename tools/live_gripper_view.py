@@ -12,9 +12,12 @@ Uses the same detector/unprojection/geometry as the processing pipeline, so what
 see is what the dataset would record. Cameras must be idle (not mid-recording).
 """
 
+import json
+import shlex
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -31,19 +34,35 @@ from umi_flow_server import gripper  # noqa: E402
 
 TAG_PAIRS = load_gripper_tag_pairs(ROOT / "config/gripper_tags.yaml")
 
+
+def _deployment_inventory() -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in (ROOT / "provisioning" / "pair.env").read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        parsed = shlex.split(value, comments=True)
+        if len(parsed) == 1:
+            values[key.strip()] = parsed[0]
+    return values
+
+
+DEPLOYMENT = _deployment_inventory()
+
 # Per-arm camera->tag geometry: the cameras were remounted at different forward
 # offsets (2026-08-07), so the arms no longer share one GripperGeometry.
 ARMS = [
     dict(
         name="umi1",
-        host="umi1@umi1.local",
+        host=DEPLOYMENT["LEADER"],
         calib="config/calib/umi1_calib.npz",
         tags=TAG_PAIRS["umi1"],
         geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1),
     ),
     dict(
         name="umi2",
-        host="umi2@umi2.local",
+        host=DEPLOYMENT["FOLLOWER"],
         calib="config/calib/umi2_calib.npz",
         tags=TAG_PAIRS["umi2"],
         geom=gripper.GripperGeometry(plane_mm=61.9, front_mm=30.1),
@@ -58,6 +77,9 @@ STREAM_CMD = (
 )
 
 latest: dict[str, bytes] = {}  # arm name -> annotated JPEG
+latest_raw: dict[str, bytes] = {}  # arm name -> exact camera MJPEG frame
+latest_sequence: dict[str, int] = {}
+latest_time: dict[str, float] = {}
 cond = threading.Condition()
 
 
@@ -138,6 +160,10 @@ def worker(arm: dict) -> None:
                 img = cv2.imdecode(np.frombuffer(frame, np.uint8), cv2.IMREAD_COLOR)
                 if img is None:
                     continue
+                with cond:
+                    latest_raw[arm["name"]] = frame
+                    latest_sequence[arm["name"]] = latest_sequence.get(arm["name"], 0) + 1
+                    latest_time[arm["name"]] = time.time()
                 img = annotate(arm, img, det, calib)
                 ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ok:
@@ -154,7 +180,37 @@ INDEX = f"""<html><head><title>UMI live gripper view</title></head>
 <h2>Live gripper width + tag detections</h2>
 <div><img src="/umi1.mjpg" width="{W}"> <img src="/umi2.mjpg" width="{W}"></div>
 <p>green = detected tag · magenta = the arm's pair · width uses per-arm geometry
-(umi1 front_mm=30.1, umi2 front_mm=30.1)</p></body></html>"""
+(umi1 front_mm=30.1, umi2 front_mm=30.1)</p>
+<p><a href="/raw" style="color:#8cf">show raw camera footage</a></p></body></html>"""
+
+RAW_INDEX = f"""<html><head><title>UMI raw camera view</title></head>
+<body style="background:#111;color:#eee;font-family:sans-serif;text-align:center">
+<h2>Raw UMI camera footage — no overlays or image transforms</h2>
+<div style="display:flex;gap:12px;justify-content:center;align-items:flex-start;flex-wrap:wrap">
+<section><h3>UMI1 / left · <span id="status-umi1">connecting…</span></h3>
+<img id="raw-umi1" width="{W}" style="max-width:48vw;height:auto"></section>
+<section><h3>UMI2 / right · <span id="status-umi2">connecting…</span></h3>
+<img id="raw-umi2" width="{W}" style="max-width:48vw;height:auto"></section></div>
+<p>Exact 800×600 MJPEG frames emitted by the cameras.</p>
+<p><a href="/" style="color:#8cf">show tag overlays</a></p>
+<script>
+for (const name of ['umi1', 'umi2']) {{
+  const image = document.getElementById('raw-' + name);
+  setInterval(() => {{ image.src = '/raw-frame/' + name + '.jpg?t=' + Date.now(); }}, 100);
+}}
+setInterval(async () => {{
+  try {{
+    const status = await (await fetch('/status.json', {{cache:'no-store'}})).json();
+    for (const name of ['umi1', 'umi2']) {{
+      const stream = status[name];
+      const age = stream ? Math.max(0, Date.now()/1000 - stream.updated_at) : 99;
+      const label = document.getElementById('status-' + name);
+      label.textContent = age < 1 ? 'LIVE' : 'STALE';
+      label.style.color = age < 1 ? '#6f6' : '#f66';
+    }}
+  }} catch (_) {{}}
+}}, 500);
+</script></body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -169,7 +225,49 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        name = self.path.strip("/").removesuffix(".mjpg")
+        if self.path == "/raw":
+            body = RAW_INDEX.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/status.json":
+            with cond:
+                payload = {
+                    name: {
+                        "sequence": latest_sequence.get(name, 0),
+                        "updated_at": latest_time.get(name, 0.0),
+                    }
+                    for name in (arm["name"] for arm in ARMS)
+                }
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/raw-frame/"):
+            name = self.path.split("/raw-frame/", 1)[1].split(".jpg", 1)[0]
+            with cond:
+                jpg = latest_raw.get(name)
+            if name not in {arm["name"] for arm in ARMS} or jpg is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(jpg)))
+            self.end_headers()
+            self.wfile.write(jpg)
+            return
+        raw = self.path.startswith("/raw/")
+        name = self.path.removeprefix("/raw/").strip("/").removesuffix(".mjpg")
+        if not raw:
+            name = self.path.strip("/").removesuffix(".mjpg")
         if name not in {a["name"] for a in ARMS}:
             self.send_response(404)
             self.end_headers()
@@ -181,7 +279,7 @@ class Handler(BaseHTTPRequestHandler):
             while True:
                 with cond:
                     cond.wait(timeout=5)
-                    jpg = latest.get(name)
+                    jpg = (latest_raw if raw else latest).get(name)
                 if jpg is None:
                     continue
                 self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n")

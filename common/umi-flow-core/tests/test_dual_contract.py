@@ -67,6 +67,29 @@ def test_bimanual_contract_requires_umi1_umi2_and_12_dimensions() -> None:
     assert tuple(derived.video_keys) == ("umi1", "umi2")
 
 
+def test_bimanual_contract_uses_14d_state_when_both_grippers_are_calibrated() -> None:
+    left = _umi("umi1", [2, 3], "leader.npz")
+    right = _umi("umi2", [0, 1], "follower.npz")
+    for arm in (left, right):
+        arm["gripper"].update(closed_width_mm=40.0, open_width_mm=120.0)
+    derived = config.require_bimanual(
+        config.parse_rig_config({"version": 1, "umis": {"umi1": left, "umi2": right}})
+    )
+    assert derived.state_dim == 14
+    assert derived.action_dim == 12
+
+
+def test_bimanual_contract_rejects_only_one_calibrated_gripper() -> None:
+    left = _umi("umi1", [2, 3], "leader.npz")
+    right = _umi("umi2", [0, 1], "follower.npz")
+    left["gripper"].update(closed_width_mm=40.0, open_width_mm=120.0)
+    rig = config.parse_rig_config(
+        {"version": 1, "umis": {"umi1": left, "umi2": right}}
+    )
+    with pytest.raises(config.ConfigError, match="calibrate both grippers"):
+        config.require_bimanual(rig)
+
+
 def test_bimanual_contract_rejects_a_single_arm() -> None:
     rig = config.parse_rig_config(
         {"version": 1, "umis": {"umi1": _umi("umi1", [2, 3], "leader.npz")}}

@@ -5,8 +5,9 @@ the native ``umi1`` leader and ``umi2`` follower snapshots before processing. Pu
 collection is always bimanual; one-arm configs exist only as the two transport halves.
 
 ``derive()`` is the single source of the LeRobot schema: state/action dims and names,
-video keys, gripper keys. The device never touches ``state_dim``; the server never
-re-implements naming.
+video keys, gripper keys. Calibrated grippers are normalized into each arm's state block;
+legacy configs without endpoints retain the old separate-width features. The device never
+touches ``state_dim``; the server never re-implements naming.
 """
 
 from __future__ import annotations
@@ -69,6 +70,12 @@ class GripperConfig:
     tag_ids: tuple[int, int]  # this arm's configured ArUco pair (DICT_4X4_50)
     stride: int = 2  # detect every Nth frame
     roi_top_frac: float = 0.0
+    closed_width_mm: float | None = None
+    open_width_mm: float | None = None
+
+    @property
+    def normalized_in_state(self) -> bool:
+        return self.closed_width_mm is not None and self.open_width_mm is not None
 
 
 @dataclass(frozen=True)
@@ -404,14 +411,45 @@ def _parse_umi(name: str, u: dict, source: str) -> UmiConfig:
         g = u["gripper"]
         if not isinstance(g, dict):
             raise ConfigError(f"{source}: umis.{name}.gripper must be a mapping")
-        _reject_unknown(g, {"tag_ids", "stride", "roi_top_frac"}, f"umis.{name}.gripper", source)
+        _reject_unknown(
+            g,
+            {"tag_ids", "stride", "roi_top_frac", "closed_width_mm", "open_width_mm"},
+            f"umis.{name}.gripper",
+            source,
+        )
         if "tag_ids" not in g:
             raise ConfigError(f"{source}: umis.{name}.gripper.tag_ids is required")
         tag_ids = _parse_tag_pair(g["tag_ids"], f"umis.{name}.gripper.tag_ids", source)
+        closed_raw, open_raw = g.get("closed_width_mm"), g.get("open_width_mm")
+        if (closed_raw is None) != (open_raw is None):
+            raise ConfigError(
+                f"{source}: umis.{name}.gripper must set both closed_width_mm and "
+                "open_width_mm, or neither"
+            )
+        try:
+            closed_width = float(closed_raw) if closed_raw is not None else None
+            open_width = float(open_raw) if open_raw is not None else None
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"{source}: umis.{name}.gripper width endpoints must be numbers"
+            ) from exc
+        if closed_width is not None:
+            assert open_width is not None
+            if (
+                not math.isfinite(closed_width)
+                or not math.isfinite(open_width)
+                or open_width <= closed_width
+            ):
+                raise ConfigError(
+                    f"{source}: umis.{name}.gripper open_width_mm must be finite and "
+                    "greater than closed_width_mm"
+                )
         gripper = GripperConfig(
             tag_ids=tag_ids,
             stride=int(g.get("stride", 2)),
             roi_top_frac=float(g.get("roi_top_frac", 0.0)),
+            closed_width_mm=closed_width,
+            open_width_mm=open_width,
         )
 
     return UmiConfig(name=name, camera=camera, lidar=lidar, gripper=gripper)
@@ -468,6 +506,8 @@ class DerivedSchema:
     n_umis: int
     state_dim: int
     state_names: list[str]
+    action_dim: int
+    action_names: list[str]
     video_keys: dict[str, str]  # umi name -> LeRobot video feature key
     gripper_keys: dict[str, str]  # umi name -> gripper width feature key
     fps: int  # dataset timeline fps = first UMI's camera fps
@@ -476,9 +516,19 @@ class DerivedSchema:
 
 def derive(cfg: RigConfig) -> DerivedSchema:
     n = cfg.n_umis
-    state_dim = STATE_DIM_PER_UMI * n
-    # Each client snapshot contains exactly one fixed arm name.
-    state_names = [f"{u.name}_{s}" for u in cfg.umis for s in STATE_NAMES_PER_UMI]
+    # A calibrated gripper is interleaved after its arm's 6-D pose, matching the
+    # downstream YAM 14-D convention. Pose-delta actions remain 6-D per UMI.
+    state_names = [
+        name
+        for u in cfg.umis
+        for name in (
+            [f"{u.name}_{s}" for s in STATE_NAMES_PER_UMI]
+            + ([f"{u.name}_gripper"] if u.gripper and u.gripper.normalized_in_state else [])
+        )
+    ]
+    state_dim = len(state_names)
+    action_names = [f"d_{u.name}_{s}" for u in cfg.umis for s in STATE_NAMES_PER_UMI]
+    action_dim = len(action_names)
     video_keys = {u.name: f"observation.images.{u.name}" for u in cfg.umis}
     gripper_keys = {u.name: f"observation.gripper_width.{u.name}" for u in cfg.umis if u.gripper}
     fps = cfg.umis[0].camera.fps
@@ -491,8 +541,8 @@ def derive(cfg: RigConfig) -> DerivedSchema:
         },
         "action": {
             "dtype": "float32",
-            "shape": (state_dim,),
-            "names": [f"d_{n}" for n in state_names],
+            "shape": (action_dim,),
+            "names": action_names,
         },
     }
     for u in cfg.umis:
@@ -501,13 +551,21 @@ def derive(cfg: RigConfig) -> DerivedSchema:
             "shape": (u.camera.height, u.camera.width, 3),
             "names": ["height", "width", "channels"],
         }
-    for name, key in gripper_keys.items():
-        features[key] = {"dtype": "float32", "shape": (1,), "names": [f"{name}_width_mm"]}
+    for u in cfg.umis:
+        if u.gripper is not None and not u.gripper.normalized_in_state:
+            key = gripper_keys[u.name]
+            features[key] = {
+                "dtype": "float32",
+                "shape": (1,),
+                "names": [f"{u.name}_width_mm"],
+            }
 
     return DerivedSchema(
         n_umis=n,
         state_dim=state_dim,
         state_names=state_names,
+        action_dim=action_dim,
+        action_names=action_names,
         video_keys=video_keys,
         gripper_keys=gripper_keys,
         fps=fps,
@@ -530,16 +588,25 @@ def client_role(cfg: RigConfig) -> str:
 
 
 def require_bimanual(cfg: RigConfig) -> DerivedSchema:
-    """Validate the only dataset contract: ordered umi1/umi2 with 12-D state/action."""
+    """Validate the dataset contract: ordered UMI1/UMI2 with one gripper layout."""
     names = tuple(u.name for u in cfg.umis)
     if names != BIMANUAL_UMIS:
         raise ConfigError(f"dataset config must be paired umi1/umi2, got {list(names)}")
     for umi in cfg.umis:
         if umi.gripper is None:
             raise ConfigError(f"{umi.name} must configure a gripper tag pair")
+    normalized = [bool(umi.gripper and umi.gripper.normalized_in_state) for umi in cfg.umis]
+    if any(normalized) and not all(normalized):
+        raise ConfigError(
+            "bimanual dataset must calibrate both grippers into observation.state, or neither"
+        )
     derived = derive(cfg)
-    if derived.state_dim != 12:
-        raise ConfigError(f"bimanual dataset state must be 12-D, got {derived.state_dim}")
+    expected_state_dim = 14 if all(normalized) else 12
+    if derived.state_dim != expected_state_dim or derived.action_dim != 12:
+        raise ConfigError(
+            f"bimanual dataset expected state/action dimensions {expected_state_dim}/12, "
+            f"got {derived.state_dim}/{derived.action_dim}"
+        )
     return derived
 
 

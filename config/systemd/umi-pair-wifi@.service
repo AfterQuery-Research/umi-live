@@ -1,0 +1,19 @@
+# Dedicated leader/follower Wi-Fi link. The instance name is leader or follower.
+[Unit]
+Description=UMI private pair Wi-Fi (%i)
+Wants=network.target
+After=network.target
+Before=umi-recorder.service umi-upload-tunnel.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=@REPO@/.pair-wifi.env
+ExecStartPre=@REPO@/device/scripts/pair_wifi_service.sh up
+ExecStart=@REPO@/device/scripts/pair_wifi_service.sh run
+ExecStopPost=-@REPO@/device/scripts/pair_wifi_service.sh down
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

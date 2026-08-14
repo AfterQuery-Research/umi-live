@@ -38,7 +38,7 @@ from umi_flow_device.preflight import (
     CheckResult,
     PipelineResult,
     PreRecordingPipeline,
-    build_gripper_tag_pipeline,
+    build_pre_recording_pipeline,
 )
 from umi_flow_device.ptp import chrony_status, probe_ptp
 from umi_flow_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
@@ -430,7 +430,7 @@ def main(args: Args) -> None:
 
     manifest_role = rig.umis[0].name
     handshake: dict[str, int | None] = {"v": None}
-    preflight_pipeline = build_gripper_tag_pipeline(rig.umis[0])
+    preflight_pipeline = build_pre_recording_pipeline(rig.umis[0])
 
     def clock_sync_probe():
         cs = chrony_status("system-chrony")
@@ -439,7 +439,7 @@ def main(args: Args) -> None:
         return cs
 
     sensors, monitors = build_sensors(rig, args, dev_dir)
-    lidar_ifaces = sorted({u.lidar.iface for u in rig.umis})
+    lidar_ifaces = {u.lidar.iface: u.lidar.lidar_ip for u in rig.umis}
     recorder = EpisodeRecorder(
         rig,
         config_path,

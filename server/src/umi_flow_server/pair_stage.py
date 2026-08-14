@@ -4,7 +4,7 @@ In the two-Pi topology each Pi records ONE arm (leader = role ``umi1``, follower
 role ``umi2``) as an independent arm transport episode; the two upload separately, each
 tagged with a shared ``session_id``. This pre-pass buckets ingested episodes by
 ``session_id`` and, once both arms are present, fabricates ONE combined episode in
-``raw_episodes/`` that the runner and 12-D dataset stage consume — the
+``raw_episodes/`` that the runner and bimanual dataset stage consume — the
 follower is provisioned natively as ``umi2`` so this is a pure copy of both arms' streams
 plus a synthesized 2-UMI config + merged manifest (no file renames).
 

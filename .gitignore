@@ -12,11 +12,14 @@ data/
 *.log
 # Machine-rendered runtime configuration. It is not user-edited.
 .env
+.pair-wifi.env
 # Host-specific CPU/GPU compose override written by install_server.sh — must not
 # be committed (a CPU host's copy would silently downgrade a GPU box to CPU SLAM).
 docker-compose.override.yml
 # Recoverable raw calibration detections written beside each calibration output.
 *.views.npz
+# Physical closed/open endpoints are local to one gripper pair.
+config/calib/*_gripper_range.json
 # The single user-edited deployment inventory.
 provisioning/pair.env
 # Ignore inventories created by versions before the dual-only setup.

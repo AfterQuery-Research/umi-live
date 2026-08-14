@@ -11,21 +11,41 @@ and a recent-events feed (paired / pushed / failures) so a fresh take can be wat
 from stop-press to Hub. Read-only: touches nothing, safe to leave open while recording.
 """
 import json
+import shlex
 import subprocess
 import threading
 import time
-from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
-SERVER = "ubuntu@192.222.52.98"
-PIS = [("umi1", "umi1@umi1.local"), ("umi2", "umi2@umi2.local")]
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _deployment_inventory() -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in (ROOT / "provisioning" / "pair.env").read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        parsed = shlex.split(value, comments=True)
+        if len(parsed) == 1:
+            values[key.strip()] = parsed[0]
+    return values
+
+
+DEPLOYMENT = _deployment_inventory()
+SERVER = DEPLOYMENT["SERVER"]
+PIS = [("umi1", DEPLOYMENT["LEADER"]), ("umi2", DEPLOYMENT["FOLLOWER"])]
 PORT = 8900
 
 # Runs ON the box each poll: one JSON blob describing queue, stages, dataset, events.
 BOX_PROBE = r'''cd ~/umi-flow && python3 - <<'PY'
 import json, subprocess, time
 from pathlib import Path
-data = Path("data")
+env = dict(l.split("=", 1) for l in Path(".env").read_text().splitlines()
+           if "=" in l and not l.startswith("#"))
+data = Path(env.get("DATA_DIR", "data")).expanduser()
 STAGES = ["umi1/decode", "umi2/decode", "umi1/glim", "umi2/glim", "gripper", "dataset"]
 out = {"t": time.time(), "processing": [], "waiting_pair": [], "done": 0}
 for ep in sorted(data.glob("raw_episodes/*")):
@@ -43,15 +63,21 @@ for ep in sorted(data.glob("raw_episodes/*")):
         out["waiting_pair"].append(ep.name)
 info = data / "lerobot/local/umi-flow/meta/info.json"
 out["local_episodes"] = json.loads(info.read_text())["total_episodes"] if info.is_file() else 0
-env = dict(l.split("=", 1) for l in Path(".env").read_text().splitlines() if "=" in l and not l.startswith("#"))
 out["repo"] = env.get("HF_REPO_ID", "")
 log = subprocess.run(["journalctl", "-u", "umi-runner", "--since", "-30min", "--no-pager", "-o", "short-iso"],
                      capture_output=True, text=True).stdout
+episode_ids = {
+    path.name
+    for folder in ("uploads", "raw_episodes", "derived")
+    for path in (data / folder).glob("*")
+}
 events = []
 for line in log.splitlines():
     if "libx264" in line:
         continue
-    if any(k in line for k in ("pair: merged", "pushed=", "FAILED", "skipped", "align()", "orphan")):
+    if any(ep_id in line for ep_id in episode_ids) and any(
+        k in line for k in ("pair: merged", "pushed=", "FAILED", "skipped", "align()", "orphan")
+    ):
         ts, _, msg = line.partition(" 192")
         events.append(ts[11:19] + " " + msg.split("]: ", 1)[-1][:110])
 out["events"] = events[-8:]

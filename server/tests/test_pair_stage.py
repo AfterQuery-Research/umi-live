@@ -1,4 +1,4 @@
-"""Two arm uploads merge into the only processable 12-D bimanual episode."""
+"""Two arm uploads merge into the only processable bimanual episode."""
 
 from __future__ import annotations
 

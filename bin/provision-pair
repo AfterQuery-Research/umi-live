@@ -30,5 +30,26 @@ echo "=== leader: ${LEADER:-<unset>} (left / umi1) ==="
 # shellcheck disable=SC2086
 PAIR_CONFIG="$PAIR_CONFIG" "$ROOT/bin/provision-pi" --role leader $EXTRA_ARGS
 
+if [ "${EXTRA_ARGS#*--dry-run}" = "$EXTRA_ARGS" ]; then
+  echo
+  echo "=== verify private leader/follower link ==="
+  ready=0
+  for _ in $(seq 1 30); do
+    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+      "$LEADER" "ping -c 1 -W 1 10.42.0.2 >/dev/null && \
+      cd ~/umi-flow && .venv/bin/python -c 'import socket; socket.create_connection((\"10.42.0.2\", 9140), 2).close()'" \
+      >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 2
+  done
+  [ "$ready" = 1 ] || {
+    echo "provision-pair: private follower link did not become ready" >&2
+    exit 1
+  }
+  echo "private pair link ready: 10.42.0.1 -> 10.42.0.2:9140"
+fi
+
 echo
 echo "pair ready; the leader record button controls both clients"

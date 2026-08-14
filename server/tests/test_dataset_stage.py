@@ -12,6 +12,7 @@ from umi_flow_server.dataset_stage import (
     _SequentialVideoReader,
     already_appended,
     mark_appended,
+    normalize_gripper_widths,
     pose_track_for_umi,
 )
 from umi_flow_server.trajectory import PoseTrack, write_tum
@@ -40,6 +41,16 @@ def test_append_ledger_is_substring_safe(tmp_path: Path):
     assert already_appended(dataset_dir, "episode_10")
     assert not already_appended(dataset_dir, "episode_1")
     assert not already_appended(dataset_dir, "ep")
+
+
+def test_gripper_width_normalization_clips_to_closed_open_range():
+    config = core_config.GripperConfig(
+        tag_ids=(2, 3), closed_width_mm=40.0, open_width_mm=120.0
+    )
+    normalized = normalize_gripper_widths(
+        np.asarray([20.0, 40.0, 80.0, 120.0, 140.0]), config
+    )
+    assert normalized.tolist() == pytest.approx([0.0, 0.0, 0.5, 1.0, 1.0])
 
 
 class _FakeCapture:

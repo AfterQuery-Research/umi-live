@@ -3,7 +3,7 @@
 The device side is the REAL recorder (mock lidar pcap + cv2 camera); the ingest is
 the real extract/validate; the runner is the real state machine. Only decode/glim
 are faked — glim's fake emits a genuine TUM trajectory spanning the camera frame
-timestamps, so the REAL dataset stage exercises resampling, shared-origin states,
+timestamps, so the REAL dataset stage exercises resampling, independent zeroing,
 and the LeRobot append.
 """
 
@@ -33,11 +33,26 @@ def fake_glim_from_frames(episode_dir: Path):
     def fn(_episode_dir: Path, out_dir: Path, scope: str) -> None:
         ts = np.asarray(frame_unix_times(episode_dir, scope), dtype=np.float64) / 1e9
         n = len(ts)
-        pos = np.stack([np.linspace(0.0, 0.5, n), np.zeros(n), np.zeros(n)], axis=1)
+        # Deliberately give umi2 a different arbitrary SLAM origin. Alignment is
+        # disabled in this fixture, so both output pose blocks must still start at 0.
+        origin = 0.0 if scope == "umi1" else 2.0
+        pos = np.stack(
+            [np.linspace(origin, origin + 0.5, n), np.zeros(n), np.zeros(n)], axis=1
+        )
         quat = np.tile([0.0, 0.0, 0.0, 1.0], (n, 1))
         write_tum(out_dir / "trajectory.tum", PoseTrack(t=ts, pos=pos, quat=quat))
 
     return fn
+
+
+def fake_gripper_from_frames(episode_dir: Path, out_dir: Path, _scope: str) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for umi, width_mm in (("umi1", 60.0), ("umi2", 100.0)):
+        rows = [
+            json.dumps({"frame_index": i, "time_unix_ns": ts, "width_mm": width_mm})
+            for i, ts in enumerate(frame_unix_times(episode_dir, umi))
+        ]
+        (out_dir / f"{umi}_gripper.jsonl").write_text("\n".join(rows) + "\n")
 
 
 def test_device_to_lerobot_dataset(tmp_path: Path, monkeypatch):
@@ -74,7 +89,7 @@ def test_device_to_lerobot_dataset(tmp_path: Path, monkeypatch):
 
     stages = default_stages(
         dataset_fn=lambda ep, out, scope: dataset_run(ep, out, scope),
-        gripper_fn=None,
+        gripper_fn=fake_gripper_from_frames,
     )
     for s in stages:
         if s.fn is None:
@@ -92,17 +107,25 @@ def test_device_to_lerobot_dataset(tmp_path: Path, monkeypatch):
         (data_dir / "derived" / published.name / "dataset" / "receipt.json").read_text()
     )
     assert receipt["frames"] == 6
-    assert receipt["state_dim"] == 12
+    assert receipt["state_dim"] == 14
 
     ds_root = data_dir / "lerobot" / "local/umi-flow"
     info = json.loads((ds_root / "meta" / "info.json").read_text())
     assert info["fps"] == 30
-    assert tuple(info["features"]["observation.state"]["shape"]) == (12,)
+    assert tuple(info["features"]["observation.state"]["shape"]) == (14,)
     assert info["features"]["observation.state"]["names"][0] == "umi1_x"
+    assert info["features"]["observation.state"]["names"][6] == "umi1_gripper"
+    assert info["features"]["observation.state"]["names"][13] == "umi2_gripper"
+    assert tuple(info["features"]["action"]["shape"]) == (12,)
+    assert "observation.gripper_width.umi1" not in info["features"]
+    assert "observation.gripper_width.umi2" not in info["features"]
     assert "observation.images.umi1" in info["features"]
     assert "observation.images.umi2" in info["features"]
     assert info["total_episodes"] == 1
     assert info["total_frames"] == 6
+    gripper_meta = json.loads((ds_root / "meta" / "gripper_normalization.json").read_text())
+    assert gripper_meta["normalized_semantics"] == {"0": "closed", "1": "open"}
+    assert gripper_meta["observation_state_indices"] == {"umi1": 6, "umi2": 13}
 
     # States follow the fake trajectory: zeroed at frame 0, +0.5 m in GLIM-x at
     # the end — which the UMI body convention (forward=+Z, right=+Y, up=+X;
@@ -113,8 +136,11 @@ def test_device_to_lerobot_dataset(tmp_path: Path, monkeypatch):
     assert parquets
     df = pd.concat([pd.read_parquet(p) for p in parquets])
     states = np.stack(df["observation.state"].to_numpy())
-    assert states.shape == (6, 12)
-    assert np.allclose(states[0], 0.0, atol=1e-6)
+    assert states.shape == (6, 14)
+    assert np.allclose(states[0, :6], 0.0, atol=1e-6)
+    assert np.allclose(states[0, 7:13], 0.0, atol=1e-6)
+    assert np.allclose(states[:, 6], 0.25, atol=1e-6)
+    assert np.allclose(states[:, 13], 0.75, atol=1e-6)
     assert states[-1, 1] == pytest.approx(-0.5, abs=1e-6)
     assert states[-1, 0] == pytest.approx(0.0, abs=1e-6)
     assert states[-1, 2] == pytest.approx(0.0, abs=1e-6)

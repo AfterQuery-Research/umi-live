@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Any, Protocol
+from urllib.request import urlopen
 
 import numpy as np
 from umi_flow_core.config import GRIPPER_ARUCO_DICTIONARY, UmiConfig
 
 CHECK_FRAME_COUNT = 5
 GRIPPER_TAG_CHECK = "gripper_tags"
+LIDAR_TIME_SYNC_CHECK = "lidar_time_sync"
 
 
 @dataclass(frozen=True)
@@ -221,7 +224,56 @@ class GripperTagVisibilityCheck:
         )
 
 
-def build_gripper_tag_pipeline(umi: UmiConfig) -> PreRecordingPipeline:
+def _fetch_json(url: str, timeout: float) -> Any:
+    import json
+
+    with urlopen(url, timeout=timeout) as response:  # noqa: S310 - fixed local LiDAR URL
+        return json.load(response)
+
+
+class AiryTimeSyncCheck:
+    """Require the sensor itself—not merely the Pi's ptp4l service—to report GPTP lock."""
+
+    name = LIDAR_TIME_SYNC_CHECK
+
+    def __init__(
+        self,
+        umi: str,
+        lidar_ip: str,
+        *,
+        fetch_json: Callable[[str, float], Any] = _fetch_json,
+        timeout: float = 2.0,
+    ):
+        self.umi = umi
+        self.lidar_ip = lidar_ip
+        self.fetch_json = fetch_json
+        self.timeout = timeout
+
+    def run(self) -> CheckResult:
+        try:
+            raw = self.fetch_json(f"http://{self.lidar_ip}/diag_data.json", self.timeout)
+            if not isinstance(raw, dict):
+                raise ValueError("diagnostic response is not a mapping")
+            mode = str(raw.get("sync_mode", "")).strip()
+            status = str(raw.get("sync_sts", "")).strip()
+        except Exception as exc:
+            return CheckResult(
+                check=self.name,
+                umi=self.umi,
+                ok=False,
+                message=f"Airy time-sync diagnostic failed: {exc}",
+            )
+
+        ok = mode.upper() == "GPTP" and status.lower() in {"lock", "locked"}
+        return CheckResult(
+            check=self.name,
+            umi=self.umi,
+            ok=ok,
+            message="" if ok else f"Airy {mode or 'unknown mode'} is {status or 'unknown'}",
+        )
+
+
+def build_pre_recording_pipeline(umi: UmiConfig) -> PreRecordingPipeline:
     if umi.gripper is None:
         raise ValueError(f"{umi.name} has no gripper tag configuration")
     frames = OpenCvCameraFrames(
@@ -231,10 +283,20 @@ def build_gripper_tag_pipeline(umi: UmiConfig) -> PreRecordingPipeline:
         fps=umi.camera.fps,
         exposure=umi.camera.exposure,
     )
-    check = GripperTagVisibilityCheck(
+    gripper_check = GripperTagVisibilityCheck(
         umi=umi.name,
         target_tag_ids=umi.gripper.tag_ids,
         frames=frames,
         detector=ArucoTagDetector(),
     )
-    return PreRecordingPipeline((check,))
+    return PreRecordingPipeline(
+        (
+            AiryTimeSyncCheck(umi=umi.name, lidar_ip=umi.lidar.lidar_ip),
+            gripper_check,
+        )
+    )
+
+
+def build_gripper_tag_pipeline(umi: UmiConfig) -> PreRecordingPipeline:
+    """Backward-compatible alias for callers deployed before the clock preflight."""
+    return build_pre_recording_pipeline(umi)

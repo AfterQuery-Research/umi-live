@@ -48,3 +48,19 @@ def test_chrony_status_none_when_command_fails(monkeypatch):
     monkeypatch.setattr(ptp.shutil, "which", lambda _n: "/usr/bin/chronyc")
     monkeypatch.setattr(ptp, "_run", lambda *a, **k: None)
     assert ptp.chrony_status() is None
+
+
+def test_ptp_probe_requires_both_master_service_and_airy_lock(monkeypatch):
+    monkeypatch.setattr(ptp, "timestamping_mode", lambda _iface: "hardware")
+    monkeypatch.setattr(ptp, "service_active", lambda _iface: True)
+    monkeypatch.setattr(ptp, "phc2sys_residual_ns", lambda _iface: 123)
+    monkeypatch.setattr(ptp, "_airy_reports_lock", lambda _ip: False)
+
+    status = ptp.probe_ptp({"eth0": "192.168.1.200"})["eth0"]
+
+    assert status.locked is False
+    assert status.timestamping_mode == "hardware"
+    assert status.residual_offset_ns == 123
+
+    monkeypatch.setattr(ptp, "_airy_reports_lock", lambda _ip: True)
+    assert ptp.probe_ptp({"eth0": "192.168.1.200"})["eth0"].locked is True

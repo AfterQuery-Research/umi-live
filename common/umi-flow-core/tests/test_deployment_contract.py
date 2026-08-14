@@ -23,6 +23,11 @@ def test_pair_inventory_has_only_supported_inputs() -> None:
         "FOLLOWER",
         "TASK",
         "DATA_NAMESPACE",
+        "ALIGNMENT_ENABLED",
+        "PAIR_WIFI_SSID",
+        "PAIR_WIFI_PASSWORD",
+        "PAIR_WIFI_CHANNEL",
+        "PAIR_WIFI_COUNTRY",
         "HF_REPO_ID",
         "HF_TOKEN",
     ]
@@ -51,6 +56,8 @@ def test_provisioning_scripts_are_valid_and_have_no_removed_inputs() -> None:
         ROOT / "bin/provision-server",
         ROOT / "bin/provision-pair",
         ROOT / "bin/provision-pi",
+        ROOT / "device/scripts/install_pi.sh",
+        ROOT / "device/scripts/pair_wifi_service.sh",
     ]
     subprocess.run(["bash", "-n", *map(str, scripts)], check=True)
     text = "\n".join(path.read_text() for path in scripts)
@@ -83,6 +90,32 @@ def test_rsync_deployment_excludes_internal_workspaces() -> None:
 def test_upload_service_is_loopback_only() -> None:
     compose = (ROOT / "docker-compose.yml").read_text()
     assert '"127.0.0.1:8080:8080"' in compose
+
+
+def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> None:
+    provision = (ROOT / "bin/provision-pi").read_text()
+    runtime = (ROOT / "device/scripts/pair_wifi_service.sh").read_text()
+    installer = (ROOT / "device/scripts/install_pi.sh").read_text()
+    unit = (ROOT / "config/systemd/umi-pair-wifi@.service").read_text()
+
+    assert "UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140" in provision
+    assert 'exec hostapd "$HOSTAPD_CONFIG"' in runtime
+    assert 'exec wpa_supplicant -D nl80211' in runtime
+    assert "local stratum 10 orphan" in installer
+    assert "server $UMI_PAIR_LEADER_IP" in installer
+    assert "Before=umi-recorder.service umi-upload-tunnel.service" in unit
+
+
+def test_gptp_sync_uses_the_802_1as_multicast_address() -> None:
+    config_text = (ROOT / "config/ptp/umi-gptp.cfg").read_text()
+    assert "transportSpecific 0x1" in config_text
+    assert "ptp_dst_mac 01:80:C2:00:00:0E" in config_text
+
+
+def test_phc_follows_system_clock_across_late_ntp_steps() -> None:
+    service = (ROOT / "config/systemd/umi-phc2sys@.service").read_text()
+    assert "-s CLOCK_REALTIME -c %i" in service
+    assert "-S 0.001" in service
 
 
 def test_password_bootstrap_survives_a_verified_client_reboot(tmp_path: Path) -> None:
@@ -155,12 +188,23 @@ esac
         'LEADER="leader@test"\n'
         'FOLLOWER="follower@test"\n'
         'TASK="deployment test"\n'
+        'PAIR_WIFI_SSID="umi-flow-test"\n'
+        'PAIR_WIFI_PASSWORD="test-password"\n'
+        'PAIR_WIFI_CHANNEL=44\n'
+        'PAIR_WIFI_COUNTRY="US"\n'
     )
+    gripper_calib = tmp_path / "gripper-calib"
+    gripper_calib.mkdir()
+    for name in ("umi1", "umi2"):
+        (gripper_calib / f"{name}_gripper_range.json").write_text(
+            '{"gripper":"' + name + '","closed_width_mm":40,"open_width_mm":120}'
+        )
     env = os.environ.copy()
     env.update(
         {
             "MOCK_STATE_DIR": str(state),
             "PAIR_CONFIG": str(pair_config),
+            "GRIPPER_CALIB_DIR": str(gripper_calib),
             "UMI_SUDO_PASSWORD": "aq",
             "PATH": f"{mock_bin}{os.pathsep}{env['PATH']}",
         }
