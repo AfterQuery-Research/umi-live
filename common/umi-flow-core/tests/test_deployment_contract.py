@@ -112,6 +112,8 @@ def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> Non
     assert 'wpa_cli -i "$UMI_PAIR_IFACE" set ap_scan 2' in runtime
     assert 'wpa_cli -i "$UMI_PAIR_IFACE" reconfigure' in runtime
     assert 'resolvectl dns "$UMI_PAIR_IFACE"' in runtime
+    assert "waiting for follower on configured network" in provision
+    assert "systemctl disable --now umi-pair-wifi@follower.service" in provision
     assert "local stratum 10 orphan" in installer
     assert "server $UMI_PAIR_LEADER_IP" in installer
     assert 'if [ "$UMI_LEADER_HOTSPOT_ENABLED" = true ]; then' in installer

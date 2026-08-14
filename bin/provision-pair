@@ -52,7 +52,26 @@ if [ "${LEADER_HOTSPOT_ENABLED:-false}" = true ] \
   echo "private pair link ready: 10.42.0.1 -> 10.42.0.2:9140"
 elif [ "${LEADER_HOTSPOT_ENABLED:-false}" != true ]; then
   echo
-  echo "private pair Wi-Fi disabled; coordinator uses ${FOLLOWER#*@}:9140"
+  echo "=== verify main-network leader/follower link ==="
+  if [ "${EXTRA_ARGS#*--dry-run}" = "$EXTRA_ARGS" ]; then
+    ready=0
+    for _ in $(seq 1 30); do
+      if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+        "$LEADER" "cd ~/umi-flow && .venv/bin/python -c 'import socket; socket.create_connection((\"${FOLLOWER#*@}\", 9140), 2).close()'" \
+        >/dev/null 2>&1; then
+        ready=1
+        break
+      fi
+      sleep 2
+    done
+    [ "$ready" = 1 ] || {
+      echo "provision-pair: main-network follower link did not become ready" >&2
+      exit 1
+    }
+    echo "main-network pair link ready: ${FOLLOWER#*@}:9140"
+  else
+    echo "dry run: main-network link verification skipped"
+  fi
 fi
 
 echo
