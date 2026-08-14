@@ -51,7 +51,7 @@ sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
   git curl ca-certificates build-essential pkg-config \
   chrony tcpdump ethtool linuxptp libcap2-bin v4l-utils python3-dev \
-  hostapd iptables
+  hostapd iptables fonts-dejavu-core
 
 echo "=== [2/12] uv (Python) ==="
 if ! command -v uv >/dev/null && [ ! -x "$HOME/.local/bin/uv" ]; then
@@ -221,6 +221,9 @@ getcap "$TCPDUMP" | grep -q cap_net_raw && echo "OK  tcpdump can capture" || { e
   "import cv2, umi_flow_device.sensors, umi_flow_device.camera; assert hasattr(cv2, 'aruco')" \
   2>/dev/null \
   && echo "OK  recorder package imports" || { echo "FAIL recorder import"; fail=1; }
+LCD_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+[ -r "$LCD_FONT" ] && echo "OK  LCD font present ($LCD_FONT)" \
+  || { echo "FAIL LCD font missing ($LCD_FONT)"; fail=1; }
 CAM="$("$REPO/.venv/bin/python" -c \
   'import sys; from umi_flow_core.config import load_rig_config; print(load_rig_config(sys.argv[1]).umis[0].camera.device)' \
   "$CONFIG_PATH" 2>/dev/null)"

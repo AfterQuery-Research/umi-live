@@ -89,6 +89,15 @@ def test_upload_service_is_loopback_only() -> None:
     assert '"127.0.0.1:8080:8080"' in compose
 
 
+def test_pi_installer_installs_and_verifies_the_lcd_font() -> None:
+    installer = (ROOT / "device/scripts/install_pi.sh").read_text()
+    display = (ROOT / "device/src/umi_flow_device/display.py").read_text()
+
+    assert "fonts-dejavu-core" in installer
+    assert "DejaVuSans-Bold.ttf" in installer
+    assert "DejaVuSans-Bold.ttf" in display
+
+
 def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> None:
     provision = (ROOT / "bin/provision-pi").read_text()
     runtime = (ROOT / "device/scripts/pair_wifi_service.sh").read_text()
