@@ -132,6 +132,17 @@ if [ "$ROLE" = follower ] && [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
   if ! ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" true >/dev/null 2>&1; then
     SSH_JUMP=""
     SSH_TARGET="$PI"
+    if ! ssh "${SSH_OPTS[@]}" "$SSH_TARGET" true >/dev/null 2>&1; then
+      use_private_follower_transport
+      echo "waiting for follower to rejoin the private network..."
+      for _ in $(seq 1 30); do
+        if ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" true \
+          >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+    fi
   fi
 fi
 pssh() {

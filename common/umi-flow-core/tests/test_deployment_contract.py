@@ -101,6 +101,7 @@ def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> Non
     assert 'PAIR_WIFI_RADIO_IFACE="wlan0"' in provision
     assert 'PAIR_WIFI_UPLINK_IFACE="wlan0"' in provision
     assert 'PAIR_WIFI_IFACE="$PAIR_WIFI_RADIO_IFACE"' in provision
+    assert "waiting for follower to rejoin the private network" in provision
     assert 'exec hostapd "$HOSTAPD_CONFIG"' in runtime
     assert 'wpa_cli -i "$UMI_PAIR_IFACE" select_network' in runtime
     assert 'wpa_cli -i "$UMI_PAIR_IFACE" set ap_scan 2' in runtime
