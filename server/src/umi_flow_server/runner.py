@@ -149,9 +149,7 @@ class Executor:
                 text=True,
                 timeout=30,
             )
-            raise RuntimeError(
-                f"stage {stage.name} timed out after {self.timeout_s:g}s"
-            ) from exc
+            raise RuntimeError(f"stage {stage.name} timed out after {self.timeout_s:g}s") from exc
         if result.returncode != 0:
             raise RuntimeError(
                 f"stage {stage.name} failed (rc={result.returncode}): {result.stderr.strip()[:500]}"
@@ -213,8 +211,7 @@ class Runner:
         blocked = free < self.min_free_bytes
         if blocked and not self._disk_blocked:
             print(
-                f"pipeline paused: only {free} bytes free; "
-                f"requires {self.min_free_bytes}",
+                f"pipeline paused: only {free} bytes free; requires {self.min_free_bytes}",
                 flush=True,
             )
         elif not blocked and self._disk_blocked:
@@ -319,8 +316,7 @@ class Runner:
         except Exception as exc:
             delay = self._record_failure(run, exc)
             print(
-                f"[{run.episode_id}] {run.stage}({run.scope}) FAILED: {exc}; "
-                f"retry in {delay:g}s",
+                f"[{run.episode_id}] {run.stage}({run.scope}) FAILED: {exc}; retry in {delay:g}s",
                 flush=True,
             )
             shutil.rmtree(staging, ignore_errors=True)
@@ -393,6 +389,11 @@ class Runner:
                 for key in [k for k, f in inflight.items() if f.done()]:
                     del inflight[key]
                 for stage, run, episode_dir in self.ready_runs():
+                    # ThreadPoolExecutor's work queue is unbounded. Keep the admitted
+                    # set bounded too, or a large backlog can enqueue hundreds of jobs
+                    # while disk is healthy and execute them after the reserve trips.
+                    if len(inflight) >= workers:
+                        break
                     key = (run.episode_id, run.stage, run.scope)
                     if key in inflight:
                         continue

@@ -149,7 +149,7 @@ Each take runs through `pair -> decode -> GLIM -> gripper -> dataset`.
 | LeRobot dataset | `~/umi-flow/data/lerobot/local/umi-flow/` on the server |
 
 A take is complete when `data/derived/<paired-session>/dataset/COMPLETE` exists.
-Three hours later, the server automatically removes its duplicate paired sources and
+One hour later, the server automatically removes its duplicate paired sources and
 decoded bags; canonical merged raw data, SLAM outputs, and the published dataset remain.
 
 ## Publishing to HuggingFace (optional)

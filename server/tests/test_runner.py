@@ -155,6 +155,50 @@ def test_runner_pauses_when_disk_reserve_is_reached(tmp_path: Path, monkeypatch)
     assert runner.ready_runs() == []
 
 
+def test_run_forever_never_queues_more_than_worker_limit(tmp_path: Path, monkeypatch):
+    data_dir, episode = publish(tmp_path)
+    runner = make_runner(data_dir, [])
+    stage = runner.stages[0]
+    ready = [
+        (stage, StageRun(f"episode_{index}", stage.name, "umi1"), episode) for index in range(20)
+    ]
+    submitted = []
+
+    class PendingFuture:
+        @staticmethod
+        def done() -> bool:
+            return False
+
+    class RecordingPool:
+        def __init__(self, max_workers: int):
+            assert max_workers == 3
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def submit(self, fn, *args):
+            submitted.append((fn, args))
+            return PendingFuture()
+
+    class StopLoop(Exception):
+        pass
+
+    monkeypatch.setattr(runner, "ready_runs", lambda: ready)
+    monkeypatch.setattr("umi_flow_server.pair_stage.pair_once", lambda _data_dir: None)
+    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", RecordingPool)
+    monkeypatch.setattr(
+        runner_module.time, "sleep", lambda _seconds: (_ for _ in ()).throw(StopLoop)
+    )
+
+    with pytest.raises(StopLoop):
+        runner.run_forever(interval_s=0, workers=3)
+
+    assert len(submitted) == 3
+
+
 def test_executor_reports_stage_timeout(tmp_path: Path, monkeypatch):
     calls: list[list[str]] = []
 
