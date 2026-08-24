@@ -246,6 +246,22 @@ def test_orphan_dropped_after_timeout(tmp_path: Path):
     assert (data_dir / "orphans" / lone.name).exists()
 
 
+def test_orphan_timeout_uses_server_arrival_not_recording_age(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    raw = data_dir / "raw_episodes"
+    raw.mkdir(parents=True)
+    lone = _record_arm(tmp_path, "umi1", session_id="delayed", role="umi1", tag_ids=(2, 3))
+    lone.rename(raw / lone.name)
+    arrival_ns = 10_000_000_000_000
+    (raw / lone.name / pair_stage.INGESTED_FILE).write_text(f"{arrival_ns}\n")
+
+    pending = pair_stage.pair_once(data_dir, timeout_s=600, now_ns=arrival_ns + 599_000_000_000)
+    assert pending.pending == ["delayed"]
+
+    expired = pair_stage.pair_once(data_dir, timeout_s=600, now_ns=arrival_ns + 601_000_000_000)
+    assert expired.orphaned == [lone.name]
+
+
 def test_merge_rejects_non_native_arm(tmp_path: Path):
     # A follower mistakenly provisioned as umi1 (role umi2 but config umi named umi1)
     # fails loud with PairError, not a silent collision.

@@ -30,6 +30,8 @@ import yaml
 from umi_flow_core import config as core_config
 from umi_flow_core import layout, manifest
 
+from umi_flow_server.episode import INGESTED_FILE
+
 LEADER_ROLE = "umi1"
 FOLLOWER_ROLE = "umi2"
 PAIRED_SOURCES_DIR = "paired_sources"
@@ -202,6 +204,18 @@ def _relocate(ep: Path, dest_root: Path) -> None:
     shutil.move(str(ep), str(target))
 
 
+def _server_arrival_ns(episode_dir: Path, episode_manifest: dict[str, Any]) -> int:
+    """Return when this half became visible to the server.
+
+    Older deployments have no marker, so retain the historical recording-stop fallback.
+    New ingests always carry the marker atomically, making delayed/offline uploads safe.
+    """
+    try:
+        return int((episode_dir / INGESTED_FILE).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return int(episode_manifest.get("stop_unix_ns", 0))
+
+
 def _merge_into(leader: Path, follower: Path, dest: Path, sid: str) -> None:
     """Atomic merge: build in a staging dir, then rename — dest always has COMPLETE.
     A failure leaves no partial dest and no leftover staging dir."""
@@ -253,7 +267,7 @@ def pair_once(
             am = _read_manifest(arm)
             if am is None:
                 continue  # became unreadable since the scan; retry next pass
-            age_s = (now_ns - int(am.get("stop_unix_ns", 0))) / 1e9
+            age_s = (now_ns - _server_arrival_ns(arm, am)) / 1e9
             if age_s > timeout_s:
                 _relocate(arm, data_dir / ORPHANS_DIR)
                 result.orphaned.append(arm.name)

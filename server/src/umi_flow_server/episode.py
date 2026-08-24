@@ -6,12 +6,17 @@ import hashlib
 import shutil
 import tarfile
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 COMPLETE_FILE = "COMPLETE"
 CHECKSUMS_FILE = "checksums.sha256"
 MANIFEST_FILE = "manifest.json"
+# Written in extraction staging immediately before publish. Pair timeout must measure
+# how long a half has waited ON THIS SERVER, not how old the recording is: an offline
+# client may legitimately upload both halves hours later.
+INGESTED_FILE = ".INGESTED"
 
 # Defense in depth against a decompression/expansion bomb: even a plain tar is
 # rejected if the extracted members would exceed this budget. Sized for the
@@ -80,6 +85,7 @@ def extract_episode(
             extracted = staging / root
             if validate is not None:
                 validate(extracted)  # in quarantine, before the episode is visible
+            (extracted / INGESTED_FILE).write_text(f"{time.time_ns()}\n", encoding="utf-8")
             try:
                 extracted.rename(dest)
             except OSError as exc:

@@ -130,6 +130,15 @@ sudo systemctl enable umi-runner >/dev/null
 # so newly deployed Python code is never left behind an old long-running process.
 sudo systemctl restart umi-runner
 
+echo "=== install completed-artifact retention ==="
+sed -e "s#@REPO@#$REPO#g" \
+    "$REPO/config/systemd/umi-retention.service" \
+    | sudo tee /etc/systemd/system/umi-retention.service >/dev/null
+sudo install -m 0644 "$REPO/config/systemd/umi-retention.timer" \
+  /etc/systemd/system/umi-retention.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now umi-retention.timer >/dev/null
+
 # --- self-test -----------------------------------------------------------------
 echo
 echo "=== self-test ==="
@@ -144,6 +153,9 @@ case "$code" in
   *)   echo "OK  ingest up (HTTP $code)" ;;
 esac
 systemctl is-active --quiet umi-runner && echo "OK  runner service active" || { echo "FAIL runner not active — journalctl -u umi-runner"; fail=1; }
+systemctl is-active --quiet umi-retention.timer \
+  && echo "OK  completed-artifact retention timer active" \
+  || { echo "FAIL retention timer not active — systemctl status umi-retention.timer"; fail=1; }
 for img in umi-ingest umi-decode umi-slam; do
   $DOCKER image inspect "$img" >/dev/null 2>&1 && echo "OK  image $img built" || { echo "FAIL image $img missing"; fail=1; }
 done

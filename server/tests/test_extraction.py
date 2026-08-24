@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from umi_flow_server.episode import extract_episode
+from umi_flow_server.episode import INGESTED_FILE, extract_episode
 
 
 def make_episode(path: Path, episode_name: str = "episode_test") -> Path:
@@ -122,6 +122,7 @@ def test_validate_runs_before_publish_on_the_staged_dir(tmp_path: Path):
     assert seen == [True]
     assert dest == raw / "episode_ok"
     assert (dest / "COMPLETE").exists()
+    assert int((dest / INGESTED_FILE).read_text()) > 0
 
 
 def test_concurrent_extract_of_same_episode_yields_one_winner(tmp_path: Path):
