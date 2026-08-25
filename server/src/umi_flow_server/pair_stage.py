@@ -37,7 +37,9 @@ FOLLOWER_ROLE = "umi2"
 PAIRED_SOURCES_DIR = "paired_sources"
 ORPHANS_DIR = "orphans"
 FAILED_PAIRS_DIR = "failed_pairs"
-DEFAULT_TIMEOUT_S = 600.0
+# A server cannot know whether the opposite Pi still has an offline upload queued.
+# Keep unmatched halves pending by default; operators may still request a finite timeout.
+DEFAULT_TIMEOUT_S: float | None = None
 
 
 class PairError(ValueError):
@@ -233,7 +235,7 @@ def _merge_into(leader: Path, follower: Path, dest: Path, sid: str) -> None:
 def pair_once(
     data_dir: Path,
     *,
-    timeout_s: float = DEFAULT_TIMEOUT_S,
+    timeout_s: float | None = DEFAULT_TIMEOUT_S,
     now_ns: int | None = None,
 ) -> PairResult:
     """One pairing pass over ``data_dir/raw_episodes``. Merges complete pairs and relocates
@@ -268,7 +270,7 @@ def pair_once(
             if am is None:
                 continue  # became unreadable since the scan; retry next pass
             age_s = (now_ns - _server_arrival_ns(arm, am)) / 1e9
-            if age_s > timeout_s:
+            if timeout_s is not None and age_s > timeout_s:
                 _relocate(arm, data_dir / ORPHANS_DIR)
                 result.orphaned.append(arm.name)
                 print(f"pair: session {sid} orphaned after {age_s:.0f}s -> {arm.name}", flush=True)

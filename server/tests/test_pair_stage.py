@@ -246,6 +246,20 @@ def test_orphan_dropped_after_timeout(tmp_path: Path):
     assert (data_dir / "orphans" / lone.name).exists()
 
 
+def test_unmatched_half_remains_pending_by_default(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    raw = data_dir / "raw_episodes"
+    raw.mkdir(parents=True)
+    lone = _record_arm(tmp_path, "umi1", session_id="offline", role="umi1", tag_ids=(2, 3))
+    lone.rename(raw / lone.name)
+
+    res = pair_stage.pair_once(data_dir, now_ns=2**62)
+
+    assert res.pending == ["offline"]
+    assert res.orphaned == []
+    assert (raw / lone.name).exists()
+
+
 def test_orphan_timeout_uses_server_arrival_not_recording_age(tmp_path: Path):
     data_dir = tmp_path / "data"
     raw = data_dir / "raw_episodes"

@@ -227,6 +227,34 @@ def test_staging_tar_built_once_and_removed_after_success(tmp_path: Path, monkey
     assert (sent / episode.name).exists()
 
 
+def test_zero_byte_staging_tar_is_rebuilt(tmp_path: Path):
+    complete = tmp_path / "complete"
+    sent = tmp_path / "sent"
+    staging = tmp_path / "staging"
+    complete.mkdir()
+    staging.mkdir()
+    episode = make_episode(complete)
+    tar_path = staging / f"{episode.name}.tar"
+    tar_path.touch()
+
+    def ok(_url: str, uploaded_tar: Path, _episode_id: str, _timeout: float) -> dict:
+        assert uploaded_tar.stat().st_size > 0
+        with tarfile.open(uploaded_tar, "r") as tar:
+            assert any(member.name.startswith("episode_1/") for member in tar.getmembers())
+        return {"status": "queued"}
+
+    result = upload_episode(
+        episode,
+        "http://127.0.0.1:8080/upload",
+        sent,
+        post=ok,
+        staging_dir=staging,
+    )
+
+    assert result.success
+    assert (sent / episode.name).exists()
+
+
 def test_retry_scan_skips_tarring_while_server_unreachable(tmp_path: Path, monkeypatch):
     complete = tmp_path / "complete"
     sent = tmp_path / "sent"

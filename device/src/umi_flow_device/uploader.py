@@ -150,6 +150,10 @@ def _upload_with_tar(
 ) -> UploadResult:
     size_bytes = 0
     try:
+        # A zero-byte cache can be left by older deployments. Treat it as
+        # reconstructible staging state instead of retrying an empty upload forever.
+        if tar_path.exists() and tar_path.stat().st_size == 0:
+            tar_path.unlink()
         if not tar_path.exists():
             create_episode_tar(episode_dir, tar_path)
         size_bytes = tar_path.stat().st_size
