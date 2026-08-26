@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -330,6 +331,28 @@ def open_dataset(
     )
 
 
+def _wait_for_video_encoder(encoder: Any, timeout_s: float = 120.0) -> None:
+    """Apply bounded backpressure to LeRobot's otherwise frame-dropping live queues.
+
+    This stage is the only producer, so a free slot stays available until add_frame.
+    Keep this adapter local: do not modify the installed LeRobot package globally.
+    """
+    if encoder is None:
+        raise RuntimeError("dataset stage requires a streaming video encoder")
+    if any(encoder._dropped_frames.values()):
+        raise RuntimeError(f"refusing dataset with dropped video frames: {encoder._dropped_frames}")
+    deadline = time.monotonic() + timeout_s
+    while True:
+        for key, thread in encoder._threads.items():
+            if not thread.is_alive():
+                raise RuntimeError(f"video encoder for {key} stopped")
+        if not any(q.full() for q in encoder._frame_queues.values()):
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError("video encoder stalled while waiting for queue capacity")
+        time.sleep(0.01)
+
+
 def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     """StageFn entrypoint. ``out_dir`` is the runner's staging dir (receipt lands
     there); the derived episode dir (glim/gripper outputs) is its parent."""
@@ -450,7 +473,9 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
                     )
                 elif derived.gripper_keys[u.name] in derived.features:
                     frame[derived.gripper_keys[u.name]] = np.zeros(1, dtype=np.float32)
+            _wait_for_video_encoder(dataset.writer._streaming_encoder)
             dataset.add_frame(frame)
+        _wait_for_video_encoder(dataset.writer._streaming_encoder)
         dataset.save_episode()
     # LeRobot v3.0 buffers each episode's footer metadata in the DatasetWriter: save_episode()
     # writes data/*.parquet + info.json but buffers the episode footer until finalize().

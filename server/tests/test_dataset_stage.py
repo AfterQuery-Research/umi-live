@@ -4,18 +4,71 @@
 from __future__ import annotations
 
 from pathlib import Path
+from queue import Queue
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from umi_flow_core import config as core_config
 from umi_flow_server.dataset_stage import (
     _SequentialVideoReader,
+    _wait_for_video_encoder,
     already_appended,
     mark_appended,
     normalize_gripper_widths,
     pose_track_for_umi,
 )
 from umi_flow_server.trajectory import PoseTrack, write_tum
+
+
+def _fake_encoder():
+    queue = Queue(maxsize=1)
+    return SimpleNamespace(
+        _frame_queues={"camera": queue},
+        _threads={"camera": SimpleNamespace(is_alive=lambda: True)},
+        _dropped_frames={},
+    )
+
+
+def test_video_encoder_waits_for_capacity_without_growing_queue(monkeypatch):
+    from umi_flow_server import dataset_stage
+
+    encoder = _fake_encoder()
+    queue = encoder._frame_queues["camera"]
+    queue.put("previous frame")
+    waits = []
+
+    def consume(_seconds):
+        waits.append(True)
+        assert queue.full()
+        queue.get_nowait()
+
+    monkeypatch.setattr(dataset_stage.time, "sleep", consume)
+    _wait_for_video_encoder(encoder)
+    assert waits == [True]
+    assert queue.empty()
+    assert queue.maxsize == 1
+
+
+def test_video_encoder_fails_if_stalled():
+    encoder = _fake_encoder()
+    encoder._frame_queues["camera"].put("previous frame")
+    with pytest.raises(RuntimeError, match="stalled"):
+        _wait_for_video_encoder(encoder, timeout_s=0)
+
+
+def test_video_encoder_fails_if_worker_dies():
+    encoder = _fake_encoder()
+    encoder._threads["camera"].is_alive = lambda: False
+    with pytest.raises(RuntimeError, match="stopped"):
+        _wait_for_video_encoder(encoder)
+
+
+def test_video_encoder_refuses_any_dropped_frames():
+    encoder = _fake_encoder()
+    encoder._dropped_frames["camera"] = 1
+    with pytest.raises(RuntimeError, match="dropped video frames"):
+        _wait_for_video_encoder(encoder)
 
 
 def test_append_ledger_records_and_detects_episodes(tmp_path: Path):
