@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from umi_flow_server.retention import PRUNED_FILE, prune_completed
+from umi_flow_server.retention import DEFAULT_RETENTION_SECONDS, PRUNED_FILE, prune_completed
 
 
 def make_session(data_dir: Path, session_id: str, *, age_seconds: int, complete: bool) -> Path:
@@ -65,6 +65,22 @@ def test_keeps_young_and_incomplete_sessions(tmp_path: Path) -> None:
     assert len(list((data_dir / "paired_sources").iterdir())) == 4
 
 
+def test_default_retention_expires_after_thirty_minutes(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    now_ns = 10_000_000_000_000
+    for name, age_minutes in (("sess_29min", 29), ("sess_31min", 31)):
+        derived = make_session(data_dir, name, age_seconds=0, complete=True)
+        completed_ns = now_ns - age_minutes * 60 * 1_000_000_000
+        os.utime(derived / "dataset/COMPLETE", ns=(completed_ns, completed_ns))
+
+    result = prune_completed(data_dir, now_ns=now_ns)
+
+    assert result.eligible_sessions == 1
+    assert result.source_dirs_removed == 2
+    assert (data_dir / "derived/paired_sess_29min/umi1/decode/bag").exists()
+    assert not (data_dir / "derived/paired_sess_31min/umi1/decode/bag").exists()
+
+
 def test_is_idempotent_and_preserves_incomplete_source_pair(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     derived = make_session(data_dir, "sess_partial", age_seconds=10_000, complete=True)
@@ -99,5 +115,6 @@ def test_retention_is_wired_into_server_provisioning() -> None:
     assert "umi-retention.service" in installer
     assert "umi-retention.timer" in installer
     assert "enable --now umi-retention.timer" in installer
-    assert "--retention-hours 1" in service
+    assert DEFAULT_RETENTION_SECONDS == 1_800
+    assert "--retention-hours 0.5" in service
     assert "OnUnitActiveSec=15min" in timer

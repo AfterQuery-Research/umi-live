@@ -8,4 +8,4 @@ User=root
 WorkingDirectory=@REPO@
 Environment=DATA_DIR=./data
 EnvironmentFile=@REPO@/.env
-ExecStart=@REPO@/.venv/bin/python server/scripts/prune_completed.py --retention-hours 1
+ExecStart=@REPO@/.venv/bin/python server/scripts/prune_completed.py --retention-hours 0.5

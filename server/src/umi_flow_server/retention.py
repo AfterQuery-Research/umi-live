@@ -17,7 +17,7 @@ from pathlib import Path
 
 from umi_flow_core import layout
 
-DEFAULT_RETENTION_SECONDS = 60 * 60
+DEFAULT_RETENTION_SECONDS = 30 * 60
 PRUNED_FILE = "PRUNED.json"
 PAIRED_ROLES = {"umi1", "umi2"}
 

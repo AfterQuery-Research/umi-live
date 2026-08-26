@@ -45,6 +45,9 @@ MAX_STAGE_WORKERS = 5
 DEFAULT_STAGE_TIMEOUT_S = 2 * 60 * 60
 DEFAULT_RETRY_INITIAL_S = 30.0
 DEFAULT_RETRY_MAX_S = 15 * 60.0
+# Stop expanding raw PCAPs before the ingest reserve is reached. Downstream
+# stages can still finish and make their decoded bags eligible for retention.
+DEFAULT_DECODE_MIN_FREE_BYTES = 32 * 1024 * 1024 * 1024
 
 # A stage callable runs in-process: (episode_dir, out_dir, scope) -> None.
 StageFn = Callable[[Path, Path, str], None]
@@ -182,6 +185,7 @@ class Runner:
     retry_initial_s: float = DEFAULT_RETRY_INITIAL_S
     retry_max_s: float = DEFAULT_RETRY_MAX_S
     min_free_bytes: int = DEFAULT_MIN_FREE_BYTES
+    decode_min_free_bytes: int = DEFAULT_DECODE_MIN_FREE_BYTES
     now_fn: Callable[[], float] = field(default=time.monotonic, repr=False)
     _disk_blocked: bool = field(default=False, init=False, repr=False)
 
@@ -230,6 +234,7 @@ class Runner:
         """Every (stage, run) whose inputs are complete and output isn't."""
         if not self._has_disk_headroom():
             return []
+        can_decode = shutil.disk_usage(self.data_dir).free >= self.decode_min_free_bytes
         ready = []
         for episode_dir in self._episodes():
             try:
@@ -243,6 +248,8 @@ class Runner:
             if m.get("role") is not None:
                 continue  # an unmerged single arm of a pair; pair_stage will consume it
             for stage in self.stages:
+                if stage.name == "decode" and not can_decode:
+                    continue
                 for scope in stage.scopes(m, rig):
                     run = StageRun(episode_dir.name, stage.name, scope)
                     key = (run.episode_id, run.stage, run.scope)

@@ -106,9 +106,12 @@ def validate_episode(episode_dir: Path) -> None:
     checksum_path = episode_dir / CHECKSUMS_FILE
     if not checksum_path.exists():
         raise ValueError("episode is missing checksums.sha256")
-    for line in checksum_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
+    lines = [
+        line for line in checksum_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    if not lines:
+        raise ValueError("episode has empty checksums.sha256; integrity cannot be verified")
+    for line in lines:
         parts = line.split(maxsplit=1)
         if len(parts) != 2:
             raise ValueError("malformed checksum line")

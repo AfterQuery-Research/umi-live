@@ -155,6 +155,22 @@ def test_runner_pauses_when_disk_reserve_is_reached(tmp_path: Path, monkeypatch)
     assert runner.ready_runs() == []
 
 
+def test_low_disk_blocks_decode_but_allows_downstream_completion(tmp_path: Path, monkeypatch):
+    data_dir, episode = publish(tmp_path)
+    runner = make_runner(data_dir, [])
+    runner.min_free_bytes = 100
+    runner.decode_min_free_bytes = 200
+    decoded = runner.out_dir(StageRun(episode.name, "decode", "umi1"))
+    decoded.mkdir(parents=True)
+    (decoded / "COMPLETE").touch()
+    monkeypatch.setattr(runner_module.shutil, "disk_usage", lambda _path: SimpleNamespace(free=150))
+
+    ready = runner.ready_runs()
+
+    assert all(stage.name != "decode" for stage, _, _ in ready)
+    assert any(stage.name == "glim" and run.scope == "umi1" for stage, run, _ in ready)
+
+
 def test_run_forever_never_queues_more_than_worker_limit(tmp_path: Path, monkeypatch):
     data_dir, episode = publish(tmp_path)
     runner = make_runner(data_dir, [])

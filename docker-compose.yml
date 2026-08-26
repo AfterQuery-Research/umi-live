@@ -61,8 +61,8 @@ services:
     image: umi-decode
     init: true # tini: clean signal fan-out to the ros2 child processes
     # NOTE: must run as root — the ROS (rslidar_sdk) workspace is built under /root in the
-    # image, so a non-root `user:` fails with "package not found". derived/ decode outputs
-    # are therefore root-owned; only a re-decode of the SAME episode id needs sudo to clear.
+    # image, so a non-root `user:` fails with "package not found". The entrypoint returns
+    # outputs to the host directory owner on exit so failed stages can be retried.
     volumes:
       - ${DATA_DIR:-./data}:/data
 
@@ -81,8 +81,8 @@ services:
     init: true
     # NOTE: must run as root — the koide3 GLIM ROS workspace is built under /root, so a
     # non-root `user:` fails with "Package 'glim_ros' not found" (verified 2026-08-03).
-    # derived/ glim outputs are root-owned; only a re-run of the SAME episode id needs
-    # sudo to clear. (GPU itself works fine non-root: /dev/nvidia* is world-rw.)
+    # The entrypoint returns outputs to the host directory owner on exit for retries.
+    # (GPU itself works fine non-root: /dev/nvidia* is world-rw.)
     volumes:
       - ${DATA_DIR:-./data}:/data
     deploy:
