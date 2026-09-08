@@ -5,15 +5,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.request import urlopen
 
 import numpy as np
 from umi_flow_core.config import GRIPPER_ARUCO_DICTIONARY, UmiConfig
 
+from umi_flow_device.safety import SafetyPolicy, storage_headroom
+
 CHECK_FRAME_COUNT = 5
 GRIPPER_TAG_CHECK = "gripper_tags"
 LIDAR_TIME_SYNC_CHECK = "lidar_time_sync"
+STORAGE_HEADROOM_CHECK = "storage_headroom"
+SERVER_ADMISSION_CHECK = "server_admission"
 
 
 @dataclass(frozen=True)
@@ -273,7 +278,82 @@ class AiryTimeSyncCheck:
         )
 
 
-def build_pre_recording_pipeline(umi: UmiConfig) -> PreRecordingPipeline:
+class StorageHeadroomCheck:
+    """Require space for a conservative take plus the post-take reserve."""
+
+    name = STORAGE_HEADROOM_CHECK
+
+    def __init__(self, umi: str, spool_dir: Path, policy: SafetyPolicy):
+        self.umi = umi
+        self.spool_dir = spool_dir
+        self.policy = policy
+
+    def run(self) -> CheckResult:
+        try:
+            result = storage_headroom(self.spool_dir, self.policy)
+        except Exception as exc:
+            return CheckResult(
+                check=self.name,
+                umi=self.umi,
+                ok=False,
+                message=f"storage check failed: {exc}",
+            )
+        return CheckResult(
+            check=self.name,
+            umi=self.umi,
+            ok=result.ok,
+            message=(
+                ""
+                if result.ok
+                else "insufficient recording storage: "
+                f"free={result.free_bytes} required={result.required_free_bytes}"
+            ),
+        )
+
+
+class ServerAdmissionCheck:
+    """Require the ingest server to reserve enough headroom for this arm's upload."""
+
+    name = SERVER_ADMISSION_CHECK
+
+    def __init__(
+        self,
+        umi: str,
+        estimated_upload_bytes: int,
+        probe: Callable[[int], dict[str, Any]],
+    ):
+        self.umi = umi
+        self.estimated_upload_bytes = estimated_upload_bytes
+        self.probe = probe
+
+    def run(self) -> CheckResult:
+        try:
+            result = self.probe(self.estimated_upload_bytes)
+            accepted = result.get("accepted")
+            if type(accepted) is not bool:
+                raise ValueError("response has no boolean accepted field")
+        except Exception as exc:
+            return CheckResult(
+                check=self.name,
+                umi=self.umi,
+                ok=False,
+                message=f"server admission check failed: {exc}",
+            )
+        return CheckResult(
+            check=self.name,
+            umi=self.umi,
+            ok=accepted,
+            message="" if accepted else str(result.get("reason") or "server rejected recording"),
+        )
+
+
+def build_pre_recording_pipeline(
+    umi: UmiConfig,
+    *,
+    spool_dir: Path | None = None,
+    safety_policy: SafetyPolicy | None = None,
+    server_admission_probe: Callable[[int], dict[str, Any]] | None = None,
+) -> PreRecordingPipeline:
     if umi.gripper is None:
         raise ValueError(f"{umi.name} has no gripper tag configuration")
     frames = OpenCvCameraFrames(
@@ -289,12 +369,31 @@ def build_pre_recording_pipeline(umi: UmiConfig) -> PreRecordingPipeline:
         frames=frames,
         detector=ArucoTagDetector(),
     )
-    return PreRecordingPipeline(
-        (
-            AiryTimeSyncCheck(umi=umi.name, lidar_ip=umi.lidar.lidar_ip),
-            gripper_check,
+    checks: list[PreRecordingCheck] = [
+        AiryTimeSyncCheck(umi=umi.name, lidar_ip=umi.lidar.lidar_ip),
+        gripper_check,
+    ]
+    if spool_dir is not None:
+        policy = safety_policy or SafetyPolicy.from_env()
+        checks.append(
+            StorageHeadroomCheck(
+                umi=umi.name,
+                spool_dir=spool_dir,
+                policy=policy,
+            )
         )
-    )
+        if server_admission_probe is not None:
+            checks.append(
+                ServerAdmissionCheck(
+                    umi=umi.name,
+                    # The fixed rig always commits two arms. Each independent
+                    # check reserves against the whole pair so simultaneous
+                    # reads cannot both approve insufficient aggregate space.
+                    estimated_upload_bytes=2 * policy.estimated_take_bytes,
+                    probe=server_admission_probe,
+                )
+            )
+    return PreRecordingPipeline(tuple(checks))
 
 
 def build_gripper_tag_pipeline(umi: UmiConfig) -> PreRecordingPipeline:

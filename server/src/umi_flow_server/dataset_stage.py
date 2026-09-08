@@ -52,6 +52,15 @@ from umi_flow_server.trajectory import (
 DEFAULT_ENGINE = "glim"
 LOCAL_REPO_ID = "local/umi-flow"
 DEFAULT_RGB_ENCODER_VCODEC = "h264"
+DEFAULT_DATASET_VIEWER_URL = "https://huggingface.co/spaces/lerobot/visualize_dataset"
+CUSTOM_DATASET_VIEWERS = {
+    "brandonyang/artem-fold-towel": (
+        "https://huggingface.co/spaces/brandonyang/artem-fold-towel-viewer"
+    ),
+    "brandonyang/artem-pour-water": (
+        "https://huggingface.co/spaces/brandonyang/artem-pour-water-viewer"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -539,6 +548,8 @@ def _push_to_hub(dataset_dir: Path, episode_dir: Path, repo_id: str) -> bool:
         card = create_lerobot_dataset_card(
             dataset_info=DatasetInfo(**fields), license="apache-2.0", repo_id=repo_id
         )
+        if viewer_url := CUSTOM_DATASET_VIEWERS.get(repo_id):
+            card.content = card.content.replace(DEFAULT_DATASET_VIEWER_URL, viewer_url)
         card.push_to_hub(repo_id=repo_id, repo_type="dataset")
         return True
     except Exception as exc:  # push failure must not take down the pipeline

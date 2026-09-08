@@ -161,7 +161,9 @@ def test_merge_produces_valid_bimanual_episode(tmp_path: Path):
 
 
 def test_runner_processes_merged_as_bimanual(tmp_path: Path):
-    data_dir = _publish_pair(tmp_path)
+    leader_cs = manifest.ClockSyncStatus(synced=True, ref="clock", offset_to_ref_ns=1_000)
+    follower_cs = manifest.ClockSyncStatus(synced=True, ref="clock", offset_to_ref_ns=500)
+    data_dir = _publish_pair(tmp_path, leader_cs=leader_cs, follower_cs=follower_cs)
     calls: list[tuple[str, str]] = []
     runner = _fake_runner(data_dir, calls)
 
@@ -177,7 +179,14 @@ def test_runner_processes_merged_as_bimanual(tmp_path: Path):
 
 
 def test_alignment_enabled_schedules_align_between_glim_and_dataset(tmp_path: Path):
-    data_dir = _publish_pair(tmp_path, alignment={"enabled": True, "reference": "umi1"})
+    leader_cs = manifest.ClockSyncStatus(synced=True, ref="clock", offset_to_ref_ns=1_000)
+    follower_cs = manifest.ClockSyncStatus(synced=True, ref="clock", offset_to_ref_ns=500)
+    data_dir = _publish_pair(
+        tmp_path,
+        leader_cs=leader_cs,
+        follower_cs=follower_cs,
+        alignment={"enabled": True, "reference": "umi1"},
+    )
     calls: list[tuple[str, str]] = []
     runner = _fake_runner(data_dir, calls)
 

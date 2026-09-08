@@ -44,6 +44,7 @@ class ServerConfig:
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_extract_bytes: int = DEFAULT_MAX_EXTRACT_BYTES
     min_free_bytes: int = DEFAULT_MIN_FREE_BYTES
+    recording_reserve_bytes: int = 0
     shutdown_drain_seconds: float = DEFAULT_SHUTDOWN_DRAIN_SECONDS
 
 
@@ -145,6 +146,36 @@ def create_app(cfg: ServerConfig) -> FastAPI:
     app.router.add_event_handler("startup", recover_pending)
     app.router.add_event_handler("shutdown", lambda: worker.close(wait=True))
 
+    @app.get("/health/admission")
+    async def admission(estimated_upload_bytes: int = 0) -> dict[str, object]:
+        if estimated_upload_bytes < 0 or estimated_upload_bytes > 2 * cfg.max_upload_bytes:
+            raise HTTPException(status_code=400, detail="invalid estimated upload size")
+        cfg.data_dir.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(cfg.data_dir).free
+        queued_bytes = 0
+        uploads = cfg.data_dir / "uploads"
+        if uploads.exists():
+            queued_bytes = sum(
+                path.stat().st_size
+                for path in uploads.iterdir()
+                if path.is_file() and (path.suffix == ".tar" or path.name.endswith(".tmp"))
+            )
+        reserve = max(cfg.min_free_bytes, cfg.recording_reserve_bytes) + cfg.max_extract_bytes
+        required = reserve + estimated_upload_bytes
+        accepted = free >= required
+        return {
+            "ok": True,
+            "accepted": accepted,
+            "reason": "" if accepted else "insufficient server storage headroom",
+            "free_bytes": free,
+            "reserved_bytes": reserve,
+            "estimated_upload_bytes": estimated_upload_bytes,
+            "queued_upload_bytes": queued_bytes,
+            "ingest_queue_depth": worker.queue.qsize(),
+            "max_upload_bytes": cfg.max_upload_bytes,
+            "retry_after_seconds": 0 if accepted else 60,
+        }
+
     @app.post("/upload", status_code=202)
     async def upload(
         request: Request,
@@ -167,7 +198,11 @@ def create_app(cfg: ServerConfig) -> FastAPI:
                         raise HTTPException(status_code=413, detail="upload exceeds maximum size")
                     # Extraction temporarily needs space for both the completed tar and
                     # its unpacked contents. Preserve that headroom plus an OS reserve.
-                    required_free = cfg.min_free_bytes + cfg.max_extract_bytes + len(chunk)
+                    required_free = (
+                        max(cfg.min_free_bytes, cfg.recording_reserve_bytes)
+                        + cfg.max_extract_bytes
+                        + len(chunk)
+                    )
                     if shutil.disk_usage(upload_dir).free < required_free:
                         raise HTTPException(
                             status_code=507,

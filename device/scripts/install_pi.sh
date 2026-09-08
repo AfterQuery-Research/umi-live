@@ -35,7 +35,79 @@ SPOOL_DIR="${UMI_FLOW_SPOOL_DIR:-${ROBOT_UMI_SPOOL_DIR:-$REPO/device/umi_flow_sp
 # downloads fail ("could not resolve host"). Suspend it; the final reboot restarts all.
 export NEEDRESTART_SUSPEND=1
 
+# Fresh Ubuntu images start unattended-upgrades on first boot. Let apt wait for
+# that native maintenance instead of failing immediately on lock-frontend.
+APT_LOCK_TIMEOUT_SECONDS="${APT_LOCK_TIMEOUT_SECONDS:-1800}"
+
+ubuntu_package_maintenance_active() {
+  systemctl is-active --quiet apt-daily.service \
+    || systemctl is-active --quiet apt-daily-upgrade.service \
+    || pgrep -x apt-get >/dev/null \
+    || pgrep -x dpkg >/dev/null \
+    || pgrep -f '(^| )/usr/bin/unattended-upgrade( |$)' >/dev/null
+}
+
+wait_for_ubuntu_package_maintenance() {
+  local deadline=$(( $(date +%s) + APT_LOCK_TIMEOUT_SECONDS ))
+  local announced=0
+  while ubuntu_package_maintenance_active; do
+    if [ "$announced" -eq 0 ]; then
+      echo "waiting for Ubuntu package maintenance to finish..."
+      announced=1
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "Ubuntu package maintenance did not finish within ${APT_LOCK_TIMEOUT_SECONDS}s" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+repair_interrupted_dpkg() {
+  local -a reinstall_required=()
+
+  # A reset during apt can leave unpacked packages behind. Resuming this here keeps
+  # provision-pair idempotent; users should never need an undocumented repair step.
+  if sudo env DEBIAN_FRONTEND=noninteractive dpkg --configure -a; then
+    return 0
+  fi
+
+  mapfile -t reinstall_required < <(
+    sudo dpkg-query -W -f='${binary:Package}\t${db:Status-Abbrev}\n' 2>/dev/null \
+      | awk 'substr($2, 3, 1) == "R" { print $1 }'
+  )
+  if [ "${#reinstall_required[@]}" -eq 0 ]; then
+    echo "dpkg recovery failed without identifying a package to reinstall" >&2
+    return 1
+  fi
+
+  echo "reinstalling interrupted package(s): ${reinstall_required[*]}"
+  sudo apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT_SECONDS" \
+    -o Acquire::Retries=10 install -y --reinstall "${reinstall_required[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+}
+
+# Package upgrades can briefly interrupt resolved/networkd even when needrestart
+# is suspended. Download each bootstrap script completely before executing it so
+# retries cannot concatenate a partial response into the shell input.
+install_from_url() {
+  local url="$1"
+  shift
+  local installer status=0
+  installer="$(mktemp)"
+  curl --proto '=https' --tlsv1.2 --retry 12 --retry-all-errors \
+    --retry-delay 5 --retry-max-time 180 --connect-timeout 15 \
+    -LsSf -o "$installer" "$url" || status=$?
+  if [ "$status" -eq 0 ]; then
+    sh "$installer" "$@" || status=$?
+  fi
+  rm -f -- "$installer"
+  return "$status"
+}
+
 echo "=== [1/12] apt packages ==="
+wait_for_ubuntu_package_maintenance
+repair_interrupted_dpkg
 # Fresh RPi Ubuntu images sometimes ship -updates packages already installed but omit
 # the -updates POCKET from the sources (only <codename> + <codename>-security). Then
 # `apt install <foo>-dev` can only see the OLDER -dev, which conflicts with the newer
@@ -47,22 +119,25 @@ if [ -f "$APT_SRC" ] && [ -n "${VERSION_CODENAME:-}" ] \
   sudo sed -i "s/^Suites: ${VERSION_CODENAME}\$/Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates/" "$APT_SRC"
   echo "added ${VERSION_CODENAME}-updates pocket to $APT_SRC (was missing on this image)"
 fi
-sudo apt-get update -qq
-sudo apt-get install -y --no-install-recommends \
+sudo apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT_SECONDS" \
+  -o Acquire::Retries=10 update -qq
+sudo apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT_SECONDS" \
+  -o Acquire::Retries=10 install \
+  -y --no-install-recommends \
   git curl ca-certificates build-essential pkg-config \
   chrony tcpdump ethtool linuxptp libcap2-bin v4l-utils python3-dev \
   hostapd iptables fonts-dejavu-core
 
 echo "=== [2/12] uv (Python) ==="
 if ! command -v uv >/dev/null && [ ! -x "$HOME/.local/bin/uv" ]; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  install_from_url https://astral.sh/uv/install.sh
 fi
 export PATH="$HOME/.local/bin:$PATH"
 uv --version
 
 echo "=== [3/12] Rust (camera recorder) ==="
 if ! command -v cargo >/dev/null && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+  install_from_url https://sh.rustup.rs -y --profile minimal
 fi
 export PATH="$HOME/.cargo/bin:$PATH"
 cargo --version

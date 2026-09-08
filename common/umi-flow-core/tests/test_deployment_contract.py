@@ -98,6 +98,23 @@ def test_pi_installer_installs_and_verifies_the_lcd_font() -> None:
     assert "DejaVuSans-Bold.ttf" in display
 
 
+def test_pi_installer_waits_for_ubuntu_maintenance_and_retries_downloads() -> None:
+    installer = (ROOT / "device/scripts/install_pi.sh").read_text()
+
+    assert 'APT_LOCK_TIMEOUT_SECONDS="${APT_LOCK_TIMEOUT_SECONDS:-1800}"' in installer
+    assert "wait_for_ubuntu_package_maintenance" in installer
+    assert "systemctl is-active --quiet apt-daily-upgrade.service" in installer
+    assert "sudo env DEBIAN_FRONTEND=noninteractive dpkg --configure -a" in installer
+    assert "reinstalling interrupted package(s)" in installer
+    assert installer.count('DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT_SECONDS"') == 3
+    assert installer.count("Acquire::Retries=10") == 3
+    assert "--retry 12 --retry-all-errors" in installer
+    assert 'curl --proto \'=https\' --tlsv1.2' in installer
+    assert '-o "$installer" "$url"' in installer
+    assert "install_from_url https://astral.sh/uv/install.sh" in installer
+    assert "install_from_url https://sh.rustup.rs -y --profile minimal" in installer
+
+
 def test_private_pair_wifi_preserves_tcp_control_and_offline_clock_sync() -> None:
     provision = (ROOT / "bin/provision-pi").read_text()
     runtime = (ROOT / "device/scripts/pair_wifi_service.sh").read_text()

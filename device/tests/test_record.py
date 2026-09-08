@@ -74,6 +74,12 @@ class UnavailableFollower:
     def start_take(self, _session_id: str):
         return None
 
+    def prepare_start(self, _session_id: str):
+        return None
+
+    def abort_start(self, _session_id: str):
+        return {"ok": True}
+
 
 class FakePipeline:
     def __init__(self, result: PipelineResult):
@@ -120,6 +126,8 @@ def test_spool_has_data_ignores_empty_scaffolding(tmp_path: Path):
     assert not record.spool_has_data(spool)
     for name in ("in_progress", "complete", "sent", "staging"):
         (spool / name).mkdir(parents=True, exist_ok=True)
+    (spool / record.CAPTURE_LOCK_FILE).touch()
+    (spool / record.STATUS_FILE).write_text("{}\n")
     assert not record.spool_has_data(spool)
 
     (spool / "complete" / "episode_1").mkdir()
@@ -190,16 +198,38 @@ def test_unavailable_follower_aborts_before_local_recording(tmp_path: Path):
     assert display.check_failures == [("umi2: follower unavailable",)]
 
 
-def test_follower_start_rejection_aborts_before_local_recording(tmp_path: Path):
-    recorder = FakeRecorder()
+def test_follower_commit_rejection_cancels_local_start(tmp_path: Path):
+    class CancelableRecorder:
+        active = None
+
+        def __init__(self) -> None:
+            self.starts = 0
+            self.cancels = 0
+
+        def poll_active_error(self):
+            return None
+
+        def start(self, **_kwargs):
+            self.starts += 1
+            self.active = type("Active", (), {"episode_id": "episode_test"})()
+            return self.active
+
+        def cancel(self):
+            self.cancels += 1
+            self.active = None
+
+    recorder = CancelableRecorder()
     display = FakeDisplay()
 
     class RejectedFollower:
-        def precheck(self):
+        def prepare_start(self, _session_id: str):
             return precheck_ack(PipelineResult((CheckResult("gripper_tags", "umi2", True),)))
 
-        def start_take(self, _session_id: str):
+        def commit_start(self, _session_id: str):
             return {"ok": False, "error": "camera failed"}
+
+        def abort_start(self, _session_id: str):
+            return {"ok": True}
 
     record.button_loop(
         recorder,
@@ -214,7 +244,8 @@ def test_follower_start_rejection_aborts_before_local_recording(tmp_path: Path):
         passing_pipeline(),
     )
 
-    assert recorder.starts == 0
+    assert recorder.starts == 1
+    assert recorder.cancels == 1
     assert display.uploads == [record.UPLOAD_FAIL]
 
 
@@ -269,19 +300,30 @@ def test_button_start_runs_both_prechecks_before_starting_either_recorder(tmp_pa
 
         def start(self, **_kwargs):
             calls.append("local-start")
-            self.active = type("Active", (), {"episode_id": "episode_test"})()
+            self.active = type(
+                "Active",
+                (),
+                {"episode_id": "episode_test", "session_id": _kwargs["session_id"]},
+            )()
             return self.active
 
     remote_result = PipelineResult((CheckResult("gripper_tags", "umi2", True),))
 
     class ReadyFollower:
-        def precheck(self):
-            calls.append("remote-check")
+        def prepare_start(self, _session_id: str):
+            calls.append("remote-prepare")
             return precheck_ack(remote_result)
 
-        def start_take(self, _session_id: str):
-            calls.append("remote-start")
+        def commit_start(self, _session_id: str):
+            calls.append("remote-commit")
             return {"ok": True, "follower_unix_ns": 1}
+
+        def abort_start(self, _session_id: str):
+            calls.append("remote-abort")
+            return {"ok": True}
+
+        def heartbeat(self, _session_id: str):
+            return {"ok": True}
 
     class OrderedPipeline(FakePipeline):
         def run(self):
@@ -302,4 +344,77 @@ def test_button_start_runs_both_prechecks_before_starting_either_recorder(tmp_pa
         OrderedPipeline(PipelineResult((CheckResult("gripper_tags", "umi1", True),))),
     )
 
-    assert calls == ["local-check", "remote-check", "remote-start", "local-start"]
+    assert calls == ["local-check", "remote-prepare", "local-start", "remote-commit"]
+
+
+def test_follower_prepare_then_commit_starts_reserved_session(tmp_path: Path) -> None:
+    replies: Queue[dict] = Queue()
+    commands = iter(
+        [
+            record.coordinator.Command(
+                cmd=record.coordinator.CMD_PREPARE_START,
+                session_id="sess_1",
+                _reply=replies,
+            ),
+            record.coordinator.Command(
+                cmd=record.coordinator.CMD_COMMIT_START,
+                session_id="sess_1",
+                leader_unix_ns=1,
+                _reply=replies,
+            ),
+        ]
+    )
+
+    class Done(Exception):
+        pass
+
+    class Follower:
+        def __init__(self) -> None:
+            self.statuses: list[dict] = []
+
+        def poll(self):
+            try:
+                return next(commands)
+            except StopIteration as exc:
+                raise Done from exc
+
+        def set_status(self, **values):
+            self.statuses.append(values)
+
+        def lease_expired(self, _session_id: str):
+            return False
+
+    class Recorder:
+        active = None
+
+        def poll_active_error(self):
+            return None
+
+        def start(self, *, session_id, role):
+            assert (session_id, role) == ("sess_1", "umi2")
+            self.active = type("Active", (), {"episode_id": "episode_1"})()
+            return self.active
+
+    follower = Follower()
+    recorder = Recorder()
+    try:
+        record.follower_loop(
+            recorder,
+            FakeUploader(),
+            {},
+            FakeDisplay(),
+            tmp_path,
+            follower,
+            "umi2",
+            {"v": None},
+            passing_pipeline("umi2"),
+        )
+    except Done:
+        pass
+    else:
+        raise AssertionError("test follower did not finish")
+
+    assert recorder.active is not None
+    assert replies.get_nowait()["ok"] is True
+    assert replies.get_nowait()["ok"] is True
+    assert follower.statuses[-1]["state"] == "recording"

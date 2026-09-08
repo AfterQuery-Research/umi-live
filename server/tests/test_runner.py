@@ -146,6 +146,122 @@ def test_failed_stage_retries_after_backoff(tmp_path: Path):
     assert runner.failed == {}
 
 
+def test_retry_state_survives_runner_restart(tmp_path: Path):
+    data_dir, episode = publish(tmp_path)
+    calls = 0
+    now = [100.0]
+
+    def fail(*_args) -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("bad input")
+
+    stage = runner_module.StageDef(name="decode", scopes=lambda _m, _rig: ["umi1"], fn=fail)
+    first = Runner(
+        data_dir=data_dir,
+        stages=[stage],
+        retry_initial_s=10,
+        now_fn=lambda: now[0],
+    )
+    assert first.scan_once() == 0
+    run = StageRun(episode.name, "decode", "umi1")
+    assert first.failure_path(run).exists()
+
+    restarted = Runner(
+        data_dir=data_dir,
+        stages=[stage],
+        retry_initial_s=10,
+        now_fn=lambda: now[0],
+    )
+    assert restarted.scan_once() == 0
+    assert calls == 1
+    now[0] += 10
+    assert restarted.scan_once() == 0
+    assert calls == 2
+
+
+def test_deterministic_failure_becomes_terminal_dataset_skip(tmp_path: Path):
+    data_dir, episode = publish(tmp_path)
+    now = [100.0]
+
+    def fail(*_args) -> None:
+        raise ValueError("permanently malformed input")
+
+    stage = runner_module.StageDef(name="decode", scopes=lambda _m, _rig: ["umi1"], fn=fail)
+    runner = Runner(
+        data_dir=data_dir,
+        stages=[stage],
+        retry_initial_s=1,
+        max_deterministic_attempts=2,
+        now_fn=lambda: now[0],
+    )
+    assert runner.scan_once() == 0
+    now[0] += 1
+    assert runner.scan_once() == 0
+
+    dataset = data_dir / "derived" / episode.name / "dataset"
+    receipt = (dataset / "receipt.json").read_text()
+    assert (dataset / "COMPLETE").exists()
+    assert "terminal deterministic_input failure after 2 attempts" in receipt
+    assert runner.ready_runs() == []
+
+
+def test_known_ineligible_episode_skips_expensive_stages(tmp_path: Path):
+    data_dir, episode = publish(tmp_path)
+    manifest_path = episode / "manifest.json"
+    value = runner_module.manifest.read_manifest(manifest_path)
+    value["dataset_eligible"] = False
+    runner_module.manifest.write_manifest(manifest_path, value)
+    calls: list[tuple[str, str]] = []
+    runner = make_runner(data_dir, calls)
+
+    assert runner.scan_once() == 0
+    assert calls == []
+    receipt = data_dir / "derived" / episode.name / "dataset" / "receipt.json"
+    assert "episode not dataset_eligible" in receipt.read_text()
+
+
+def test_clock_invalid_episode_skips_expensive_stages(tmp_path: Path):
+    data_dir, episode = publish(tmp_path)
+    manifest_path = episode / "manifest.json"
+    value = runner_module.manifest.read_manifest(manifest_path)
+    value["clock_sync"] = {
+        "synced": False,
+        "estimated_cross_pi_offset_ns": None,
+    }
+    runner_module.manifest.write_manifest(manifest_path, value)
+    calls: list[tuple[str, str]] = []
+    runner = make_runner(data_dir, calls)
+
+    assert runner.scan_once() == 0
+    assert calls == []
+    receipt = data_dir / "derived" / episode.name / "dataset" / "receipt.json"
+    assert "cross-Pi clock offset" in receipt.read_text()
+
+
+def test_resource_failure_is_not_terminalized(tmp_path: Path):
+    data_dir, episode = publish(tmp_path)
+    now = [100.0]
+
+    def fail(*_args) -> None:
+        raise OSError("[Errno 28] No space left on device")
+
+    stage = runner_module.StageDef(name="decode", scopes=lambda _m, _rig: ["umi1"], fn=fail)
+    runner = Runner(
+        data_dir=data_dir,
+        stages=[stage],
+        retry_initial_s=1,
+        max_deterministic_attempts=1,
+        now_fn=lambda: now[0],
+    )
+    assert runner.scan_once() == 0
+    state = runner._failure(StageRun(episode.name, "decode", "umi1"))
+    assert state is not None
+    assert state.classification == "retryable_resource"
+    assert not state.terminal
+    assert not (data_dir / "derived" / episode.name / "dataset" / "COMPLETE").exists()
+
+
 def test_runner_pauses_when_disk_reserve_is_reached(tmp_path: Path, monkeypatch):
     data_dir, _ = publish(tmp_path)
     runner = make_runner(data_dir, [])

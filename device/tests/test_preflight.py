@@ -9,7 +9,10 @@ from umi_flow_device.preflight import (
     GripperTagVisibilityCheck,
     PipelineResult,
     PreRecordingPipeline,
+    ServerAdmissionCheck,
+    StorageHeadroomCheck,
 )
+from umi_flow_device.safety import SafetyPolicy
 
 
 class FakeFrames:
@@ -156,3 +159,40 @@ def test_real_aruco_detector_reports_generated_marker_ids() -> None:
         frame[60:240, x : x + 180] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
 
     assert {2, 3}.issubset(ArucoTagDetector().detect_ids(frame))
+
+
+def test_storage_headroom_check_uses_projected_post_take_reserve(tmp_path, monkeypatch) -> None:
+    class Usage:
+        free = 199
+
+    monkeypatch.setattr("umi_flow_device.safety.shutil.disk_usage", lambda _path: Usage())
+    check = StorageHeadroomCheck(
+        "umi1",
+        tmp_path,
+        SafetyPolicy(
+            min_free_bytes_after_take=100,
+            estimated_take_bytes=75,
+            metadata_reserve_bytes=25,
+        ),
+    )
+
+    result = check.run()
+
+    assert not result.ok
+    assert "free=199 required=200" in result.message
+
+
+def test_server_admission_check_fails_closed() -> None:
+    check = ServerAdmissionCheck(
+        "umi1",
+        123,
+        lambda size: {
+            "accepted": False,
+            "reason": f"cannot accept {size}",
+        },
+    )
+
+    result = check.run()
+
+    assert not result.ok
+    assert result.message == "cannot accept 123"

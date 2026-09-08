@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import queue
 import shutil
 import tarfile
-import tempfile
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from umi_flow_core.layout import COMPLETE_FILE
 
@@ -69,6 +69,28 @@ def server_reachable(
         conn.close()
 
 
+def server_admission(
+    server_url: str,
+    estimated_upload_bytes: int,
+    timeout_seconds: float = REACHABILITY_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Read the ingest server's structured capacity decision over the local tunnel."""
+    conn = _connect(server_url, timeout_seconds)
+    query = urlencode({"estimated_upload_bytes": estimated_upload_bytes})
+    try:
+        conn.request("GET", f"/health/admission?{query}")
+        response = conn.getresponse()
+        payload = response.read()
+        if response.status >= 300:
+            raise RuntimeError(f"server admission failed with HTTP {response.status}")
+        value = json.loads(payload.decode("utf-8"))
+        if not isinstance(value, dict) or type(value.get("accepted")) is not bool:
+            raise ValueError("malformed server admission response")
+        return value
+    finally:
+        conn.close()
+
+
 def post_tar_file(
     server_url: str,
     tar_path: Path,
@@ -102,34 +124,131 @@ def post_tar_file(
         conn.close()
 
 
+@dataclass
+class _TarStreamState:
+    size_bytes: int = 0
+    error: BaseException | None = None
+
+
+class _CountingPipeWriter:
+    """Minimal file object used by tarfile's streaming writer."""
+
+    def __init__(self, fd: int, state: _TarStreamState):
+        self._file = os.fdopen(fd, "wb", buffering=0)
+        self._state = state
+
+    def write(self, data: bytes) -> int:
+        view = memoryview(data)
+        written = 0
+        while view:
+            count = self._file.write(view)
+            if count is None or count <= 0:
+                raise BrokenPipeError("tar upload pipe closed")
+            written += count
+            view = view[count:]
+        self._state.size_bytes += written
+        return written
+
+    def close(self) -> None:
+        self._file.close()
+
+
+def post_episode_stream(
+    server_url: str,
+    episode_dir: Path,
+    episode_id: str,
+    timeout_seconds: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS,
+) -> tuple[dict[str, Any], int]:
+    """Create and upload a tar as one bounded-memory chunked HTTP stream.
+
+    No second copy of the episode is written to the Pi. The source directory is
+    retained unless both tar production and the server response succeed.
+    """
+    parsed = urlparse(server_url)
+    conn = _connect(server_url, timeout_seconds)
+    read_fd, write_fd = os.pipe()
+    state = _TarStreamState()
+
+    def _produce() -> None:
+        writer = _CountingPipeWriter(write_fd, state)
+        try:
+            with tarfile.open(fileobj=writer, mode="w|") as tar:
+                tar.add(episode_dir, arcname=episode_dir.name)
+        except BaseException as exc:
+            state.error = exc
+        finally:
+            writer.close()
+
+    producer = threading.Thread(
+        target=_produce,
+        name=f"tar-stream-{episode_id}",
+        daemon=True,
+    )
+    producer.start()
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    reader = os.fdopen(read_fd, "rb", buffering=0)
+    try:
+        conn.request(
+            "POST",
+            path,
+            body=reader,
+            headers={
+                "Content-Type": "application/x-tar",
+                "X-Episode-Id": episode_id,
+            },
+            encode_chunked=True,
+        )
+        response = conn.getresponse()
+        payload = response.read()
+        producer.join()
+        if state.error is not None:
+            raise RuntimeError(f"failed to stream episode tar: {state.error}") from state.error
+        if response.status >= 300:
+            detail = payload.decode("utf-8", errors="replace")
+            raise RuntimeError(f"upload failed with HTTP {response.status}: {detail}")
+        return (json.loads(payload.decode("utf-8")) if payload else {}), state.size_bytes
+    finally:
+        reader.close()
+        conn.close()
+        producer.join(timeout=5)
+
+
 def upload_episode(
     episode_dir: Path,
     server_url: str,
     sent_dir: Path,
-    post: PostFile = post_tar_file,
+    post: PostFile | None = None,
     upload_timeout_seconds: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS,
     staging_dir: Path | None = None,
 ) -> UploadResult:
-    """Upload one episode. With a staging_dir, the tar is built once (atomic
-    rename) and reused across retries instead of being rebuilt in the system
-    temp dir every attempt."""
+    """Upload one episode and move it to ``sent`` only after acceptance.
+
+    Production uses a scratch-free chunked tar stream. ``post`` remains an
+    injectable file-based adapter for tests and downstream integrations.
+    """
     if not (episode_dir / COMPLETE_FILE).exists():
         return UploadResult(
             episode_id=episode_dir.name,
             success=False,
             error="missing COMPLETE marker",
         )
-    if staging_dir is None:
-        with tempfile.TemporaryDirectory() as tmp:
-            tar_path = Path(tmp) / f"{episode_dir.name}.tar"
-            return _upload_with_tar(
-                episode_dir,
-                tar_path,
-                server_url,
-                sent_dir,
-                post,
-                upload_timeout_seconds,
+    if post is None:
+        try:
+            server_response, size_bytes = post_episode_stream(
+                server_url, episode_dir, episode_dir.name, upload_timeout_seconds
             )
+        except Exception as exc:
+            print(f"upload kept for retry: {episode_dir.name}: {exc}")
+            return UploadResult(
+                episode_id=episode_dir.name,
+                success=False,
+                error=str(exc),
+            )
+        return _finish_success(episode_dir, sent_dir, size_bytes, server_response)
+    if staging_dir is None:
+        staging_dir = episode_dir.parent.parent / "staging"
     staging_dir.mkdir(parents=True, exist_ok=True)
     tar_path = staging_dir / f"{episode_dir.name}.tar"
     result = _upload_with_tar(
@@ -137,6 +256,27 @@ def upload_episode(
     )
     if result.success:
         tar_path.unlink(missing_ok=True)
+    return result
+
+
+def _finish_success(
+    episode_dir: Path,
+    sent_dir: Path,
+    size_bytes: int,
+    server_response: dict[str, Any],
+) -> UploadResult:
+    sent_dir.mkdir(parents=True, exist_ok=True)
+    dest = sent_dir / episode_dir.name
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.move(str(episode_dir), dest)
+    result = UploadResult(
+        episode_id=episode_dir.name,
+        success=True,
+        size_bytes=size_bytes,
+        server_response=server_response,
+    )
+    print(f"uploaded and moved to sent: {episode_dir.name} size={result.size_bytes}B")
     return result
 
 
@@ -166,26 +306,14 @@ def _upload_with_tar(
             size_bytes=size_bytes,
             error=str(exc),
         )
-    sent_dir.mkdir(parents=True, exist_ok=True)
-    dest = sent_dir / episode_dir.name
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.move(str(episode_dir), dest)
-    result = UploadResult(
-        episode_id=episode_dir.name,
-        success=True,
-        size_bytes=size_bytes,
-        server_response=server_response,
-    )
-    print(f"uploaded and moved to sent: {episode_dir.name} size={result.size_bytes}B")
-    return result
+    return _finish_success(episode_dir, sent_dir, size_bytes, server_response)
 
 
 def retry_completed(
     complete_dir: Path,
     server_url: str,
     sent_dir: Path,
-    post: PostFile = post_tar_file,
+    post: PostFile | None = None,
     upload_timeout_seconds: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS,
 ) -> int:
     count = 0
@@ -223,7 +351,7 @@ class AsyncUploader:
         sent_dir: Path,
         retry_seconds: float = 5.0,
         upload_timeout_seconds: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS,
-        post: PostFile = post_tar_file,
+        post: PostFile | None = None,
     ):
         validate_server_url(server_url)
         self.complete_dir = complete_dir

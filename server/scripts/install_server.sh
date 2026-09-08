@@ -69,12 +69,21 @@ if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
   # Cheap probe first (no image pull): is the nvidia docker runtime wired up?
   if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
     echo "installing nvidia-container-toolkit ..."
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-      | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-    curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-      | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' \
-      | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-    sudo apt-get update -qq && sudo apt-get install -y nvidia-container-toolkit
+    # GPU cloud images often preconfigure this repository with their own keyring.
+    # Adding the same URL with a second Signed-By value makes every apt command fail.
+    if grep -RqsE '^[[:space:]]*deb .*nvidia\.github\.io/libnvidia-container/stable/deb' \
+      /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+      echo "reusing existing NVIDIA container-toolkit package source"
+    else
+      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+        | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+      curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+        | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' \
+        | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+    fi
+    sudo apt-get update -qq \
+      || { echo "failed to update apt after configuring NVIDIA repository" >&2; exit 1; }
+    sudo apt-get install -y nvidia-container-toolkit
     sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
   fi
 else

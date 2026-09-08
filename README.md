@@ -81,6 +81,8 @@ private link and uploads through the leader.
 
 Install the processing server, then both clients:
 
+On freshly flashed Pis, wait for Ubuntu's first-boot upgrades to finish before running `provision-pair`, or `apt` may fail because `unattended-upgr` holds the package-manager lock.
+
 ```sh
 ./bin/provision-server
 ./bin/provision-pair

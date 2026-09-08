@@ -10,7 +10,9 @@ import yaml
 from umi_flow_core import config as core_config
 from umi_flow_core import layout, manifest
 from umi_flow_device.episode import EpisodeRecorder, write_checksums
+from umi_flow_device.operation_lock import OperationLock
 from umi_flow_device.pcap import read_udp_packets
+from umi_flow_device.safety import SafetyPolicy
 from umi_flow_device.sensors import SensorStats
 from umi_flow_test_support import MockLidarPcapRecorder
 
@@ -83,6 +85,37 @@ def rig_and_recorder(tmp_path):
         },
     )
     return rig, recorder, sensors
+
+
+def test_start_rechecks_storage_headroom(rig_and_recorder, monkeypatch):
+    _rig, recorder, _sensors = rig_and_recorder
+
+    class Usage:
+        free = 99
+
+    recorder.safety_policy = SafetyPolicy(
+        min_free_bytes_after_take=100,
+        estimated_take_bytes=0,
+        metadata_reserve_bytes=0,
+    )
+    monkeypatch.setattr("umi_flow_device.safety.shutil.disk_usage", lambda _path: Usage())
+
+    with pytest.raises(RuntimeError, match="insufficient recording storage"):
+        recorder.start(session_id="sess_1", role="umi1")
+    assert recorder.active is None
+
+
+def test_capture_lock_excludes_maintenance(rig_and_recorder):
+    _rig, recorder, _sensors = rig_and_recorder
+    recorder.start(session_id="sess_1", role="umi1")
+
+    maintenance = OperationLock.for_spool(recorder.spool_dir)
+    with pytest.raises(RuntimeError, match="capture or maintenance is already active"):
+        maintenance.acquire()
+
+    recorder.cancel()
+    maintenance.acquire()
+    maintenance.release()
 
 
 def test_full_episode_lifecycle(rig_and_recorder):

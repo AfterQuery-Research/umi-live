@@ -3,6 +3,7 @@ from __future__ import annotations
 import tarfile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,47 @@ def test_upload_failure_leaves_episode_in_complete(tmp_path: Path):
     assert not (sent / episode.name).exists()
 
 
+def test_default_upload_streams_tar_without_staging_copy(tmp_path: Path, monkeypatch):
+    complete = tmp_path / "complete"
+    sent = tmp_path / "sent"
+    complete.mkdir()
+    episode = make_episode(complete)
+    captured = BytesIO()
+
+    class Response:
+        status = 202
+
+        @staticmethod
+        def read() -> bytes:
+            return b'{"status":"queued"}'
+
+    class Connection:
+        def request(self, method, path, body, headers, encode_chunked):
+            assert (method, path, encode_chunked) == ("POST", "/upload", True)
+            assert "Content-Length" not in headers
+            while chunk := body.read(8192):
+                captured.write(chunk)
+
+        @staticmethod
+        def getresponse():
+            return Response()
+
+        @staticmethod
+        def close() -> None:
+            pass
+
+    monkeypatch.setattr(uploader_module, "_connect", lambda *_args: Connection())
+
+    result = upload_episode(episode, "http://127.0.0.1:8080/upload", sent)
+
+    assert result.success
+    assert result.size_bytes == len(captured.getvalue())
+    assert not (tmp_path / "staging").exists()
+    with tarfile.open(fileobj=BytesIO(captured.getvalue()), mode="r:") as tar:
+        assert f"{episode.name}/manifest.json" in tar.getnames()
+    assert (sent / episode.name).exists()
+
+
 def test_tar_creation_failure_leaves_episode_in_complete(
     tmp_path: Path,
     monkeypatch,
@@ -56,7 +98,12 @@ def test_tar_creation_failure_leaves_episode_in_complete(
 
     monkeypatch.setattr(uploader_module, "create_episode_tar", fail_archive)
 
-    result = upload_episode(episode, "http://127.0.0.1:8080/upload", sent)
+    result = upload_episode(
+        episode,
+        "http://127.0.0.1:8080/upload",
+        sent,
+        post=lambda *_args: {"status": "queued"},
+    )
 
     assert not result.success
     assert result.size_bytes == 0

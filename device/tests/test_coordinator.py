@@ -34,6 +34,8 @@ def test_leader_follower_roundtrip():
         cmd.respond(True, result={"ok": True, "checks": []})
         request.join(timeout=1)
         assert result[0] is not None and result[0]["result"]["ok"] is True
+        assert result[0]["protocol_version"] == coordinator.PROTOCOL_VERSION
+        assert leader.peer_generation == f.generation
 
         result.clear()
         request = threading.Thread(target=lambda: result.append(leader.start_take("sess_1")))
@@ -56,6 +58,22 @@ def test_leader_follower_roundtrip():
         cmd.respond(True)
         request.join(timeout=1)
         assert result[0] is not None
+
+        f.set_status(state="idle", task="pour water", config_sha256="abc")
+        status = leader.status()
+        assert status is not None
+        assert status["status"] == {
+            "state": "idle",
+            "task": "pour water",
+            "config_sha256": "abc",
+        }
+
+        # Heartbeats are accepted only for the live prepared/recording session.
+        f.set_status(state="recording", session_id="sess_1")
+        assert leader.heartbeat("sess_1")["ok"] is True
+        assert f.lease_expired("sess_1") is False
+        assert f.lease_expired("sess_1", grace_s=-1) is True
+        assert leader.heartbeat("different")["ok"] is False
 
         result.clear()
         request = threading.Thread(target=lambda: result.append(leader.cancel_take()))
@@ -85,3 +103,68 @@ def test_leader_unreachable_returns_none():
     assert leader.start_take("s") is None
     assert leader.stop_take() is None
     assert leader.ping() is False
+
+
+def test_follower_rejects_stale_generation_without_enqueuing():
+    f = coordinator.Follower(listen_port=0, host="127.0.0.1")
+    f.start()
+    try:
+        leader = coordinator.Leader(f"127.0.0.1:{f.port}")
+        leader.peer_generation = "old-process"
+        reply = leader.start_take("sess_1")
+        assert reply is not None
+        assert reply["ok"] is False
+        assert "generation changed" in reply["error"]
+        assert f.poll() is None
+    finally:
+        f.close()
+
+
+def test_duplicate_command_id_replays_ack_without_second_enqueue():
+    f = coordinator.Follower(listen_port=0, host="127.0.0.1")
+    f.start()
+    try:
+        leader = coordinator.Leader(f"127.0.0.1:{f.port}")
+        command = {
+            "cmd": coordinator.CMD_START,
+            "session_id": "sess_1",
+            "command_id": "fixed-command",
+        }
+        replies: list[dict | None] = []
+        first = threading.Thread(target=lambda: replies.append(leader._send(command)))
+        first.start()
+        received = _drain(f)
+        received.respond(True)
+        first.join(timeout=1)
+
+        replay = leader._send(command)
+        assert replay == replies[0]
+        assert f.poll() is None
+    finally:
+        f.close()
+
+
+def test_transport_retry_reuses_command_id(monkeypatch):
+    leader = coordinator.Leader("127.0.0.1:1")
+    requests: list[dict] = []
+
+    def exchange(request: dict):
+        requests.append(dict(request))
+        if len(requests) == 1:
+            return None
+        return {
+            "ok": True,
+            "protocol_version": coordinator.PROTOCOL_VERSION,
+            "command_id": request["command_id"],
+            "generation": "generation-1",
+        }
+
+    monkeypatch.setattr(leader, "_exchange", exchange)
+
+    assert leader.commit_start("session-1") == {
+        "ok": True,
+        "protocol_version": coordinator.PROTOCOL_VERSION,
+        "command_id": requests[0]["command_id"],
+        "generation": "generation-1",
+    }
+    assert requests[0]["command_id"] == requests[1]["command_id"]

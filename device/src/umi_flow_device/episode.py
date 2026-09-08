@@ -21,6 +21,8 @@ from pathlib import Path
 from umi_flow_core import config as core_config
 from umi_flow_core import layout, manifest
 
+from umi_flow_device.operation_lock import OperationLock
+from umi_flow_device.safety import SafetyPolicy, storage_headroom
 from umi_flow_device.sensors import CameraRecorder, SensorRecorder
 
 PtpProbe = Callable[[], dict[str, manifest.PtpStatus]]
@@ -56,6 +58,7 @@ class EpisodeRecorder:
         config_root: Path | None = None,
         ptp_probe: PtpProbe = _no_ptp,
         clock_sync_probe: ClockSyncProbe = _no_clock_sync,
+        safety_policy: SafetyPolicy | None = None,
     ):
         """``sensors_by_key`` holds the client's lidar and camera recorders.
         ``config_root`` is the base for relative calibration paths."""
@@ -67,11 +70,13 @@ class EpisodeRecorder:
         self.sensors_by_key = sensors_by_key
         self.ptp_probe = ptp_probe
         self.clock_sync_probe = clock_sync_probe
+        self.safety_policy = safety_policy or SafetyPolicy.from_env()
         self.in_progress_dir = self.spool_dir / "in_progress"
         self.complete_dir = self.spool_dir / "complete"
         self.sent_dir = self.spool_dir / "sent"
         self.active: ActiveEpisode | None = None
         self.last_stop_issues: list[str] = []
+        self._capture_lock = OperationLock.for_spool(self.spool_dir)
         for path in [self.in_progress_dir, self.complete_dir, self.sent_dir]:
             path.mkdir(parents=True, exist_ok=True)
 
@@ -93,12 +98,18 @@ class EpisodeRecorder:
                 raise RuntimeError(f"required sensor {key} has no recorder")
             armed.append(recorder)
 
-        eid = layout.episode_id()
-        path = self.in_progress_dir / eid
-        path.mkdir(parents=True, exist_ok=False)
-        self._write_event(path, "start")
-        self._write_config_snapshot(path)
-        start_unix = layout.unix_ns()
+        self._capture_lock.acquire()
+        try:
+            storage_headroom(self.spool_dir, self.safety_policy).require()
+            eid = layout.episode_id()
+            path = self.in_progress_dir / eid
+            path.mkdir(parents=True, exist_ok=False)
+            self._write_event(path, "start")
+            self._write_config_snapshot(path)
+            start_unix = layout.unix_ns()
+        except Exception:
+            self._capture_lock.release()
+            raise
 
         # Cameras last: a camera-start failure then has no detached process to
         # orphan — everything started so far is cancellable in-process.
@@ -114,6 +125,7 @@ class EpisodeRecorder:
             for sensor in started:
                 sensor.cancel_episode()
             shutil.rmtree(path, ignore_errors=True)
+            self._capture_lock.release()
             raise
 
         self.active = ActiveEpisode(
@@ -186,6 +198,7 @@ class EpisodeRecorder:
         final_path = self.complete_dir / active.episode_id
         shutil.move(str(active.path), final_path)
         self.active = None
+        self._capture_lock.release()
         return final_path
 
     def cancel(self) -> None:
@@ -197,6 +210,7 @@ class EpisodeRecorder:
             sensor.cancel_episode()
         shutil.rmtree(active.path, ignore_errors=True)
         self.active = None
+        self._capture_lock.release()
 
     # --- internals -------------------------------------------------------------------
 

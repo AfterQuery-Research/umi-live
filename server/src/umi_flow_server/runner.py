@@ -22,9 +22,12 @@ config exist, dataset when every input it needs is done.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import shutil
 import subprocess
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +37,7 @@ from umi_flow_core import layout, manifest
 
 from umi_flow_server import extrinsic
 from umi_flow_server.episode import DEFAULT_MIN_FREE_BYTES
+from umi_flow_server.operation_lock import PipelineLease
 
 COMPLETE = layout.COMPLETE_FILE
 
@@ -45,6 +49,7 @@ MAX_STAGE_WORKERS = 5
 DEFAULT_STAGE_TIMEOUT_S = 2 * 60 * 60
 DEFAULT_RETRY_INITIAL_S = 30.0
 DEFAULT_RETRY_MAX_S = 15 * 60.0
+DEFAULT_MAX_DETERMINISTIC_ATTEMPTS = 3
 # Stop expanding raw PCAPs before the ingest reserve is reached. Downstream
 # stages can still finish and make their decoded bags eligible for retention.
 DEFAULT_DECODE_MIN_FREE_BYTES = 32 * 1024 * 1024 * 1024
@@ -174,6 +179,47 @@ class FailureState:
     error: str
     attempts: int
     retry_at: float
+    classification: str = "algorithmic"
+    terminal: bool = False
+    first_failed_at_unix: float | None = None
+    last_failed_at_unix: float | None = None
+    source_manifest_sha256: str = ""
+    runner_sha256: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "error": self.error,
+            "attempts": self.attempts,
+            "retry_at_unix": self.retry_at,
+            "classification": self.classification,
+            "terminal": self.terminal,
+            "first_failed_at_unix": self.first_failed_at_unix,
+            "last_failed_at_unix": self.last_failed_at_unix,
+            "source_manifest_sha256": self.source_manifest_sha256,
+            "runner_sha256": self.runner_sha256,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, object]) -> FailureState:
+        return cls(
+            error=str(value["error"]),
+            attempts=int(value["attempts"]),
+            retry_at=float(value["retry_at_unix"]),
+            classification=str(value.get("classification", "algorithmic")),
+            terminal=bool(value.get("terminal", False)),
+            first_failed_at_unix=(
+                float(value["first_failed_at_unix"])
+                if value.get("first_failed_at_unix") is not None
+                else None
+            ),
+            last_failed_at_unix=(
+                float(value["last_failed_at_unix"])
+                if value.get("last_failed_at_unix") is not None
+                else None
+            ),
+            source_manifest_sha256=str(value.get("source_manifest_sha256", "")),
+            runner_sha256=str(value.get("runner_sha256", "")),
+        )
 
 
 @dataclass
@@ -184,9 +230,10 @@ class Runner:
     failed: dict[tuple[str, str, str], FailureState] = field(default_factory=dict)
     retry_initial_s: float = DEFAULT_RETRY_INITIAL_S
     retry_max_s: float = DEFAULT_RETRY_MAX_S
+    max_deterministic_attempts: int = DEFAULT_MAX_DETERMINISTIC_ATTEMPTS
     min_free_bytes: int = DEFAULT_MIN_FREE_BYTES
     decode_min_free_bytes: int = DEFAULT_DECODE_MIN_FREE_BYTES
-    now_fn: Callable[[], float] = field(default=time.monotonic, repr=False)
+    now_fn: Callable[[], float] = field(default=time.time, repr=False)
     _disk_blocked: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -208,6 +255,99 @@ class Runner:
 
     def is_done(self, run: StageRun) -> bool:
         return (self.out_dir(run) / COMPLETE).exists()
+
+    def failure_path(self, run: StageRun) -> Path:
+        scope = run.scope or "_episode"
+        return self.derived_root / run.episode_id / ".failures" / scope / f"{run.stage}.json"
+
+    def _write_failure(self, run: StageRun, state: FailureState) -> None:
+        path = self.failure_path(run)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            with tmp.open("w", encoding="utf-8") as handle:
+                json.dump(state.to_dict(), handle, indent=2, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def _failure(self, run: StageRun) -> FailureState | None:
+        key = (run.episode_id, run.stage, run.scope)
+        if key in self.failed:
+            return self.failed[key]
+        path = self.failure_path(run)
+        if not path.exists():
+            return None
+        try:
+            state = FailureState.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"ignoring malformed failure state {path}: {exc}", flush=True)
+            return None
+        self.failed[key] = state
+        return state
+
+    def _clear_failure(self, run: StageRun) -> None:
+        self.failed.pop((run.episode_id, run.stage, run.scope), None)
+        self.failure_path(run).unlink(missing_ok=True)
+
+    def _terminalize_episode(
+        self,
+        episode_id: str,
+        reason: str,
+        *,
+        failed_run: StageRun | None = None,
+    ) -> None:
+        """Write the ordinary dataset-stage terminal contract for unusable input."""
+        out = self.derived_root / episode_id / "dataset"
+        if (out / COMPLETE).exists():
+            return
+        out.mkdir(parents=True, exist_ok=True)
+        receipt: dict[str, object] = {
+            "episode_id": episode_id,
+            "skipped": reason,
+            "terminal": True,
+        }
+        if failed_run is not None:
+            receipt["failed_stage"] = failed_run.stage
+            receipt["failed_scope"] = failed_run.scope
+        receipt_path = out / "receipt.json"
+        tmp = receipt_path.with_name(f".{receipt_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            with tmp.open("w", encoding="utf-8") as handle:
+                json.dump(receipt, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            tmp.replace(receipt_path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        (out / COMPLETE).write_text("complete\n")
+        print(f"[{episode_id}] terminal dataset skip: {reason}", flush=True)
+
+    def _episode_terminal(self, episode_id: str) -> bool:
+        receipt = self.derived_root / episode_id / "dataset" / "receipt.json"
+        try:
+            terminal = bool(json.loads(receipt.read_text(encoding="utf-8")).get("terminal"))
+        except (OSError, ValueError, TypeError):
+            return False
+        if terminal:
+            marker = receipt.parent / COMPLETE
+            if not marker.exists():
+                marker.write_text("complete\n")
+        return terminal
+
+    @staticmethod
+    def _eligibility_failure(m: dict) -> str | None:
+        if not m.get("dataset_eligible", False):
+            return "episode not dataset_eligible"
+        if not manifest.lidar_ptp_acceptable(m):
+            return "PTP not locked / residual too large for lidar SLAM"
+        if not manifest.clock_sync_acceptable(m):
+            return "cross-Pi clock offset too large / unsynced (bimanual merge)"
+        return None
 
     def _has_disk_headroom(self) -> bool:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -247,14 +387,21 @@ class Runner:
                 continue
             if m.get("role") is not None:
                 continue  # an unmerged single arm of a pair; pair_stage will consume it
+            if self._episode_terminal(episode_dir.name):
+                continue
+            eligibility_failure = self._eligibility_failure(m)
+            if eligibility_failure is not None:
+                self._terminalize_episode(episode_dir.name, eligibility_failure)
+                continue
             for stage in self.stages:
                 if stage.name == "decode" and not can_decode:
                     continue
                 for scope in stage.scopes(m, rig):
                     run = StageRun(episode_dir.name, stage.name, scope)
-                    key = (run.episode_id, run.stage, run.scope)
-                    failure = self.failed.get(key)
-                    if failure is not None and self.now_fn() < failure.retry_at:
+                    failure = self._failure(run)
+                    if failure is not None and (
+                        failure.terminal or self.now_fn() < failure.retry_at
+                    ):
                         continue
                     if self.is_done(run):
                         continue
@@ -276,16 +423,75 @@ class Runner:
 
     def _record_failure(self, run: StageRun, exc: Exception) -> float:
         key = (run.episode_id, run.stage, run.scope)
-        previous = self.failed.get(key)
+        previous = self._failure(run)
         attempts = 1 if previous is None else previous.attempts + 1
+        error = str(exc)
+        lowered = error.lower()
+        retryable_markers = (
+            "no space left",
+            "enospc",
+            "http 507",
+            "connection reset",
+            "connection refused",
+            "temporarily unavailable",
+            "timed out",
+        )
+        if any(marker in lowered for marker in retryable_markers):
+            classification = "retryable_resource"
+        elif isinstance(exc, (FileNotFoundError, ValueError)) or "rc=66" in lowered:
+            classification = "deterministic_input"
+        else:
+            classification = "algorithmic"
+        terminal = (
+            classification != "retryable_resource" and attempts >= self.max_deterministic_attempts
+        )
+        now = self.now_fn()
+        manifest_path = self.raw_root / run.episode_id / layout.MANIFEST_FILE
         delay = min(
             self.retry_max_s,
             self.retry_initial_s * (2 ** min(attempts - 1, 20)),
         )
-        self.failed[key] = FailureState(str(exc), attempts, self.now_fn() + delay)
+        state = FailureState(
+            error=error,
+            attempts=attempts,
+            retry_at=now + delay,
+            classification=classification,
+            terminal=terminal,
+            first_failed_at_unix=(
+                previous.first_failed_at_unix
+                if previous is not None and previous.first_failed_at_unix is not None
+                else now
+            ),
+            last_failed_at_unix=now,
+            source_manifest_sha256=(
+                layout.sha256_file(manifest_path) if manifest_path.is_file() else ""
+            ),
+            runner_sha256=layout.sha256_file(Path(__file__)),
+        )
+        self.failed[key] = state
+        self._write_failure(run, state)
+        if terminal:
+            self._terminalize_episode(
+                run.episode_id,
+                f"pipeline stage {run.stage} reached terminal {classification} failure "
+                f"after {attempts} attempts",
+                failed_run=run,
+            )
         return delay
 
     def execute(self, stage: StageDef, run: StageRun, episode_dir: Path) -> bool:
+        lease = PipelineLease.for_data_dir(self.data_dir, exclusive=False)
+        try:
+            lease.acquire()
+        except RuntimeError as exc:
+            print(f"[{run.episode_id}] {run.stage} deferred: {exc}", flush=True)
+            return False
+        try:
+            return self._execute_locked(stage, run, episode_dir)
+        finally:
+            lease.release()
+
+    def _execute_locked(self, stage: StageDef, run: StageRun, episode_dir: Path) -> bool:
         input_dir = episode_dir
         if stage.input_from is not None:
             input_dir = self.out_dir(StageRun(run.episode_id, stage.input_from, run.scope))
@@ -332,7 +538,7 @@ class Runner:
         marker = out / COMPLETE
         if not marker.exists():
             marker.write_text("complete\n")
-        self.failed.pop((run.episode_id, run.stage, run.scope), None)
+        self._clear_failure(run)
         print(f"[{run.episode_id}] {run.stage}({run.scope}) done -> {out}", flush=True)
         return True
 

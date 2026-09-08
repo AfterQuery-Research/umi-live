@@ -20,12 +20,13 @@ import json
 import socket
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from queue import Empty, Queue
 
 DEFAULT_PORT = 9140
 _TIMEOUT_S = 5.0
-_COMMAND_ACK_TIMEOUT_S = 15.0
+_COMMAND_ACK_TIMEOUT_S = 30.0
 _MAX_LINE = 65536
 
 CMD_START = "start"
@@ -33,6 +34,14 @@ CMD_STOP = "stop"
 CMD_CANCEL = "cancel"
 CMD_PING = "ping"
 CMD_PRECHECK = "precheck"
+CMD_STATUS = "status"
+CMD_PREPARE_START = "prepare_start"
+CMD_COMMIT_START = "commit_start"
+CMD_ABORT_START = "abort_start"
+CMD_HEARTBEAT = "heartbeat"
+PROTOCOL_VERSION = 2
+_REPLAY_CACHE_SIZE = 256
+PEER_LEASE_GRACE_S = 5.0
 
 
 @dataclass
@@ -40,13 +49,28 @@ class Command:
     cmd: str
     session_id: str | None = None
     leader_unix_ns: int | None = None
+    command_id: str | None = None
+    expected_generation: str | None = None
     _reply: Queue[dict] | None = field(default=None, repr=False)
+    _expired: threading.Event = field(default_factory=threading.Event, repr=False)
+
+    @property
+    def expired(self) -> bool:
+        return self._expired.is_set()
+
+    def expire(self) -> None:
+        self._expired.set()
 
     def respond(self, ok: bool, error: str = "", result: dict[str, object] | None = None) -> None:
         """Complete the command after the follower recorder applied it."""
         if self._reply is None:
             return
-        reply: dict = {"ok": ok, "follower_unix_ns": time.time_ns()}
+        reply: dict = {
+            "ok": ok,
+            "protocol_version": PROTOCOL_VERSION,
+            "command_id": self.command_id,
+            "follower_unix_ns": time.time_ns(),
+        }
         if error:
             reply["error"] = error
         if result is not None:
@@ -76,14 +100,61 @@ class Leader:
         self.host = host
         self.port = int(port) if port else DEFAULT_PORT
         self.timeout_s = timeout_s
+        self.peer_generation: str | None = None
 
     def _send(self, obj: dict) -> dict | None:
+        request = dict(obj)
+        request.setdefault("protocol_version", PROTOCOL_VERSION)
+        request.setdefault("command_id", uuid.uuid4().hex)
+        if (
+            request.get("cmd")
+            in {
+                CMD_START,
+                CMD_PREPARE_START,
+                CMD_COMMIT_START,
+                CMD_ABORT_START,
+                CMD_HEARTBEAT,
+                CMD_STOP,
+                CMD_CANCEL,
+            }
+            and self.peer_generation is not None
+        ):
+            request.setdefault("expected_generation", self.peer_generation)
+        reply = self._exchange(request)
+        if reply is None:
+            # Reuse the same command_id: if the first acknowledgement was lost,
+            # the follower returns its cached result instead of applying twice.
+            reply = self._exchange(request)
+        if reply is None:
+            return None
+        if reply.get("protocol_version") != PROTOCOL_VERSION:
+            return {
+                "ok": False,
+                "error": "incompatible follower coordinator protocol",
+                "protocol_version": reply.get("protocol_version"),
+            }
+        if reply.get("command_id") != request["command_id"]:
+            return {
+                "ok": False,
+                "error": "follower acknowledgement command_id mismatch",
+                "protocol_version": PROTOCOL_VERSION,
+            }
+        if reply.get("ok") and isinstance(reply.get("generation"), str):
+            self.peer_generation = reply["generation"]
+        return reply
+
+    def _exchange(self, request: dict) -> dict | None:
         try:
             with socket.create_connection((self.host, self.port), timeout=self.timeout_s) as s:
-                s.settimeout(self.timeout_s)
-                s.sendall((json.dumps(obj) + "\n").encode())
+                command = request.get("cmd")
+                applied = command not in {CMD_PING, CMD_STATUS}
+                s.settimeout(
+                    max(self.timeout_s, _COMMAND_ACK_TIMEOUT_S + 2) if applied else self.timeout_s
+                )
+                s.sendall((json.dumps(request) + "\n").encode())
                 line = _read_line(s)
-            return json.loads(line) if line else None
+            reply = json.loads(line) if line else None
+            return reply if isinstance(reply, dict) else None
         except (OSError, ValueError):
             return None
 
@@ -96,8 +167,35 @@ class Leader:
             }
         )
 
+    def prepare_start(self, session_id: str) -> dict | None:
+        return self._send(
+            {
+                "cmd": CMD_PREPARE_START,
+                "session_id": session_id,
+                "leader_unix_ns": time.time_ns(),
+            }
+        )
+
+    def commit_start(self, session_id: str) -> dict | None:
+        return self._send(
+            {
+                "cmd": CMD_COMMIT_START,
+                "session_id": session_id,
+                "leader_unix_ns": time.time_ns(),
+            }
+        )
+
+    def abort_start(self, session_id: str) -> dict | None:
+        return self._send({"cmd": CMD_ABORT_START, "session_id": session_id})
+
+    def heartbeat(self, session_id: str) -> dict | None:
+        return self._send({"cmd": CMD_HEARTBEAT, "session_id": session_id})
+
     def precheck(self) -> dict | None:
         return self._send({"cmd": CMD_PRECHECK})
+
+    def status(self) -> dict | None:
+        return self._send({"cmd": CMD_STATUS})
 
     def stop_take(self) -> dict | None:
         return self._send({"cmd": CMD_STOP})
@@ -106,7 +204,8 @@ class Leader:
         return self._send({"cmd": CMD_CANCEL})
 
     def ping(self) -> bool:
-        return self._send({"cmd": CMD_PING}) is not None
+        reply = self._send({"cmd": CMD_PING})
+        return bool(reply and reply.get("ok"))
 
 
 class Follower:
@@ -114,13 +213,41 @@ class Follower:
     recorder loop drains the queue. Replies immediately (with the time handshake) so a
     slow recorder never blocks the leader's ack."""
 
-    def __init__(self, listen_port: int = DEFAULT_PORT, host: str = "0.0.0.0"):
+    def __init__(
+        self,
+        listen_port: int = DEFAULT_PORT,
+        host: str = "0.0.0.0",
+        *,
+        status: dict[str, object] | None = None,
+    ):
         self.host = host
         self.port = listen_port
         self._q: Queue[Command] = Queue()
         self._srv: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self.generation = uuid.uuid4().hex
+        self._status = dict(status or {})
+        self._status_lock = threading.Lock()
+        self._replies: dict[str, dict] = {}
+        self._heartbeat_lock = threading.Lock()
+        self._heartbeat_session: str | None = None
+        self._last_heartbeat = 0.0
+
+    def set_status(self, **values: object) -> None:
+        with self._status_lock:
+            self._status.update(values)
+
+    def status(self) -> dict[str, object]:
+        with self._status_lock:
+            return dict(self._status)
+
+    def lease_expired(self, session_id: str, grace_s: float = PEER_LEASE_GRACE_S) -> bool:
+        with self._heartbeat_lock:
+            return (
+                self._heartbeat_session == session_id
+                and time.monotonic() - self._last_heartbeat > grace_s
+            )
 
     def start(self) -> None:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -152,32 +279,113 @@ class Follower:
                 except ValueError:
                     continue
                 cmd = str(obj.get("cmd", ""))
-                if cmd == CMD_PING:
-                    reply = {"ok": True, "follower_unix_ns": time.time_ns()}
-                elif cmd in {CMD_PRECHECK, CMD_START, CMD_STOP, CMD_CANCEL}:
-                    replies: Queue[dict] = Queue(maxsize=1)
-                    self._q.put(
-                        Command(
-                            cmd=cmd,
-                            session_id=obj.get("session_id"),
-                            leader_unix_ns=obj.get("leader_unix_ns"),
-                            _reply=replies,
-                        )
+                command_id = obj.get("command_id")
+                if obj.get("protocol_version") != PROTOCOL_VERSION or not isinstance(
+                    command_id, str
+                ):
+                    reply = {
+                        "ok": False,
+                        "error": "incompatible or malformed coordinator protocol",
+                        "protocol_version": PROTOCOL_VERSION,
+                        "command_id": command_id,
+                        "generation": self.generation,
+                        "follower_unix_ns": time.time_ns(),
+                    }
+                elif command_id in self._replies:
+                    reply = self._replies[command_id]
+                elif obj.get("expected_generation") not in {None, self.generation}:
+                    reply = {
+                        "ok": False,
+                        "error": "follower generation changed; run precheck again",
+                        "protocol_version": PROTOCOL_VERSION,
+                        "command_id": command_id,
+                        "generation": self.generation,
+                        "follower_unix_ns": time.time_ns(),
+                    }
+                elif cmd == CMD_PING:
+                    reply = {
+                        "ok": True,
+                        "protocol_version": PROTOCOL_VERSION,
+                        "command_id": command_id,
+                        "generation": self.generation,
+                        "follower_unix_ns": time.time_ns(),
+                    }
+                elif cmd == CMD_STATUS:
+                    reply = {
+                        "ok": True,
+                        "protocol_version": PROTOCOL_VERSION,
+                        "command_id": command_id,
+                        "generation": self.generation,
+                        "follower_unix_ns": time.time_ns(),
+                        "status": self.status(),
+                    }
+                elif cmd == CMD_HEARTBEAT:
+                    session_id = obj.get("session_id")
+                    status = self.status()
+                    matches = (
+                        isinstance(session_id, str)
+                        and status.get("session_id") == session_id
+                        and status.get("state") in {"prepared", "recording"}
                     )
+                    if matches:
+                        with self._heartbeat_lock:
+                            self._heartbeat_session = session_id
+                            self._last_heartbeat = time.monotonic()
+                    reply = {
+                        "ok": matches,
+                        "error": "" if matches else "session lease mismatch",
+                        "protocol_version": PROTOCOL_VERSION,
+                        "command_id": command_id,
+                        "generation": self.generation,
+                        "follower_unix_ns": time.time_ns(),
+                    }
+                elif cmd in {
+                    CMD_PRECHECK,
+                    CMD_START,
+                    CMD_PREPARE_START,
+                    CMD_COMMIT_START,
+                    CMD_ABORT_START,
+                    CMD_STOP,
+                    CMD_CANCEL,
+                }:
+                    if cmd == CMD_COMMIT_START and isinstance(obj.get("session_id"), str):
+                        with self._heartbeat_lock:
+                            self._heartbeat_session = obj["session_id"]
+                            self._last_heartbeat = time.monotonic()
+                    replies: Queue[dict] = Queue(maxsize=1)
+                    queued = Command(
+                        cmd=cmd,
+                        session_id=obj.get("session_id"),
+                        leader_unix_ns=obj.get("leader_unix_ns"),
+                        command_id=command_id,
+                        expected_generation=obj.get("expected_generation"),
+                        _reply=replies,
+                    )
+                    self._q.put(queued)
                     try:
                         reply = replies.get(timeout=_COMMAND_ACK_TIMEOUT_S)
                     except Empty:
+                        queued.expire()
                         reply = {
                             "ok": False,
                             "error": "follower recorder did not apply command",
+                            "protocol_version": PROTOCOL_VERSION,
+                            "command_id": command_id,
                             "follower_unix_ns": time.time_ns(),
                         }
                 else:
                     reply = {
                         "ok": False,
                         "error": f"unknown command {cmd!r}",
+                        "protocol_version": PROTOCOL_VERSION,
+                        "command_id": command_id,
                         "follower_unix_ns": time.time_ns(),
                     }
+                reply["generation"] = self.generation
+                if isinstance(command_id, str):
+                    self._replies[command_id] = reply
+                    while len(self._replies) > _REPLAY_CACHE_SIZE:
+                        self._replies.pop(next(iter(self._replies)))
                 try:
                     conn.sendall((json.dumps(reply) + "\n").encode())
                 except OSError:
