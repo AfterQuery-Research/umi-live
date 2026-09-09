@@ -343,8 +343,22 @@ class ServerAdmissionCheck:
             check=self.name,
             umi=self.umi,
             ok=accepted,
-            message="" if accepted else str(result.get("reason") or "server rejected recording"),
+            message="" if accepted else self._rejection_message(result),
         )
+
+    @staticmethod
+    def _rejection_message(result: dict[str, Any]) -> str:
+        reason = str(result.get("reason") or "server rejected recording")
+        free = result.get("free_bytes")
+        required = result.get("required_free_bytes")
+        if type(required) is not int:
+            reserved = result.get("reserved_bytes")
+            estimated = result.get("estimated_upload_bytes")
+            if type(reserved) is int and type(estimated) is int:
+                required = reserved + estimated
+        if type(free) is int and type(required) is int:
+            return f"{reason}: free={free} required={required}"
+        return reason
 
 
 def build_pre_recording_pipeline(

@@ -779,3 +779,89 @@ Still required before deployment is considered complete:
    be based on this evidence.
 4. Re-enable the paused health automation only after the new server and both recorder processes are
    deployed and the soft evaluation passes.
+
+## Live readiness incident: 2026-09-08 23:07 UTC
+
+### Failure mode
+
+Both Pis were reachable, idle, and running the intended `pour water` task with protocol v2 code,
+but the parsed UMI1-to-UMI2 follower precheck returned `ok=false`. LiDAR time sync, gripper tags,
+and Pi storage checks all passed. The only failed structured check was `server_admission` with
+`insufficient server storage headroom`.
+
+The ingest admission response supplied the exact cause:
+
+- server free: `83,428,114,432` bytes (77.7 GiB);
+- server reserve, including extraction headroom: `77,309,411,328` bytes (72 GiB);
+- conservative paired upload estimate: `8,589,934,592` bytes (8 GiB);
+- required free space: `85,899,345,920` bytes (80 GiB);
+- deficit: `2,471,231,488` bytes (2.3 GiB).
+
+This was a safe fail-closed event, not a malformed coordinator response. The precheck result parsed
+successfully with `PipelineResult.from_dict`, and both required sensor results were valid. There
+were no queued Pi uploads, no ingest temporary files, no active UMI pipeline stage, no current HTTP
+507, no publication queue, no ledger mismatch, and no operational quality error.
+
+### Snapshot counters before repair
+
+- Pi state: UMI1 and UMI2 idle; recorder and upload-tunnel services active on both.
+- Pi free: UMI1 `44,480,532,480` bytes (41.4 GiB); UMI2 `43,050,045,440` bytes (40.1 GiB).
+- Pi upload queues: complete `0`, staging `0`, actively growing `0` on both.
+- Pipeline active: `0` confirmed stage workers/containers.
+- Queued by next stage: none.
+- Dataset: 474 local episodes, 474 ledger entries, 510 completed dataset-stage receipts, including
+  36 terminal dataset-ineligible/skipped receipts; publication queue `0`.
+- Quality: 472 evaluated, 269 passed, 203 failed, 2 processing, 0 pending, 0 operational errors.
+  Latest-100 failure rate was 28%, down from 41% in the preceding 100; no trend alert fired.
+- Three preserved unmatched raw arms remain from previously audited incidents. They were not
+  modified or counted as publication work.
+- One stale decode staging directory remains preserved; it is not active and was not removed
+  because unverified cleanup is outside the authorized repair policy.
+
+### Repair and prevention
+
+The immediate authorized repair is to run normal retention while the pipeline is idle, then rerun
+the same structured admission and follower-precheck gates. Verified raw archival is not authorized
+at this free-space level because the configured archive trigger is below 64 GiB.
+
+The code should also eliminate the threshold mismatch exposed here: monitoring and proactive
+retention should use the ingest endpoint's returned `reserved_bytes + estimated_upload_bytes`, not
+a separate fixed 64 GiB readiness threshold. The structured precheck failure message should retain
+the returned `free_bytes`, `reserved_bytes`, and `estimated_upload_bytes` so operators can diagnose
+the deficit without a second probe. This does not change the architecture or lower any reserve; it
+makes the existing admission contract the single source of truth for alerting and maintenance.
+
+### Repair outcome
+
+Normal retention completed successfully with exit status 0. It raised server free space from
+`83,428,052,992` bytes to `93,952,876,544` bytes (87.5 GiB), recovering about 9.8 GiB without raw
+archival or modification of historical/unmatched evidence.
+
+The post-repair ingest response returned `accepted=true` for the full 8 GiB paired estimate with an
+empty ingest queue. A fresh UMI1 local preflight and a fresh UMI1-to-UMI2 follower precheck both
+passed `lidar_time_sync`, `gripper_tags`, `storage_headroom`, and `server_admission`; the follower
+acknowledgement parsed successfully with `PipelineResult.from_dict`. The three latest completed
+takes on both Pis were also dataset-eligible with zero camera sequence drops, zero camera writer
+queue overruns, no camera errors, and zero LiDAR kernel drops.
+
+**Resolved:** the system returned to `READY TO RECORD NOW: YES` without restarting a recorder,
+interrupting a take, lowering a reserve, deleting raw evidence, or changing a quality threshold.
+
+### Local prevention patch
+
+Implemented on `dual-plus-long-term-use-patches` after the live repair; deployment is pending:
+
+- `/health/admission` now returns `required_free_bytes`, calculated by the same shared server
+  function used to decide acceptance.
+- Pi preflight failures preserve `free_bytes` and `required_free_bytes` in the operator-visible
+  message. They derive the requirement from `reserved_bytes + estimated_upload_bytes` when talking
+  to an older server, retaining rolling-deployment compatibility.
+- Normal retention reports `admission_ready`, `free_bytes`, and `required_free_bytes` using the
+  server's admission calculation instead of a separate 64 GiB interpretation.
+- The existing idempotent, lease-protected retention timer checks every five minutes instead of
+  every fifteen, reducing the interval in which eligible derived data can keep recording admission
+  unnecessarily blocked. Retention age, recording reserves, raw archival rules, and pipeline
+  architecture are unchanged.
+
+Validation: all 75 device tests and 127 server tests passed; two hardware-dependent server tests
+were skipped. Ruff passed on every changed Python file.

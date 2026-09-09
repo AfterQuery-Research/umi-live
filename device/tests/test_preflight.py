@@ -196,3 +196,41 @@ def test_server_admission_check_fails_closed() -> None:
 
     assert not result.ok
     assert result.message == "cannot accept 123"
+
+
+def test_server_admission_check_preserves_capacity_details() -> None:
+    check = ServerAdmissionCheck(
+        "umi1",
+        300,
+        lambda _size: {
+            "accepted": False,
+            "reason": "insufficient server storage headroom",
+            "free_bytes": 999,
+            "reserved_bytes": 700,
+            "estimated_upload_bytes": 300,
+            "required_free_bytes": 1_000,
+        },
+    )
+
+    result = check.run()
+
+    assert not result.ok
+    assert result.message == "insufficient server storage headroom: free=999 required=1000"
+
+
+def test_server_admission_check_derives_required_for_older_server() -> None:
+    check = ServerAdmissionCheck(
+        "umi1",
+        300,
+        lambda _size: {
+            "accepted": False,
+            "reason": "insufficient server storage headroom",
+            "free_bytes": 999,
+            "reserved_bytes": 700,
+            "estimated_upload_bytes": 300,
+        },
+    )
+
+    result = check.run()
+
+    assert result.message == "insufficient server storage headroom: free=999 required=1000"

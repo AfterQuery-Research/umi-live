@@ -126,8 +126,10 @@ def test_admission_reports_capacity_and_queued_bytes(tmp_path: Path, monkeypatch
 
     assert accepted["accepted"] is True
     assert accepted["reserved_bytes"] == 700
+    assert accepted["required_free_bytes"] == 1_000
     assert accepted["queued_upload_bytes"] == 4
     assert rejected["accepted"] is False
+    assert rejected["required_free_bytes"] == 1_001
     assert rejected["reason"] == "insufficient server storage headroom"
 
 

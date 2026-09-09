@@ -117,4 +117,4 @@ def test_retention_is_wired_into_server_provisioning() -> None:
     assert "enable --now umi-retention.timer" in installer
     assert DEFAULT_RETENTION_SECONDS == 1_800
     assert "--retention-hours 0.5" in service
-    assert "OnUnitActiveSec=15min" in timer
+    assert "OnUnitActiveSec=5min" in timer

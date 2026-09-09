@@ -48,6 +48,18 @@ class ServerConfig:
     shutdown_drain_seconds: float = DEFAULT_SHUTDOWN_DRAIN_SECONDS
 
 
+def admission_reserved_bytes(cfg: ServerConfig) -> int:
+    """Bytes that must remain available while an accepted upload is extracted."""
+    return max(cfg.min_free_bytes, cfg.recording_reserve_bytes) + cfg.max_extract_bytes
+
+
+def admission_required_bytes(cfg: ServerConfig, estimated_upload_bytes: int) -> int:
+    """Single source of truth for the free-space admission threshold."""
+    if estimated_upload_bytes < 0:
+        raise ValueError("estimated upload bytes must be non-negative")
+    return admission_reserved_bytes(cfg) + estimated_upload_bytes
+
+
 @dataclass(frozen=True)
 class IngestJob:
     episode_id: str
@@ -160,8 +172,8 @@ def create_app(cfg: ServerConfig) -> FastAPI:
                 for path in uploads.iterdir()
                 if path.is_file() and (path.suffix == ".tar" or path.name.endswith(".tmp"))
             )
-        reserve = max(cfg.min_free_bytes, cfg.recording_reserve_bytes) + cfg.max_extract_bytes
-        required = reserve + estimated_upload_bytes
+        reserve = admission_reserved_bytes(cfg)
+        required = admission_required_bytes(cfg, estimated_upload_bytes)
         accepted = free >= required
         return {
             "ok": True,
@@ -170,6 +182,7 @@ def create_app(cfg: ServerConfig) -> FastAPI:
             "free_bytes": free,
             "reserved_bytes": reserve,
             "estimated_upload_bytes": estimated_upload_bytes,
+            "required_free_bytes": required,
             "queued_upload_bytes": queued_bytes,
             "ingest_queue_depth": worker.queue.qsize(),
             "max_upload_bytes": cfg.max_upload_bytes,
