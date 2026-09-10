@@ -23,6 +23,7 @@ DEFAULT_ARCHIVE_MIN_AGE_HOURS = 24.0
 @dataclass(frozen=True)
 class AdmissionMaintenance:
     required_free_bytes: int
+    cleanup_trigger_bytes: int
     free_bytes: int
     raw_archive_state: str
 
@@ -51,9 +52,18 @@ def ensure_admission_headroom(
         recording_reserve_bytes=recording_reserve_gib * GIB,
     )
     required_free_bytes = admission_required_bytes(cfg, cfg.max_upload_bytes)
+    # Start one conservative paired-upload estimate before rejection. This gives
+    # the five-minute timer enough runway to clean without exposing a fail-closed
+    # recording window to the Pis.
+    cleanup_trigger_bytes = required_free_bytes + cfg.max_upload_bytes
     free_bytes = shutil.disk_usage(data_dir).free
-    if free_bytes >= required_free_bytes:
-        return AdmissionMaintenance(required_free_bytes, free_bytes, "not_needed")
+    if free_bytes >= cleanup_trigger_bytes:
+        return AdmissionMaintenance(
+            required_free_bytes,
+            cleanup_trigger_bytes,
+            free_bytes,
+            "not_needed",
+        )
 
     repo_id = os.environ.get("HF_REPO_ID")
     if not repo_id:
@@ -62,7 +72,7 @@ def ensure_admission_headroom(
         )
 
     # Never configure a cleanup target below the actual admission requirement.
-    target_free_bytes = max(int(archive_target_gib * GIB), required_free_bytes)
+    target_free_bytes = max(int(archive_target_gib * GIB), cleanup_trigger_bytes)
     command = [
         sys.executable,
         str(Path(__file__).with_name("archive_published_raw.py")),
@@ -90,7 +100,12 @@ def ensure_admission_headroom(
         raise RuntimeError(f"verified raw archival failed with exit status {completed.returncode}")
 
     free_bytes = shutil.disk_usage(data_dir).free
-    return AdmissionMaintenance(required_free_bytes, free_bytes, _archive_state(completed.stdout))
+    return AdmissionMaintenance(
+        required_free_bytes,
+        cleanup_trigger_bytes,
+        free_bytes,
+        _archive_state(completed.stdout),
+    )
 
 
 def main() -> None:
@@ -140,7 +155,8 @@ def main() -> None:
         f"raw_archive={admission.raw_archive_state} "
         f"admission_ready={admission.free_bytes >= admission.required_free_bytes} "
         f"free_bytes={admission.free_bytes} "
-        f"required_free_bytes={admission.required_free_bytes}",
+        f"required_free_bytes={admission.required_free_bytes} "
+        f"cleanup_trigger_bytes={admission.cleanup_trigger_bytes}",
         flush=True,
     )
 
