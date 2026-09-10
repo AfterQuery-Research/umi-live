@@ -13,6 +13,10 @@ from typing import TextIO
 LOCK_FILE = ".pipeline-or-maintenance.lock"
 
 
+class PipelineLeaseBusyError(RuntimeError):
+    """Raised when another pipeline or maintenance process owns the lease."""
+
+
 @dataclass
 class PipelineLease:
     path: Path
@@ -32,7 +36,7 @@ class PipelineLease:
         except BlockingIOError as exc:
             handle.close()
             owner = self.path.read_text(encoding="utf-8", errors="replace").strip()
-            raise RuntimeError(
+            raise PipelineLeaseBusyError(
                 f"pipeline/maintenance lease is busy: {owner or 'owner unknown'}"
             ) from exc
         if self.exclusive:

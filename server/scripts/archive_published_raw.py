@@ -22,7 +22,7 @@ from typing import Any
 
 from huggingface_hub import HfApi
 from huggingface_hub.errors import RemoteEntryNotFoundError
-from umi_flow_server.operation_lock import PipelineLease
+from umi_flow_server.operation_lock import PipelineLease, PipelineLeaseBusyError
 
 PAYLOAD_NAMES = (
     "umi1_camera.mjpeg.avi",
@@ -332,19 +332,39 @@ def main() -> None:
     parser.add_argument("--min-age-hours", type=float, default=24.0)
     parser.add_argument("--max-episodes", type=int)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--skip-if-busy",
+        action="store_true",
+        help="defer successfully when a pipeline stage currently owns the maintenance lease",
+    )
     args = parser.parse_args()
     if not args.repo_id:
         parser.error("--repo-id or HF_REPO_ID is required")
     if args.target_free_gib <= 0 or args.min_age_hours < 0:
         parser.error("target free space must be positive and minimum age cannot be negative")
-    archive_published_raw(
-        args.data_dir,
-        repo_id=args.repo_id,
-        target_free_bytes=int(args.target_free_gib * 1024**3),
-        min_age_seconds=args.min_age_hours * 3600,
-        apply=args.apply,
-        max_episodes=args.max_episodes,
-    )
+    try:
+        archive_published_raw(
+            args.data_dir,
+            repo_id=args.repo_id,
+            target_free_bytes=int(args.target_free_gib * 1024**3),
+            min_age_seconds=args.min_age_hours * 3600,
+            apply=args.apply,
+            max_episodes=args.max_episodes,
+        )
+    except PipelineLeaseBusyError as exc:
+        if not args.skip_if_busy:
+            raise
+        print(
+            json.dumps(
+                {
+                    "state": "deferred",
+                    "reason": "pipeline_busy",
+                    "detail": str(exc),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
