@@ -20,7 +20,7 @@ def test_admission_ready_does_not_run_raw_archive(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(
         maintenance.shutil,
         "disk_usage",
-        lambda _path: SimpleNamespace(free=required + 8 * maintenance.GIB),
+        lambda _path: SimpleNamespace(free=96 * maintenance.GIB),
     )
     monkeypatch.setattr(
         maintenance.subprocess,
@@ -34,9 +34,9 @@ def test_admission_ready_does_not_run_raw_archive(tmp_path: Path, monkeypatch) -
         archive_min_age_hours=24,
     )
 
-    assert result.free_bytes == required + 8 * maintenance.GIB
+    assert result.free_bytes == 96 * maintenance.GIB
     assert result.required_free_bytes == required
-    assert result.cleanup_trigger_bytes == required + 8 * maintenance.GIB
+    assert result.cleanup_trigger_bytes == 96 * maintenance.GIB
     assert result.raw_archive_state == "not_needed"
 
 
@@ -69,7 +69,12 @@ def test_blocked_admission_runs_verified_archiver_to_high_watermark(
     assert result.free_bytes == 96 * maintenance.GIB
     assert result.raw_archive_state == "complete"
     assert len(calls) == 1
-    assert calls[0][-2:] == ["--apply", "--skip-if-busy"]
+    assert calls[0][-4:] == [
+        "--apply",
+        "--wait-if-busy-seconds",
+        str(maintenance.DEFAULT_ARCHIVE_WAIT_SECONDS),
+        "--skip-if-busy",
+    ]
     assert calls[0][calls[0].index("--target-free-gib") + 1] == "96.0"
 
 

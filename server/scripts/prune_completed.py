@@ -18,6 +18,7 @@ from umi_flow_server.server import ServerConfig, admission_required_bytes
 GIB = 1024**3
 DEFAULT_ARCHIVE_TARGET_GIB = 96.0
 DEFAULT_ARCHIVE_MIN_AGE_HOURS = 24.0
+DEFAULT_ARCHIVE_WAIT_SECONDS = 10 * 60.0
 
 
 @dataclass(frozen=True)
@@ -44,18 +45,21 @@ def ensure_admission_headroom(
     *,
     archive_target_gib: float,
     archive_min_age_hours: float,
+    archive_wait_seconds: float = DEFAULT_ARCHIVE_WAIT_SECONDS,
 ) -> AdmissionMaintenance:
-    """Archive verified old raw payloads when the ingest admission gate is blocked."""
+    """Archive verified old raw payloads before the ingest admission gate is blocked."""
     recording_reserve_gib = int(os.environ.get("UMI_FLOW_RECORDING_RESERVE_GIB", "64"))
     cfg = ServerConfig(
         data_dir=data_dir,
         recording_reserve_bytes=recording_reserve_gib * GIB,
     )
     required_free_bytes = admission_required_bytes(cfg, cfg.max_upload_bytes)
-    # Start one conservative paired-upload estimate before rejection. This gives
-    # the five-minute timer enough runway to clean without exposing a fail-closed
-    # recording window to the Pis.
-    cleanup_trigger_bytes = required_free_bytes + cfg.max_upload_bytes
+    # Start no later than the configured high-water target. The timer must reclaim
+    # at the warning line, not wait until only one upload remains before rejection.
+    cleanup_trigger_bytes = max(
+        required_free_bytes + cfg.max_upload_bytes,
+        int(archive_target_gib * GIB),
+    )
     free_bytes = shutil.disk_usage(data_dir).free
     if free_bytes >= cleanup_trigger_bytes:
         return AdmissionMaintenance(
@@ -85,6 +89,8 @@ def ensure_admission_headroom(
         "--min-age-hours",
         str(archive_min_age_hours),
         "--apply",
+        "--wait-if-busy-seconds",
+        str(archive_wait_seconds),
         "--skip-if-busy",
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -134,9 +140,20 @@ def main() -> None:
             os.environ.get("UMI_FLOW_ARCHIVE_MIN_AGE_HOURS", DEFAULT_ARCHIVE_MIN_AGE_HOURS)
         ),
     )
+    parser.add_argument(
+        "--archive-wait-seconds",
+        type=float,
+        default=float(
+            os.environ.get("UMI_FLOW_ARCHIVE_WAIT_SECONDS", DEFAULT_ARCHIVE_WAIT_SECONDS)
+        ),
+    )
     args = parser.parse_args()
-    if args.archive_target_free_gib <= 0 or args.archive_min_age_hours < 0:
-        parser.error("archive target must be positive and minimum age cannot be negative")
+    if (
+        args.archive_target_free_gib <= 0
+        or args.archive_min_age_hours < 0
+        or args.archive_wait_seconds < 0
+    ):
+        parser.error("archive target must be positive; minimum age and wait cannot be negative")
     summary = prune_completed(
         args.data_dir,
         retention_seconds=args.retention_hours * 3600,
@@ -145,6 +162,7 @@ def main() -> None:
         args.data_dir,
         archive_target_gib=args.archive_target_free_gib,
         archive_min_age_hours=args.archive_min_age_hours,
+        archive_wait_seconds=args.archive_wait_seconds,
     )
     print(
         "retention complete: "

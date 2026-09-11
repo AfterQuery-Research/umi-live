@@ -210,9 +210,10 @@ def archive_published_raw(
     min_age_seconds: float,
     apply: bool,
     max_episodes: int | None,
+    wait_if_busy_seconds: float = 0.0,
 ) -> dict[str, Any]:
     lease = PipelineLease.for_data_dir(data_dir, exclusive=True)
-    lease.acquire()
+    lease.acquire(wait_timeout_s=wait_if_busy_seconds)
     try:
         return _archive_published_raw_locked(
             data_dir,
@@ -331,6 +332,14 @@ def main() -> None:
     parser.add_argument("--target-free-gib", type=float, default=96.0)
     parser.add_argument("--min-age-hours", type=float, default=24.0)
     parser.add_argument("--max-episodes", type=int)
+    parser.add_argument(
+        "--wait-if-busy-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "announce maintenance intent and wait this long for active pipeline stages to finish"
+        ),
+    )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument(
         "--skip-if-busy",
@@ -340,8 +349,10 @@ def main() -> None:
     args = parser.parse_args()
     if not args.repo_id:
         parser.error("--repo-id or HF_REPO_ID is required")
-    if args.target_free_gib <= 0 or args.min_age_hours < 0:
-        parser.error("target free space must be positive and minimum age cannot be negative")
+    if args.target_free_gib <= 0 or args.min_age_hours < 0 or args.wait_if_busy_seconds < 0:
+        parser.error(
+            "target free space must be positive; minimum age and wait cannot be negative"
+        )
     try:
         archive_published_raw(
             args.data_dir,
@@ -350,6 +361,7 @@ def main() -> None:
             min_age_seconds=args.min_age_hours * 3600,
             apply=args.apply,
             max_episodes=args.max_episodes,
+            wait_if_busy_seconds=args.wait_if_busy_seconds,
         )
     except PipelineLeaseBusyError as exc:
         if not args.skip_if_busy:
