@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import contextlib
 import os
+import signal
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -65,6 +67,21 @@ UPLOAD_URL = "http://127.0.0.1:8080/upload"
 MAX_TAKE_S = 1800.0
 PREPARE_TTL_S = 30.0
 HEARTBEAT_INTERVAL_S = 1.0
+
+
+def _install_sigterm_handler(shutdown_requested: threading.Event):
+    """Turn systemd's SIGTERM into an orderly loop exit.
+
+    The main ``finally`` block owns capture finalization.  The handler therefore
+    only sets a flag; it must not run sensor or filesystem code asynchronously.
+    """
+
+    def _handle_sigterm(_signum, _frame) -> None:
+        if not shutdown_requested.is_set():
+            print("SIGTERM received; finishing active episode before exit", flush=True)
+        shutdown_requested.set()
+
+    return signal.signal(signal.SIGTERM, _handle_sigterm)
 
 
 @dataclass
@@ -358,6 +375,7 @@ def button_loop(
     handshake,
     preflight_pipeline,
     runtime_status: RuntimeStatus | None = None,
+    shutdown_requested: threading.Event | None = None,
 ) -> None:
     """The leader buttons drive synchronized two-client episodes."""
     state = {
@@ -366,7 +384,7 @@ def button_loop(
         "last_heartbeat": 0.0,
         "last_peer_ok": time.monotonic(),
     }
-    while True:
+    while not (shutdown_requested and shutdown_requested.is_set()):
         event = buttons.poll()
         _refresh_status(display, monitors, spool_dir, uploader, state)
 
@@ -454,6 +472,7 @@ def follower_loop(
     handshake,
     preflight_pipeline,
     runtime_status: RuntimeStatus | None = None,
+    shutdown_requested: threading.Event | None = None,
 ) -> None:
     """The headless follower loop: leader commands (not buttons) drive episodes."""
     state = {
@@ -463,7 +482,7 @@ def follower_loop(
         "prepared_session": None,
         "prepared_at": 0.0,
     }
-    while True:
+    while not (shutdown_requested and shutdown_requested.is_set()):
         cmd = follower.poll()
         _refresh_status(display, monitors, spool_dir, uploader, state)
 
@@ -668,6 +687,9 @@ def main(args: Args) -> None:
         leader = coordinator.Leader(peer)
         print(f"rig: {rig.n_umis} UMI, role leader; s/e/c/q or buttons")
 
+    shutdown_requested = threading.Event()
+
+    previous_sigterm = _install_sigterm_handler(shutdown_requested)
     try:
         if role == "follower":
             assert follower is not None
@@ -682,6 +704,7 @@ def main(args: Args) -> None:
                 handshake,
                 preflight_pipeline,
                 runtime_status,
+                shutdown_requested,
             )
         else:
             assert buttons is not None and leader is not None
@@ -697,6 +720,7 @@ def main(args: Args) -> None:
                 handshake,
                 preflight_pipeline,
                 runtime_status,
+                shutdown_requested,
             )
     except KeyboardInterrupt:
         print("\ninterrupted")
@@ -717,6 +741,7 @@ def main(args: Args) -> None:
             if callable(close):
                 close()
         runtime_status.update(state="stopped", session_id=None, episode_id=None)
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 if __name__ == "__main__":

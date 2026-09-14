@@ -20,6 +20,12 @@ EnvironmentFile=@REPO@/.env
 # Config and spool come from the rendered environment. Role is derived from the
 # config's fixed umi1/umi2 name; upload always uses the local SSH tunnel.
 ExecStart=@REPO@/.venv/bin/python device/scripts/record.py --buttons gpio
+# Give the Python process sole ownership of graceful shutdown. It catches
+# SIGTERM, stops/flushed the camera and lidar children, writes the manifest and
+# COMPLETE marker, then exits. systemd only kills the whole cgroup if that
+# orderly shutdown exceeds the capture drain/hash budget.
+KillMode=mixed
+TimeoutStopSec=120
 Restart=on-failure
 RestartSec=5
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import signal
 import sys
 import threading
 from pathlib import Path
@@ -132,6 +133,45 @@ def test_spool_has_data_ignores_empty_scaffolding(tmp_path: Path):
 
     (spool / "complete" / "episode_1").mkdir()
     assert record.spool_has_data(spool)
+
+
+def test_button_loop_honors_shutdown_request_without_polling(tmp_path: Path):
+    shutdown = threading.Event()
+    shutdown.set()
+
+    class MustNotPoll:
+        def poll(self):
+            raise AssertionError("buttons must not be polled after shutdown")
+
+    record.button_loop(
+        FakeRecorder(),
+        FakeUploader(),
+        {},
+        FakeDisplay(),
+        tmp_path,
+        MustNotPoll(),
+        UnavailableFollower(),
+        "umi1",
+        {"v": None},
+        passing_pipeline(),
+        shutdown_requested=shutdown,
+    )
+
+
+def test_sigterm_handler_sets_shutdown_event(monkeypatch):
+    shutdown = threading.Event()
+    installed = {}
+
+    def fake_signal(signum, handler):
+        installed[signum] = handler
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(record.signal, "signal", fake_signal)
+    previous = record._install_sigterm_handler(shutdown)
+    assert previous == signal.SIG_DFL
+
+    installed[signal.SIGTERM](signal.SIGTERM, None)
+    assert shutdown.is_set()
 
 
 def test_leader_start_records_clock_handshake():
