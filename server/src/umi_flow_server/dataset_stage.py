@@ -31,8 +31,10 @@ import json
 import os
 import sys
 import time
+import uuid
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +210,17 @@ def normalize_gripper_widths(
 # what has already landed so a re-run skips cleanly. It travels with the dataset.
 APPENDED_LEDGER = ".umi_appended_episodes.txt"
 GRIPPER_NORMALIZATION_METADATA = "gripper_normalization.json"
+RAW_ARCHIVE_PAYLOAD_NAMES = (
+    "umi1_camera.mjpeg.avi",
+    "umi1_lidar.pcap",
+    "umi2_camera.mjpeg.avi",
+    "umi2_lidar.pcap",
+)
+
+# create_repo is an account-level write API with a comparatively tight rate limit.
+# The runner is long-lived and dataset writes are serialized, so one successful
+# ensure per process is enough; calling it for every episode caused avoidable 429s.
+_ENSURED_HUB_REPOS: set[str] = set()
 
 
 def already_appended(dataset_dir: Path, episode_id: str) -> bool:
@@ -222,6 +235,26 @@ def mark_appended(dataset_dir: Path, episode_id: str) -> None:
     with (dataset_dir / APPENDED_LEDGER).open("a", encoding="utf-8") as f:
         f.write(f"{episode_id}\n")
         f.flush()
+
+
+def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    """Durably replace a receipt without exposing a half-written JSON document."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(value, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def ensure_gripper_normalization_metadata(
@@ -492,7 +525,11 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     _assert_local_dataset_consistent(dataset_dir)
     mark_appended(dataset_dir, m["episode_id"])
     hf_repo = os.environ.get("HF_REPO_ID", "").strip()
-    pushed = _push_to_hub(dataset_dir, episode_dir, hf_repo) if hf_repo else False
+    pushed = (
+        _push_to_hub(dataset_dir, episode_dir, hf_repo, data_dir=dataset_root.parent)
+        if hf_repo
+        else False
+    )
     receipt.update(
         frames=n_frames,
         state_dim=int(states.shape[1]),
@@ -506,7 +543,188 @@ def run(episode_dir: Path, out_dir: Path, scope: str = "") -> None:
     )
 
 
-def _push_to_hub(dataset_dir: Path, episode_dir: Path, repo_id: str) -> bool:
+def _ensure_hub_repo(api: Any, repo_id: str) -> None:
+    """Resolve an existing repo once per process; create it only when absent."""
+    if repo_id in _ENSURED_HUB_REPOS:
+        return
+    if not api.repo_exists(repo_id=repo_id, repo_type="dataset"):
+        api.create_repo(repo_id=repo_id, repo_type="dataset", private=True, exist_ok=True)
+    _ENSURED_HUB_REPOS.add(repo_id)
+
+
+def _upload_dataset_snapshot(api: Any, dataset_dir: Path, repo_id: str) -> Any:
+    # NEVER lerobot's own push_to_hub: it skips meta/episodes/ and can mangle data/,
+    # leaving the Hub inconsistent ("episode N not found in metadata"). The LOCAL
+    # dataset is the single source of truth and is self-consistent after finalize();
+    # sync the Hub to EXACTLY match it — delete_patterns drops stale remote files,
+    # and LFS dedups unchanged videos so the per-episode re-upload is cheap.
+    return api.upload_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(dataset_dir),
+        ignore_patterns=[APPENDED_LEDGER],
+        delete_patterns=["meta/**", "data/**", "videos/**"],
+    )
+
+
+def _upload_raw_episode(api: Any, episode_dir: Path, repo_id: str) -> Any:
+    # Raw episodes accumulate outside the dataset snapshot's delete patterns. This
+    # is the only off-box copy once verified retention removes Pi/server payloads.
+    return api.upload_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(episode_dir),
+        path_in_repo=f"raw_episodes/{episode_dir.name}",
+    )
+
+
+def _commit_revision(commit: Any, api: Any, repo_id: str) -> str:
+    for name in ("oid", "commit_oid"):
+        value = getattr(commit, name, None)
+        if value:
+            return str(value)
+    info = api.repo_info(repo_id=repo_id, repo_type="dataset")
+    revision = getattr(info, "sha", None)
+    if not revision:
+        raise RuntimeError("Hub upload succeeded but no pinned revision was returned")
+    return str(revision)
+
+
+def _verify_remote_raw_payloads(
+    api: Any,
+    episode_dir: Path,
+    repo_id: str,
+    revision: str,
+) -> None:
+    """Verify the retention-critical raw files at the upload's pinned revision."""
+    root = f"raw_episodes/{episode_dir.name}"
+    entries = api.list_repo_tree(
+        repo_id=repo_id,
+        repo_type="dataset",
+        revision=revision,
+        path_in_repo=root,
+        recursive=True,
+        expand=True,
+    )
+    remote = {entry.path: entry for entry in entries if hasattr(entry, "size")}
+    for name in RAW_ARCHIVE_PAYLOAD_NAMES:
+        local_path = episode_dir / name
+        if not local_path.is_file():
+            raise FileNotFoundError(f"cannot verify missing local raw payload {local_path}")
+        before = local_path.stat()
+        signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        entry = remote.get(f"{root}/{name}")
+        if entry is None or int(entry.size) != before.st_size:
+            raise RuntimeError(f"{root}/{name}: missing or size mismatch at {revision}")
+        lfs = getattr(entry, "lfs", None)
+        remote_sha = lfs.get("sha256") if isinstance(lfs, dict) else getattr(lfs, "sha256", None)
+        if not remote_sha:
+            raise RuntimeError(f"{root}/{name}: missing Hub LFS SHA-256 at {revision}")
+        local_sha = layout.sha256_file(local_path)
+        after = local_path.stat()
+        if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != signature:
+            raise RuntimeError(f"{local_path}: changed while verifying Hub publication")
+        if local_sha != remote_sha:
+            raise RuntimeError(f"{root}/{name}: SHA-256 mismatch at {revision}")
+
+
+def _push_dataset_card(dataset_dir: Path, repo_id: str) -> None:
+    # LeRobot dataset card: the tags/configs front-matter is what lights up the Hub
+    # page (robotics + LeRobot chips, dataset viewer, Visualize badge). Same card
+    # lerobot's own push_to_hub would write — only its data upload is unsafe, not this.
+    from lerobot.datasets.utils import DatasetInfo, create_lerobot_dataset_card
+
+    info = json.loads((dataset_dir / "meta" / "info.json").read_text())
+    fields = {k: info[k] for k in DatasetInfo.__dataclass_fields__ if k in info}
+    card = create_lerobot_dataset_card(
+        dataset_info=DatasetInfo(**fields), license="apache-2.0", repo_id=repo_id
+    )
+    if viewer_url := CUSTOM_DATASET_VIEWERS.get(repo_id):
+        card.content = card.content.replace(DEFAULT_DATASET_VIEWER_URL, viewer_url)
+    card.push_to_hub(repo_id=repo_id, repo_type="dataset")
+
+
+def _reconcile_unpushed_receipts(api: Any, data_dir: Path, repo_id: str) -> tuple[int, int]:
+    """Repair prior false receipts only after exact raw verification on the Hub.
+
+    A later dataset upload synchronizes all locally appended episodes, but it does
+    not upload older raw directories. Re-upload and verify each stale raw episode
+    before changing its receipt, preserving the retention safety contract.
+    """
+    dataset_dir = data_dir / "lerobot" / LOCAL_REPO_ID
+    ledger_path = dataset_dir / APPENDED_LEDGER
+    ledger = {
+        line.strip()
+        for line in ledger_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    repaired = 0
+    failed = 0
+    for receipt_path in sorted((data_dir / "derived").glob("*/dataset/receipt.json")):
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError) as exc:
+            print(
+                f"dataset: ignoring malformed publication receipt {receipt_path}: {exc}",
+                flush=True,
+            )
+            continue
+        episode_id = receipt_path.parent.parent.name
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("pushed") is not False
+            or receipt.get("episode_id") != episode_id
+            or episode_id not in ledger
+            or receipt.get("skipped")
+            or not (receipt_path.parent / layout.COMPLETE_FILE).is_file()
+        ):
+            continue
+        episode_dir = data_dir / "raw_episodes" / episode_id
+        try:
+            commit = _upload_raw_episode(api, episode_dir, repo_id)
+            revision = _commit_revision(commit, api, repo_id)
+            _verify_remote_raw_payloads(api, episode_dir, repo_id, revision)
+        except Exception as exc:
+            failed += 1
+            print(
+                f"dataset: publication receipt for {episode_id} remains pushed=False: {exc}",
+                flush=True,
+            )
+            continue
+        receipt.update(
+            pushed=True,
+            hub_revision=revision,
+            publication_reconciled_utc=datetime.now(UTC).isoformat(),
+        )
+        _write_json_atomic(receipt_path, receipt)
+        repaired += 1
+        print(
+            f"dataset: reconciled publication receipt for {episode_id} at {revision}",
+            flush=True,
+        )
+    return repaired, failed
+
+
+def reconcile_hub_publication(data_dir: Path, repo_id: str) -> tuple[int, int]:
+    """Synchronize the local dataset and safely repair all stale publication receipts."""
+    from huggingface_hub import HfApi
+
+    dataset_dir = data_dir / "lerobot" / LOCAL_REPO_ID
+    _assert_local_dataset_consistent(dataset_dir)
+    api = HfApi()
+    _ensure_hub_repo(api, repo_id)
+    _upload_dataset_snapshot(api, dataset_dir, repo_id)
+    _push_dataset_card(dataset_dir, repo_id)
+    return _reconcile_unpushed_receipts(api, data_dir, repo_id)
+
+
+def _push_to_hub(
+    dataset_dir: Path,
+    episode_dir: Path,
+    repo_id: str,
+    *,
+    data_dir: Path | None = None,
+) -> bool:
     """Mirror the local dataset to the HF Hub + archive the raw episode (the offsite copy).
 
     Best-effort: a failed push never loses the local append — the next episode's push
@@ -517,40 +735,12 @@ def _push_to_hub(dataset_dir: Path, episode_dir: Path, repo_id: str) -> bool:
         from huggingface_hub import HfApi
 
         api = HfApi()
-        api.create_repo(repo_id=repo_id, repo_type="dataset", private=True, exist_ok=True)
-        # NEVER lerobot's own push_to_hub: it skips meta/episodes/ and can mangle data/,
-        # leaving the Hub inconsistent ("episode N not found in metadata"). The LOCAL
-        # dataset is the single source of truth and is self-consistent after finalize();
-        # sync the Hub to EXACTLY match it — delete_patterns drops stale remote files,
-        # and LFS dedups unchanged videos so the per-episode re-upload is cheap.
-        api.upload_folder(
-            repo_id=repo_id,
-            repo_type="dataset",
-            folder_path=str(dataset_dir),
-            ignore_patterns=[APPENDED_LEDGER],
-            delete_patterns=["meta/**", "data/**", "videos/**"],
-        )
-        # Raw episode archive: its own accumulating namespace, untouched by the deletes
-        # above — the only off-box copy of the raw pcaps/video once Pi spools are pruned.
-        api.upload_folder(
-            repo_id=repo_id,
-            repo_type="dataset",
-            folder_path=str(episode_dir),
-            path_in_repo=f"raw_episodes/{episode_dir.name}",
-        )
-        # LeRobot dataset card: the tags/configs front-matter is what lights up the Hub
-        # page (robotics + LeRobot chips, dataset viewer, Visualize badge). Same card
-        # lerobot's own push_to_hub would write — only its data upload is unsafe, not this.
-        from lerobot.datasets.utils import DatasetInfo, create_lerobot_dataset_card
-
-        info = json.loads((dataset_dir / "meta" / "info.json").read_text())
-        fields = {k: info[k] for k in DatasetInfo.__dataclass_fields__ if k in info}
-        card = create_lerobot_dataset_card(
-            dataset_info=DatasetInfo(**fields), license="apache-2.0", repo_id=repo_id
-        )
-        if viewer_url := CUSTOM_DATASET_VIEWERS.get(repo_id):
-            card.content = card.content.replace(DEFAULT_DATASET_VIEWER_URL, viewer_url)
-        card.push_to_hub(repo_id=repo_id, repo_type="dataset")
+        _ensure_hub_repo(api, repo_id)
+        _upload_dataset_snapshot(api, dataset_dir, repo_id)
+        _upload_raw_episode(api, episode_dir, repo_id)
+        _push_dataset_card(dataset_dir, repo_id)
+        if data_dir is not None:
+            _reconcile_unpushed_receipts(api, data_dir, repo_id)
         return True
     except Exception as exc:  # push failure must not take down the pipeline
         print(f"dataset: hub push failed ({exc}); local dataset is intact", flush=True)

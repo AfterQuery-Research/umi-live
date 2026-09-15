@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from queue import Queue
 from types import SimpleNamespace
@@ -11,6 +13,9 @@ import numpy as np
 import pytest
 from umi_flow_core import config as core_config
 from umi_flow_server.dataset_stage import (
+    _ENSURED_HUB_REPOS,
+    _ensure_hub_repo,
+    _reconcile_unpushed_receipts,
     _SequentialVideoReader,
     _wait_for_video_encoder,
     already_appended,
@@ -94,6 +99,108 @@ def test_append_ledger_is_substring_safe(tmp_path: Path):
     assert already_appended(dataset_dir, "episode_10")
     assert not already_appended(dataset_dir, "episode_1")
     assert not already_appended(dataset_dir, "ep")
+
+
+class _FakeHubApi:
+    def __init__(self, *, corrupt: bool = False, repo_exists: bool = False):
+        self.corrupt = corrupt
+        self._repo_exists = repo_exists
+        self.created = 0
+        self.exists_checks = 0
+        self.uploaded: list[str] = []
+        self.raw_dirs: dict[str, Path] = {}
+
+    def repo_exists(self, **_kwargs):
+        self.exists_checks += 1
+        return self._repo_exists
+
+    def create_repo(self, **_kwargs):
+        self.created += 1
+
+    def upload_folder(self, *, folder_path: str, path_in_repo: str, **_kwargs):
+        self.uploaded.append(path_in_repo)
+        self.raw_dirs[path_in_repo] = Path(folder_path)
+        return SimpleNamespace(oid=f"revision-{len(self.uploaded)}")
+
+    def list_repo_tree(self, *, path_in_repo: str, **_kwargs):
+        raw_dir = self.raw_dirs[path_in_repo]
+        result = []
+        for path in raw_dir.iterdir():
+            if not path.is_file():
+                continue
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if self.corrupt and path.name == "umi1_lidar.pcap":
+                digest = "0" * 64
+            result.append(
+                SimpleNamespace(
+                    path=f"{path_in_repo}/{path.name}",
+                    size=path.stat().st_size,
+                    lfs=SimpleNamespace(sha256=digest),
+                )
+            )
+        return result
+
+
+def _stale_publication(tmp_path: Path, episode_id: str = "paired_sess_1") -> tuple[Path, Path]:
+    data_dir = tmp_path / "data"
+    dataset_dir = data_dir / "lerobot" / "local" / "umi-flow"
+    mark_appended(dataset_dir, episode_id)
+    raw_dir = data_dir / "raw_episodes" / episode_id
+    raw_dir.mkdir(parents=True)
+    for name in (
+        "umi1_camera.mjpeg.avi",
+        "umi1_lidar.pcap",
+        "umi2_camera.mjpeg.avi",
+        "umi2_lidar.pcap",
+    ):
+        (raw_dir / name).write_bytes(f"payload:{name}".encode())
+    receipt_dir = data_dir / "derived" / episode_id / "dataset"
+    receipt_dir.mkdir(parents=True)
+    (receipt_dir / "COMPLETE").write_text("complete\n")
+    receipt_path = receipt_dir / "receipt.json"
+    receipt_path.write_text(json.dumps({"episode_id": episode_id, "pushed": False}))
+    return data_dir, receipt_path
+
+
+def test_hub_repo_is_ensured_once_per_process():
+    api = _FakeHubApi()
+    _ENSURED_HUB_REPOS.clear()
+    _ensure_hub_repo(api, "org/dataset")
+    _ensure_hub_repo(api, "org/dataset")
+    assert api.created == 1
+    assert api.exists_checks == 1
+
+
+def test_existing_hub_repo_does_not_call_create_endpoint():
+    api = _FakeHubApi(repo_exists=True)
+    _ENSURED_HUB_REPOS.clear()
+    _ensure_hub_repo(api, "org/existing")
+    assert api.created == 0
+    assert api.exists_checks == 1
+
+
+def test_reconcile_reuploads_and_exactly_verifies_stale_raw(tmp_path: Path):
+    data_dir, receipt_path = _stale_publication(tmp_path)
+    api = _FakeHubApi()
+
+    repaired, failed = _reconcile_unpushed_receipts(api, data_dir, "org/dataset")
+
+    receipt = json.loads(receipt_path.read_text())
+    assert (repaired, failed) == (1, 0)
+    assert receipt["pushed"] is True
+    assert receipt["hub_revision"] == "revision-1"
+    assert "publication_reconciled_utc" in receipt
+    assert api.uploaded == ["raw_episodes/paired_sess_1"]
+
+
+def test_reconcile_leaves_receipt_false_on_remote_hash_mismatch(tmp_path: Path):
+    data_dir, receipt_path = _stale_publication(tmp_path)
+    api = _FakeHubApi(corrupt=True)
+
+    repaired, failed = _reconcile_unpushed_receipts(api, data_dir, "org/dataset")
+
+    assert (repaired, failed) == (0, 1)
+    assert json.loads(receipt_path.read_text())["pushed"] is False
 
 
 def test_gripper_width_normalization_clips_to_closed_open_range():
