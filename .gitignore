@@ -28,3 +28,7 @@ provisioning/.pair-wifi-psk
 provisioning/secrets
 provisioning/server.env
 provisioning/rigs/*.env
+
+# Local research artifacts and experiment workspace.
+/dataset-filtering/reports/
+/dataset-filtering-tests/

@@ -2,7 +2,9 @@
 
 Local, read-only tooling for [`brandonyang/dual-lidar-umi`](https://huggingface.co/datasets/brandonyang/dual-lidar-umi). It measures and smooths LiDAR-SLAM pose noise, converts each bimanual UMI episode into one continuous 12-DoF YAM trajectory, validates the result, and provides an episode-selectable viewer. It never uploads or writes back to Hugging Face.
 
-Dataset reads are cached under `.cache/`; reports and replay artifacts are written under `reports/` and `outputs/`. Those paths are git-ignored.
+Dataset reads are cached under `.cache/`; reports and replay artifacts are written under `reports/` and `outputs/`. Those paths are git-ignored. Generated experiment reports and the separate `dataset-filtering-tests/` research workspace are kept locally rather than tracked in this repository.
+
+On a fresh checkout, generate a reachability report using the command below before running `build-filtered-dataset`, or restore a matching report from your local research archive. Historical metrics below summarize archived experiments; the full reports are not bundled with the checkout.
 
 ## Quick start
 
@@ -87,7 +89,7 @@ Nine Savitzky–Golay, Gaussian, and zero-phase Butterworth configurations were 
 - only 0.318 mm translation and 0.059° rotation RMS path change; and
 - original poses restored exactly at detected gripper open/close events, with a short blended neighborhood.
 
-See [`reports/dual-lidar-umi-noise-and-smoothing.json`](reports/dual-lidar-umi-noise-and-smoothing.json) for aggregate, candidate, and per-episode metrics.
+The locally generated `reports/dual-lidar-umi-noise-and-smoothing.json` contains aggregate, candidate, and per-episode metrics.
 
 The earlier greedy framewise baseline solved 95.95% of left-arm targets, 95.61% of right-arm targets, and 91.96% of simultaneous targets within its loose 10 mm/8° threshold. That is **not** a replayability fraction: independently projected frames can switch IK branches or jump even when adjacent frames both count as reachable.
 
@@ -100,7 +102,7 @@ The revised two-pass continuous optimizer completed all 115 episodes and all 110
 - 70/115 episodes pass strict gripper events plus the hard all-frame 10 mm/8° IK-trajectory gate;
 - 42/115 episodes pass the complete conservative classification. The main additional rejection is collision screening: 52/115 pass arm-to-arm capsule clearance and 101/115 pass self-clearance. This is intentionally stricter than “IK solved” and still requires exact scene validation.
 
-See [`reports/dual-lidar-umi-tail-freeze-v2-replayability.json`](reports/dual-lidar-umi-tail-freeze-v2-replayability.json) for every episode and failure reason.
+The locally generated `reports/dual-lidar-umi-tail-freeze-v2-replayability.json` contains every episode and failure reason.
 
 ## Continuous retargeting algorithm
 
