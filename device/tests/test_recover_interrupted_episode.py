@@ -97,6 +97,42 @@ def test_recovery_preserves_files_and_marks_episode_ineligible(tmp_path: Path):
     assert (final / layout.COMPLETE_FILE).is_file()
 
 
+def test_recovery_synthesizes_missing_camera_stats(tmp_path: Path):
+    spool, episode, proc_root = interrupted_episode(tmp_path)
+    (episode / "umi2_camera_stats.json").unlink()
+
+    planned = recover_module.recover(
+        spool,
+        episode,
+        role="umi2",
+        session_id="sess_1",
+        reason="abrupt recorder loss",
+        apply=False,
+        proc_root=proc_root,
+    )
+    assert planned["state"] == "planned"
+    assert planned["camera_stats_source"] == "missing"
+
+    recover_module.recover(
+        spool,
+        episode,
+        role="umi2",
+        session_id="sess_1",
+        reason="abrupt recorder loss",
+        apply=True,
+        proc_root=proc_root,
+    )
+    final = spool / "complete" / episode.name
+    stats = json.loads((final / "umi2_camera_stats.json").read_text())
+    assert stats["camera_dataset_eligible"] is False
+    assert stats["camera_frame_count"] == 1
+    assert stats["camera_stats_recovered"] is True
+    assert stats["camera_stats_source"] == "missing"
+    recovered = manifest.read_manifest(final / layout.MANIFEST_FILE)
+    assert recovered["dataset_eligible"] is False
+    assert recovered["sensors"]["umi2/camera"]["error"]
+
+
 def test_recovery_refuses_non_idle_recorder(tmp_path: Path):
     spool, episode, proc_root = interrupted_episode(tmp_path)
     (spool / ".recorder-status.json").write_text(

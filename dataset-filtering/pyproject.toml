@@ -1,0 +1,51 @@
+[project]
+name = "umi-dataset-filtering"
+version = "0.1.0"
+description = "Local UMI trajectory smoothing, YAM IK retargeting, and playback viewer"
+requires-python = ">=3.12"
+dependencies = [
+    "casadi>=3.7",
+    "fastapi>=0.115",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=18",
+    "scipy>=1.13",
+    "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+hub = [
+    "huggingface-hub>=1.23",
+]
+retiming = [
+    "toppra>=0.6",
+]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.3",
+]
+
+[project.scripts]
+umi-filter = "dataset_filtering.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataset_filtering"]
+
+[tool.hatch.build]
+include = [
+    "src/dataset_filtering/**/*.py",
+    "src/dataset_filtering/web/*.html",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]

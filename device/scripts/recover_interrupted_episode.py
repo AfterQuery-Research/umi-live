@@ -69,6 +69,33 @@ def _required_capture_paths(episode_dir: Path, role: str) -> dict[str, Path]:
     }
 
 
+def _camera_stats_for_recovery(path: Path, frames_path: Path) -> tuple[dict[str, Any], str]:
+    """Load camera stats when present, or synthesize conservative interrupted stats.
+
+    The camera recorder writes its stats only during an orderly stop. Abrupt process
+    loss can therefore leave valid video and frame metadata without this optional
+    summary. Recovery must preserve that evidence without ever claiming it is healthy.
+    """
+
+    try:
+        return _json(path), "captured"
+    except FileNotFoundError:
+        source = "missing"
+    except (OSError, ValueError):
+        source = "unreadable"
+    try:
+        frame_count = sum(
+            1 for line in frames_path.read_text(encoding="utf-8").splitlines() if line
+        )
+    except OSError:
+        frame_count = None
+    return {
+        "camera_dataset_eligible": False,
+        "camera_frame_count": frame_count,
+        "camera_stats_recovered": True,
+    }, source
+
+
 def recover(
     spool_dir: Path,
     episode_dir: Path,
@@ -109,16 +136,21 @@ def recover(
         raise ValueError(f"episode id does not match requested role {role!r}")
 
     required = _required_capture_paths(episode_dir, role)
+    required_payloads = {name: path for name, path in required.items() if name != "camera_stats"}
     missing = [
-        name for name, path in required.items() if not path.is_file() or path.stat().st_size == 0
+        name
+        for name, path in required_payloads.items()
+        if not path.is_file() or path.stat().st_size == 0
     ]
     if missing:
         raise RuntimeError(
             f"required interrupted capture files are missing/empty: {', '.join(missing)}"
         )
-    camera_stats = _json(required["camera_stats"])
+    camera_stats, camera_stats_source = _camera_stats_for_recovery(
+        required["camera_stats"], required["camera_frames"]
+    )
     start_ns = _start_unix_ns(episode_dir / layout.EVENTS_FILE)
-    stop_ns = max(path.stat().st_mtime_ns for path in required.values())
+    stop_ns = max(path.stat().st_mtime_ns for path in required_payloads.values())
     if stop_ns < start_ns:
         raise RuntimeError("capture file timestamps precede the start event")
 
@@ -134,6 +166,7 @@ def recover(
         "destination": str(final_dir),
         "dataset_eligible": False,
         "reason": reason,
+        "camera_stats_source": camera_stats_source,
     }
     if not apply:
         return result
@@ -181,6 +214,7 @@ def recover(
         camera_stats = {
             **camera_stats,
             "camera_dataset_eligible": False,
+            "camera_stats_source": camera_stats_source,
             "recovered_after_interruption": True,
             "recovery_reason": reason,
         }

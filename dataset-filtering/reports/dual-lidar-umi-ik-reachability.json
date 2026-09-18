@@ -1,0 +1,3599 @@
+{
+  "generated_at": "2026-08-09T06:13:07.385251+00:00",
+  "source": "brandonyang/dual-lidar-umi",
+  "revision": "main",
+  "read_only": true,
+  "episodes": 115,
+  "frames": 110269,
+  "duration_s": 3675.633333333333,
+  "workers": 12,
+  "smoothing": "lowest distortion-aware score per episode; gripper-event poses anchored",
+  "ik_tolerances": {
+    "normal_position_mm": 10.0,
+    "gripper_event_position_mm": 5.0,
+    "orientation_deg": 8.0
+  },
+  "frame_weighted_reachability": {
+    "umi1_left_fraction": 0.959480905784944,
+    "umi2_right_fraction": 0.9560801313152382,
+    "individual_arm_target_fraction": 0.9577805185500912,
+    "both_arms_same_frame_fraction": 0.9196147602680718,
+    "at_least_one_arm_fraction": 0.9959462768321106
+  },
+  "gripper_event_reachability": {
+    "umi1_left_fraction": 0.9971590909090909,
+    "umi2_right_fraction": 0.9988452655889145,
+    "individual_arm_event_fraction": 0.9979188345473465,
+    "umi1_left_reachable": 1053,
+    "umi1_left_total": 1056,
+    "umi2_right_reachable": 865,
+    "umi2_right_total": 866
+  },
+  "per_episode": [
+    {
+      "episode_index": 0,
+      "frames": 1288,
+      "duration_s": 42.93333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1307819656539924
+      },
+      "reachable_frames": {
+        "umi1_left": 1148,
+        "umi2_right": 1288,
+        "both": 1148,
+        "at_least_one": 1288
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.049627002335946,
+        "umi1_left_p95": 11.738397001538887,
+        "umi2_right_median": 4.062266040604058,
+        "umi2_right_p95": 9.358251924773736
+      }
+    },
+    {
+      "episode_index": 1,
+      "frames": 1198,
+      "duration_s": 39.93333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13979365323085957
+      },
+      "reachable_frames": {
+        "umi1_left": 1198,
+        "umi2_right": 1157,
+        "both": 1157,
+        "at_least_one": 1198
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.318450553507425,
+        "umi1_left_p95": 9.490473157951048,
+        "umi2_right_median": 6.83809476343794,
+        "umi2_right_p95": 9.623388860081082
+      }
+    },
+    {
+      "episode_index": 2,
+      "frames": 1046,
+      "duration_s": 34.86666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.137424999524275
+      },
+      "reachable_frames": {
+        "umi1_left": 1046,
+        "umi2_right": 1046,
+        "both": 1046,
+        "at_least_one": 1046
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.376115152584421,
+        "umi1_left_p95": 9.406199547602057,
+        "umi2_right_median": 4.025591576750346,
+        "umi2_right_p95": 8.668081627380458
+      }
+    },
+    {
+      "episode_index": 3,
+      "frames": 943,
+      "duration_s": 31.433333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15002606215628228
+      },
+      "reachable_frames": {
+        "umi1_left": 906,
+        "umi2_right": 943,
+        "both": 906,
+        "at_least_one": 943
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.617716789160605,
+        "umi1_left_p95": 9.80864646342007,
+        "umi2_right_median": 4.05416814003029,
+        "umi2_right_p95": 9.321406958637922
+      }
+    },
+    {
+      "episode_index": 4,
+      "frames": 760,
+      "duration_s": 25.333333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1602096489909832
+      },
+      "reachable_frames": {
+        "umi1_left": 760,
+        "umi2_right": 760,
+        "both": 760,
+        "at_least_one": 760
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.8578198865846094,
+        "umi1_left_p95": 9.626164523317923,
+        "umi2_right_median": 3.5205041968330253,
+        "umi2_right_p95": 8.890846353785726
+      }
+    },
+    {
+      "episode_index": 5,
+      "frames": 751,
+      "duration_s": 25.033333333333335,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15760196534248191
+      },
+      "reachable_frames": {
+        "umi1_left": 751,
+        "umi2_right": 751,
+        "both": 751,
+        "at_least_one": 751
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.671917516422214,
+        "umi1_left_p95": 9.230005009883042,
+        "umi2_right_median": 3.502329582914184,
+        "umi2_right_p95": 9.351942165860269
+      }
+    },
+    {
+      "episode_index": 6,
+      "frames": 809,
+      "duration_s": 26.966666666666665,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1619850182972188
+      },
+      "reachable_frames": {
+        "umi1_left": 809,
+        "umi2_right": 807,
+        "both": 807,
+        "at_least_one": 809
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.2080782689273044,
+        "umi1_left_p95": 9.288520504804465,
+        "umi2_right_median": 4.28593755657979,
+        "umi2_right_p95": 8.803539586133928
+      }
+    },
+    {
+      "episode_index": 7,
+      "frames": 838,
+      "duration_s": 27.933333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.17169302038849923
+      },
+      "reachable_frames": {
+        "umi1_left": 838,
+        "umi2_right": 838,
+        "both": 838,
+        "at_least_one": 838
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 4,
+        "umi1_left_reachable": 4,
+        "umi2_right_total": 17,
+        "umi2_right_reachable": 17
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.097727789695521,
+        "umi1_left_p95": 8.977227902005154,
+        "umi2_right_median": 3.2811304222663926,
+        "umi2_right_p95": 9.343735992241918
+      }
+    },
+    {
+      "episode_index": 8,
+      "frames": 726,
+      "duration_s": 24.2,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.17742510067776754
+      },
+      "reachable_frames": {
+        "umi1_left": 722,
+        "umi2_right": 726,
+        "both": 722,
+        "at_least_one": 726
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.107990831368469,
+        "umi1_left_p95": 9.462244201731066,
+        "umi2_right_median": 3.3011598281427044,
+        "umi2_right_p95": 8.973742697559997
+      }
+    },
+    {
+      "episode_index": 9,
+      "frames": 851,
+      "duration_s": 28.366666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.16459526071248923
+      },
+      "reachable_frames": {
+        "umi1_left": 851,
+        "umi2_right": 790,
+        "both": 790,
+        "at_least_one": 851
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 15,
+        "umi1_left_reachable": 15,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.2695861011717153,
+        "umi1_left_p95": 9.233936842362137,
+        "umi2_right_median": 8.740220903026923,
+        "umi2_right_p95": 10.129709011478475
+      }
+    },
+    {
+      "episode_index": 10,
+      "frames": 859,
+      "duration_s": 28.633333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15726358883667885
+      },
+      "reachable_frames": {
+        "umi1_left": 859,
+        "umi2_right": 859,
+        "both": 859,
+        "at_least_one": 859
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.0031613331210165,
+        "umi1_left_p95": 9.41437953269544,
+        "umi2_right_median": 5.350349983629548,
+        "umi2_right_p95": 8.733243228141644
+      }
+    },
+    {
+      "episode_index": 11,
+      "frames": 797,
+      "duration_s": 26.566666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1661391683460638
+      },
+      "reachable_frames": {
+        "umi1_left": 797,
+        "umi2_right": 797,
+        "both": 797,
+        "at_least_one": 797
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.530377171145685,
+        "umi1_left_p95": 9.150553126039995,
+        "umi2_right_median": 4.311036013598809,
+        "umi2_right_p95": 9.102382250976614
+      }
+    },
+    {
+      "episode_index": 12,
+      "frames": 924,
+      "duration_s": 30.8,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13366406899517835
+      },
+      "reachable_frames": {
+        "umi1_left": 924,
+        "umi2_right": 924,
+        "both": 924,
+        "at_least_one": 924
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.294304369488507,
+        "umi1_left_p95": 9.380719639499443,
+        "umi2_right_median": 4.262247187734601,
+        "umi2_right_p95": 9.47253743726966
+      }
+    },
+    {
+      "episode_index": 13,
+      "frames": 791,
+      "duration_s": 26.366666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1631641308146396
+      },
+      "reachable_frames": {
+        "umi1_left": 788,
+        "umi2_right": 791,
+        "both": 788,
+        "at_least_one": 791
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.8721904909582157,
+        "umi1_left_p95": 9.42301101670574,
+        "umi2_right_median": 4.204811036867578,
+        "umi2_right_p95": 9.355343947654257
+      }
+    },
+    {
+      "episode_index": 14,
+      "frames": 821,
+      "duration_s": 27.366666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1550797198728226
+      },
+      "reachable_frames": {
+        "umi1_left": 821,
+        "umi2_right": 821,
+        "both": 821,
+        "at_least_one": 821
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.886807169359697,
+        "umi1_left_p95": 9.242219752284436,
+        "umi2_right_median": 3.5166693127045203,
+        "umi2_right_p95": 9.555135537156868
+      }
+    },
+    {
+      "episode_index": 15,
+      "frames": 852,
+      "duration_s": 28.4,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13465782422039485
+      },
+      "reachable_frames": {
+        "umi1_left": 852,
+        "umi2_right": 848,
+        "both": 848,
+        "at_least_one": 852
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.946796850369954,
+        "umi1_left_p95": 9.407399555452683,
+        "umi2_right_median": 3.9159671732163686,
+        "umi2_right_p95": 9.329358906076914
+      }
+    },
+    {
+      "episode_index": 16,
+      "frames": 847,
+      "duration_s": 28.233333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14991068464853816
+      },
+      "reachable_frames": {
+        "umi1_left": 634,
+        "umi2_right": 847,
+        "both": 634,
+        "at_least_one": 847
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 12,
+        "umi2_right_reachable": 12
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.649113813330981,
+        "umi1_left_p95": 25.694194093802608,
+        "umi2_right_median": 3.424312991721401,
+        "umi2_right_p95": 9.299555746083982
+      }
+    },
+    {
+      "episode_index": 17,
+      "frames": 993,
+      "duration_s": 33.1,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1448541235522653
+      },
+      "reachable_frames": {
+        "umi1_left": 993,
+        "umi2_right": 993,
+        "both": 993,
+        "at_least_one": 993
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.884877201608836,
+        "umi1_left_p95": 9.492502098885398,
+        "umi2_right_median": 3.9437902650528986,
+        "umi2_right_p95": 9.24737992583
+      }
+    },
+    {
+      "episode_index": 18,
+      "frames": 1042,
+      "duration_s": 34.733333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14124062374534538
+      },
+      "reachable_frames": {
+        "umi1_left": 732,
+        "umi2_right": 1042,
+        "both": 732,
+        "at_least_one": 1042
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.163161253239518,
+        "umi1_left_p95": 42.97484881376967,
+        "umi2_right_median": 4.126786032737184,
+        "umi2_right_p95": 9.44095928754374
+      }
+    },
+    {
+      "episode_index": 19,
+      "frames": 857,
+      "duration_s": 28.566666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13971233798678115
+      },
+      "reachable_frames": {
+        "umi1_left": 857,
+        "umi2_right": 857,
+        "both": 857,
+        "at_least_one": 857
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.020967447852225,
+        "umi1_left_p95": 9.424240124975837,
+        "umi2_right_median": 4.152976626685221,
+        "umi2_right_p95": 9.431512984330274
+      }
+    },
+    {
+      "episode_index": 20,
+      "frames": 924,
+      "duration_s": 30.8,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15324778762491245
+      },
+      "reachable_frames": {
+        "umi1_left": 914,
+        "umi2_right": 924,
+        "both": 914,
+        "at_least_one": 924
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 13,
+        "umi1_left_reachable": 13,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.846932027413463,
+        "umi1_left_p95": 9.565418073854163,
+        "umi2_right_median": 5.353513208306356,
+        "umi2_right_p95": 9.315557113503587
+      }
+    },
+    {
+      "episode_index": 21,
+      "frames": 1128,
+      "duration_s": 37.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13284646584855883
+      },
+      "reachable_frames": {
+        "umi1_left": 1128,
+        "umi2_right": 1128,
+        "both": 1128,
+        "at_least_one": 1128
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 4,
+        "umi2_right_reachable": 4
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.532532723823657,
+        "umi1_left_p95": 9.461196329625974,
+        "umi2_right_median": 3.2440527042112204,
+        "umi2_right_p95": 9.01407807248453
+      }
+    },
+    {
+      "episode_index": 22,
+      "frames": 1492,
+      "duration_s": 49.733333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.12315894758186433
+      },
+      "reachable_frames": {
+        "umi1_left": 1492,
+        "umi2_right": 1492,
+        "both": 1492,
+        "at_least_one": 1492
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 7.805351097638705,
+        "umi1_left_p95": 9.609349207928682,
+        "umi2_right_median": 4.22840692268201,
+        "umi2_right_p95": 9.279448456267447
+      }
+    },
+    {
+      "episode_index": 23,
+      "frames": 963,
+      "duration_s": 32.1,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13733063291267583
+      },
+      "reachable_frames": {
+        "umi1_left": 963,
+        "umi2_right": 963,
+        "both": 963,
+        "at_least_one": 963
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.81105182862001,
+        "umi1_left_p95": 9.236442949670007,
+        "umi2_right_median": 4.403967372012344,
+        "umi2_right_p95": 9.342533411609544
+      }
+    },
+    {
+      "episode_index": 24,
+      "frames": 909,
+      "duration_s": 30.3,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13417094339348692
+      },
+      "reachable_frames": {
+        "umi1_left": 909,
+        "umi2_right": 909,
+        "both": 909,
+        "at_least_one": 909
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.113821093675429,
+        "umi1_left_p95": 9.374524927342593,
+        "umi2_right_median": 4.763976599641541,
+        "umi2_right_p95": 9.336492991425423
+      }
+    },
+    {
+      "episode_index": 25,
+      "frames": 1039,
+      "duration_s": 34.63333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13382959260614022
+      },
+      "reachable_frames": {
+        "umi1_left": 1039,
+        "umi2_right": 1039,
+        "both": 1039,
+        "at_least_one": 1039
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.45204947123604,
+        "umi1_left_p95": 9.454020079566876,
+        "umi2_right_median": 4.389576129096895,
+        "umi2_right_p95": 9.531039878907658
+      }
+    },
+    {
+      "episode_index": 26,
+      "frames": 1079,
+      "duration_s": 35.96666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13357798000176513
+      },
+      "reachable_frames": {
+        "umi1_left": 1063,
+        "umi2_right": 1079,
+        "both": 1063,
+        "at_least_one": 1079
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.130466545093505,
+        "umi1_left_p95": 9.503440974927662,
+        "umi2_right_median": 3.8404988991004396,
+        "umi2_right_p95": 9.52401379144912
+      }
+    },
+    {
+      "episode_index": 27,
+      "frames": 1013,
+      "duration_s": 33.766666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1379341714451183
+      },
+      "reachable_frames": {
+        "umi1_left": 1013,
+        "umi2_right": 1013,
+        "both": 1013,
+        "at_least_one": 1013
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.9462026981580256,
+        "umi1_left_p95": 9.238462529381804,
+        "umi2_right_median": 4.667768203033164,
+        "umi2_right_p95": 9.304409147343979
+      }
+    },
+    {
+      "episode_index": 28,
+      "frames": 958,
+      "duration_s": 31.933333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1408995284087926
+      },
+      "reachable_frames": {
+        "umi1_left": 846,
+        "umi2_right": 958,
+        "both": 846,
+        "at_least_one": 958
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 14,
+        "umi1_left_reachable": 14,
+        "umi2_right_total": 4,
+        "umi2_right_reachable": 4
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.509962401491021,
+        "umi1_left_p95": 61.60493205251296,
+        "umi2_right_median": 5.592229469786788,
+        "umi2_right_p95": 9.472732516954618
+      }
+    },
+    {
+      "episode_index": 29,
+      "frames": 823,
+      "duration_s": 27.433333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14795512615857917
+      },
+      "reachable_frames": {
+        "umi1_left": 823,
+        "umi2_right": 823,
+        "both": 823,
+        "at_least_one": 823
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.4137310798370155,
+        "umi1_left_p95": 9.450060385737345,
+        "umi2_right_median": 5.197775199850694,
+        "umi2_right_p95": 9.383316695401083
+      }
+    },
+    {
+      "episode_index": 30,
+      "frames": 874,
+      "duration_s": 29.133333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14405098990908521
+      },
+      "reachable_frames": {
+        "umi1_left": 874,
+        "umi2_right": 729,
+        "both": 729,
+        "at_least_one": 874
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.9901465055509866,
+        "umi1_left_p95": 9.187631374909492,
+        "umi2_right_median": 5.156547476368196,
+        "umi2_right_p95": 18.05581568968464
+      }
+    },
+    {
+      "episode_index": 31,
+      "frames": 925,
+      "duration_s": 30.833333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1381329702417519
+      },
+      "reachable_frames": {
+        "umi1_left": 871,
+        "umi2_right": 925,
+        "both": 871,
+        "at_least_one": 925
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.587438112528942,
+        "umi1_left_p95": 14.133817402987502,
+        "umi2_right_median": 4.4757491170529855,
+        "umi2_right_p95": 9.393886091456192
+      }
+    },
+    {
+      "episode_index": 32,
+      "frames": 925,
+      "duration_s": 30.833333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13736822660545064
+      },
+      "reachable_frames": {
+        "umi1_left": 649,
+        "umi2_right": 881,
+        "both": 649,
+        "at_least_one": 881
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.565005240111272,
+        "umi1_left_p95": 15.530782391439015,
+        "umi2_right_median": 4.412090375604821,
+        "umi2_right_p95": 9.984304320850976
+      }
+    },
+    {
+      "episode_index": 33,
+      "frames": 1128,
+      "duration_s": 37.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13788224209673444
+      },
+      "reachable_frames": {
+        "umi1_left": 1127,
+        "umi2_right": 1111,
+        "both": 1110,
+        "at_least_one": 1128
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.842803735060552,
+        "umi1_left_p95": 9.224298346393287,
+        "umi2_right_median": 4.320564237716619,
+        "umi2_right_p95": 9.421365612047584
+      }
+    },
+    {
+      "episode_index": 34,
+      "frames": 986,
+      "duration_s": 32.86666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14039701522951803
+      },
+      "reachable_frames": {
+        "umi1_left": 986,
+        "umi2_right": 986,
+        "both": 986,
+        "at_least_one": 986
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.6347445369076885,
+        "umi1_left_p95": 9.39315156993431,
+        "umi2_right_median": 3.88898610670702,
+        "umi2_right_p95": 9.163502251202953
+      }
+    },
+    {
+      "episode_index": 35,
+      "frames": 971,
+      "duration_s": 32.36666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.145943419956393
+      },
+      "reachable_frames": {
+        "umi1_left": 971,
+        "umi2_right": 971,
+        "both": 971,
+        "at_least_one": 971
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.438942033261675,
+        "umi1_left_p95": 9.396541245569887,
+        "umi2_right_median": 3.700735808379721,
+        "umi2_right_p95": 9.130121492354101
+      }
+    },
+    {
+      "episode_index": 36,
+      "frames": 1030,
+      "duration_s": 34.333333333333336,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14481109254816424
+      },
+      "reachable_frames": {
+        "umi1_left": 1030,
+        "umi2_right": 729,
+        "both": 729,
+        "at_least_one": 1030
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.231998916484867,
+        "umi1_left_p95": 9.425559373290135,
+        "umi2_right_median": 6.4604769109968805,
+        "umi2_right_p95": 15.279023340156353
+      }
+    },
+    {
+      "episode_index": 37,
+      "frames": 858,
+      "duration_s": 28.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15754666444783144
+      },
+      "reachable_frames": {
+        "umi1_left": 858,
+        "umi2_right": 858,
+        "both": 858,
+        "at_least_one": 858
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 2.954596816032895,
+        "umi1_left_p95": 9.272753645926331,
+        "umi2_right_median": 2.8687681945000496,
+        "umi2_right_p95": 9.153049906330004
+      }
+    },
+    {
+      "episode_index": 38,
+      "frames": 808,
+      "duration_s": 26.933333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.16152205796577182
+      },
+      "reachable_frames": {
+        "umi1_left": 804,
+        "umi2_right": 808,
+        "both": 804,
+        "at_least_one": 808
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 5,
+        "umi1_left_reachable": 5,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.74188799208866,
+        "umi1_left_p95": 9.271341872037274,
+        "umi2_right_median": 3.8590021587134897,
+        "umi2_right_p95": 9.341070974711801
+      }
+    },
+    {
+      "episode_index": 39,
+      "frames": 770,
+      "duration_s": 25.666666666666668,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15881271713420606
+      },
+      "reachable_frames": {
+        "umi1_left": 685,
+        "umi2_right": 767,
+        "both": 682,
+        "at_least_one": 770
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 5,
+        "umi1_left_reachable": 5,
+        "umi2_right_total": 10,
+        "umi2_right_reachable": 10
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.721195808203664,
+        "umi1_left_p95": 19.677077855843613,
+        "umi2_right_median": 2.551364907196565,
+        "umi2_right_p95": 9.499754467240505
+      }
+    },
+    {
+      "episode_index": 40,
+      "frames": 798,
+      "duration_s": 26.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15796264164053006
+      },
+      "reachable_frames": {
+        "umi1_left": 725,
+        "umi2_right": 791,
+        "both": 725,
+        "at_least_one": 791
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.144374221290419,
+        "umi1_left_p95": 11.111404112140137,
+        "umi2_right_median": 2.727834413145676,
+        "umi2_right_p95": 9.46229353859178
+      }
+    },
+    {
+      "episode_index": 41,
+      "frames": 903,
+      "duration_s": 30.1,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14814695146545576
+      },
+      "reachable_frames": {
+        "umi1_left": 874,
+        "umi2_right": 690,
+        "both": 684,
+        "at_least_one": 880
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.4816031505577807,
+        "umi1_left_p95": 9.813807929877782,
+        "umi2_right_median": 6.780842310121649,
+        "umi2_right_p95": 15.366522370203064
+      }
+    },
+    {
+      "episode_index": 42,
+      "frames": 876,
+      "duration_s": 29.2,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14562354030658797
+      },
+      "reachable_frames": {
+        "umi1_left": 863,
+        "umi2_right": 873,
+        "both": 860,
+        "at_least_one": 876
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 12,
+        "umi1_left_reachable": 12,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.326264709533833,
+        "umi1_left_p95": 9.653624557870979,
+        "umi2_right_median": 4.956298127845222,
+        "umi2_right_p95": 9.490536959179726
+      }
+    },
+    {
+      "episode_index": 43,
+      "frames": 826,
+      "duration_s": 27.533333333333335,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1580505029666503
+      },
+      "reachable_frames": {
+        "umi1_left": 807,
+        "umi2_right": 815,
+        "both": 797,
+        "at_least_one": 825
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.004833378152924,
+        "umi1_left_p95": 9.64394950715603,
+        "umi2_right_median": 2.6696503937824474,
+        "umi2_right_p95": 9.57994629206304
+      }
+    },
+    {
+      "episode_index": 44,
+      "frames": 828,
+      "duration_s": 27.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15509004704529403
+      },
+      "reachable_frames": {
+        "umi1_left": 802,
+        "umi2_right": 763,
+        "both": 737,
+        "at_least_one": 828
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 4,
+        "umi2_right_reachable": 4
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.278486123782888,
+        "umi1_left_p95": 9.751239572771185,
+        "umi2_right_median": 2.902634886054149,
+        "umi2_right_p95": 15.716805380702182
+      }
+    },
+    {
+      "episode_index": 45,
+      "frames": 879,
+      "duration_s": 29.3,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15063115913606243
+      },
+      "reachable_frames": {
+        "umi1_left": 820,
+        "umi2_right": 798,
+        "both": 747,
+        "at_least_one": 871
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.5552547380961705,
+        "umi1_left_p95": 12.275868091181414,
+        "umi2_right_median": 3.803242618788906,
+        "umi2_right_p95": 18.53060461086925
+      }
+    },
+    {
+      "episode_index": 46,
+      "frames": 770,
+      "duration_s": 25.666666666666668,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.16537487530159448
+      },
+      "reachable_frames": {
+        "umi1_left": 770,
+        "umi2_right": 770,
+        "both": 770,
+        "at_least_one": 770
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.6300550395142035,
+        "umi1_left_p95": 9.110276397052832,
+        "umi2_right_median": 0.9780919106474897,
+        "umi2_right_p95": 9.383537893764137
+      }
+    },
+    {
+      "episode_index": 47,
+      "frames": 1076,
+      "duration_s": 35.86666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13722562820211834
+      },
+      "reachable_frames": {
+        "umi1_left": 1076,
+        "umi2_right": 348,
+        "both": 348,
+        "at_least_one": 1076
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 13,
+        "umi1_left_reachable": 13,
+        "umi2_right_total": 4,
+        "umi2_right_reachable": 4
+      },
+      "position_error_mm": {
+        "umi1_left_median": 2.976570362409422,
+        "umi1_left_p95": 9.295186884168931,
+        "umi2_right_median": 20.642457309387424,
+        "umi2_right_p95": 24.68648972385953
+      }
+    },
+    {
+      "episode_index": 48,
+      "frames": 956,
+      "duration_s": 31.866666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1443301538410156
+      },
+      "reachable_frames": {
+        "umi1_left": 885,
+        "umi2_right": 563,
+        "both": 563,
+        "at_least_one": 885
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 4,
+        "umi2_right_reachable": 4
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.6585231623439625,
+        "umi1_left_p95": 59.06279049009261,
+        "umi2_right_median": 8.100607058298301,
+        "umi2_right_p95": 27.339483276446327
+      }
+    },
+    {
+      "episode_index": 49,
+      "frames": 791,
+      "duration_s": 26.366666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1447284502274064
+      },
+      "reachable_frames": {
+        "umi1_left": 776,
+        "umi2_right": 687,
+        "both": 681,
+        "at_least_one": 782
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.546924342484599,
+        "umi1_left_p95": 9.775161830792936,
+        "umi2_right_median": 4.831335037437869,
+        "umi2_right_p95": 38.36522952148854
+      }
+    },
+    {
+      "episode_index": 50,
+      "frames": 984,
+      "duration_s": 32.8,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.12890204832125057
+      },
+      "reachable_frames": {
+        "umi1_left": 984,
+        "umi2_right": 984,
+        "both": 984,
+        "at_least_one": 984
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.398560338910572,
+        "umi1_left_p95": 9.209382571527666,
+        "umi2_right_median": 3.6952263939764283,
+        "umi2_right_p95": 9.237707138673782
+      }
+    },
+    {
+      "episode_index": 51,
+      "frames": 1008,
+      "duration_s": 33.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13535114246943872
+      },
+      "reachable_frames": {
+        "umi1_left": 1008,
+        "umi2_right": 1008,
+        "both": 1008,
+        "at_least_one": 1008
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 16,
+        "umi1_left_reachable": 16,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.954039436096896,
+        "umi1_left_p95": 9.166819843849526,
+        "umi2_right_median": 4.511653477274426,
+        "umi2_right_p95": 9.36207363962029
+      }
+    },
+    {
+      "episode_index": 52,
+      "frames": 1230,
+      "duration_s": 41.0,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1312077322112946
+      },
+      "reachable_frames": {
+        "umi1_left": 1201,
+        "umi2_right": 1230,
+        "both": 1201,
+        "at_least_one": 1230
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.4644269284099116,
+        "umi1_left_p95": 9.497704836944852,
+        "umi2_right_median": 3.9679811267820506,
+        "umi2_right_p95": 9.383830041163938
+      }
+    },
+    {
+      "episode_index": 53,
+      "frames": 1373,
+      "duration_s": 45.766666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.12821606136205096
+      },
+      "reachable_frames": {
+        "umi1_left": 1355,
+        "umi2_right": 1373,
+        "both": 1355,
+        "at_least_one": 1373
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 3,
+        "umi2_right_reachable": 3
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.512871635908715,
+        "umi1_left_p95": 9.597105925714242,
+        "umi2_right_median": 5.530232254585458,
+        "umi2_right_p95": 9.05060213798812
+      }
+    },
+    {
+      "episode_index": 54,
+      "frames": 1237,
+      "duration_s": 41.233333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1266439572375945
+      },
+      "reachable_frames": {
+        "umi1_left": 1237,
+        "umi2_right": 1237,
+        "both": 1237,
+        "at_least_one": 1237
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.2608878476717695,
+        "umi1_left_p95": 9.299753679521638,
+        "umi2_right_median": 5.927414326191659,
+        "umi2_right_p95": 9.225923508126158
+      }
+    },
+    {
+      "episode_index": 55,
+      "frames": 1139,
+      "duration_s": 37.96666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13394573257401152
+      },
+      "reachable_frames": {
+        "umi1_left": 954,
+        "umi2_right": 1121,
+        "both": 952,
+        "at_least_one": 1123
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.638841539577111,
+        "umi1_left_p95": 20.403763411342666,
+        "umi2_right_median": 4.728360060648535,
+        "umi2_right_p95": 9.686463031345017
+      }
+    },
+    {
+      "episode_index": 56,
+      "frames": 1125,
+      "duration_s": 37.5,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13668478366322856
+      },
+      "reachable_frames": {
+        "umi1_left": 1113,
+        "umi2_right": 1125,
+        "both": 1113,
+        "at_least_one": 1125
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.453176316237922,
+        "umi1_left_p95": 9.59052845067076,
+        "umi2_right_median": 4.107563405253604,
+        "umi2_right_p95": 9.395641738965555
+      }
+    },
+    {
+      "episode_index": 57,
+      "frames": 950,
+      "duration_s": 31.666666666666668,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15010590542651117
+      },
+      "reachable_frames": {
+        "umi1_left": 950,
+        "umi2_right": 950,
+        "both": 950,
+        "at_least_one": 950
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.056492454390373,
+        "umi1_left_p95": 9.452559476746059,
+        "umi2_right_median": 3.410489805517037,
+        "umi2_right_p95": 9.38888352170208
+      }
+    },
+    {
+      "episode_index": 58,
+      "frames": 1169,
+      "duration_s": 38.96666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13486452223903314
+      },
+      "reachable_frames": {
+        "umi1_left": 1169,
+        "umi2_right": 1169,
+        "both": 1169,
+        "at_least_one": 1169
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 13,
+        "umi1_left_reachable": 13,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.463651988813251,
+        "umi1_left_p95": 9.313981823835787,
+        "umi2_right_median": 4.797241774928506,
+        "umi2_right_p95": 9.462014140338582
+      }
+    },
+    {
+      "episode_index": 59,
+      "frames": 1180,
+      "duration_s": 39.333333333333336,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1428086516280249
+      },
+      "reachable_frames": {
+        "umi1_left": 1180,
+        "umi2_right": 1180,
+        "both": 1180,
+        "at_least_one": 1180
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.4634131615197505,
+        "umi1_left_p95": 9.38623593022221,
+        "umi2_right_median": 3.0377062576720912,
+        "umi2_right_p95": 9.300192445694533
+      }
+    },
+    {
+      "episode_index": 60,
+      "frames": 1068,
+      "duration_s": 35.6,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.12936709023599394
+      },
+      "reachable_frames": {
+        "umi1_left": 1025,
+        "umi2_right": 1068,
+        "both": 1025,
+        "at_least_one": 1068
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.323233969371737,
+        "umi1_left_p95": 9.853583605966127,
+        "umi2_right_median": 4.418445309275101,
+        "umi2_right_p95": 9.525291926091196
+      }
+    },
+    {
+      "episode_index": 61,
+      "frames": 908,
+      "duration_s": 30.266666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1483336477036646
+      },
+      "reachable_frames": {
+        "umi1_left": 838,
+        "umi2_right": 887,
+        "both": 828,
+        "at_least_one": 897
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.891266420168589,
+        "umi1_left_p95": 10.957332726891202,
+        "umi2_right_median": 4.2814392375126715,
+        "umi2_right_p95": 9.649719894336222
+      }
+    },
+    {
+      "episode_index": 62,
+      "frames": 1001,
+      "duration_s": 33.36666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14215822915532686
+      },
+      "reachable_frames": {
+        "umi1_left": 1001,
+        "umi2_right": 996,
+        "both": 996,
+        "at_least_one": 1001
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.855510876002033,
+        "umi1_left_p95": 9.518904324813814,
+        "umi2_right_median": 5.3296406271138865,
+        "umi2_right_p95": 9.394524082108914
+      }
+    },
+    {
+      "episode_index": 63,
+      "frames": 1208,
+      "duration_s": 40.266666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1320384421941414
+      },
+      "reachable_frames": {
+        "umi1_left": 1208,
+        "umi2_right": 1134,
+        "both": 1134,
+        "at_least_one": 1208
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.1376792922050365,
+        "umi1_left_p95": 9.395166169403169,
+        "umi2_right_median": 5.409478519586175,
+        "umi2_right_p95": 9.967103025179673
+      }
+    },
+    {
+      "episode_index": 64,
+      "frames": 881,
+      "duration_s": 29.366666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13499481515733133
+      },
+      "reachable_frames": {
+        "umi1_left": 855,
+        "umi2_right": 881,
+        "both": 855,
+        "at_least_one": 881
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.4923078931680736,
+        "umi1_left_p95": 9.74761610872777,
+        "umi2_right_median": 4.0961479086441175,
+        "umi2_right_p95": 9.067428319196992
+      }
+    },
+    {
+      "episode_index": 65,
+      "frames": 1306,
+      "duration_s": 43.53333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13706896381626146
+      },
+      "reachable_frames": {
+        "umi1_left": 1279,
+        "umi2_right": 1302,
+        "both": 1275,
+        "at_least_one": 1306
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 21,
+        "umi1_left_reachable": 21,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.314490613781358,
+        "umi1_left_p95": 9.605751932004251,
+        "umi2_right_median": 5.697864408812292,
+        "umi2_right_p95": 9.02831119499891
+      }
+    },
+    {
+      "episode_index": 66,
+      "frames": 890,
+      "duration_s": 29.666666666666668,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14157937410680466
+      },
+      "reachable_frames": {
+        "umi1_left": 890,
+        "umi2_right": 890,
+        "both": 890,
+        "at_least_one": 890
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.285532248030707,
+        "umi1_left_p95": 9.278633210788817,
+        "umi2_right_median": 3.4830154075486934,
+        "umi2_right_p95": 9.20483435587731
+      }
+    },
+    {
+      "episode_index": 67,
+      "frames": 889,
+      "duration_s": 29.633333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15453584107702367
+      },
+      "reachable_frames": {
+        "umi1_left": 842,
+        "umi2_right": 889,
+        "both": 842,
+        "at_least_one": 889
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.8141881837534104,
+        "umi1_left_p95": 12.153977363378791,
+        "umi2_right_median": 3.1200943543774198,
+        "umi2_right_p95": 9.12398930308097
+      }
+    },
+    {
+      "episode_index": 68,
+      "frames": 927,
+      "duration_s": 30.9,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1402758569747133
+      },
+      "reachable_frames": {
+        "umi1_left": 865,
+        "umi2_right": 880,
+        "both": 819,
+        "at_least_one": 926
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.8513491734034884,
+        "umi1_left_p95": 20.90632088055312,
+        "umi2_right_median": 6.138660881996983,
+        "umi2_right_p95": 9.928851551648721
+      }
+    },
+    {
+      "episode_index": 69,
+      "frames": 940,
+      "duration_s": 31.333333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1411652056442885
+      },
+      "reachable_frames": {
+        "umi1_left": 940,
+        "umi2_right": 673,
+        "both": 673,
+        "at_least_one": 940
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.2171209447715743,
+        "umi1_left_p95": 9.423940657674057,
+        "umi2_right_median": 6.632757401268355,
+        "umi2_right_p95": 20.554144691479713
+      }
+    },
+    {
+      "episode_index": 70,
+      "frames": 905,
+      "duration_s": 30.166666666666668,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14373046581064755
+      },
+      "reachable_frames": {
+        "umi1_left": 905,
+        "umi2_right": 616,
+        "both": 616,
+        "at_least_one": 905
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 19,
+        "umi1_left_reachable": 19,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.266097055681994,
+        "umi1_left_p95": 9.22847907945077,
+        "umi2_right_median": 6.8019137595819545,
+        "umi2_right_p95": 18.562967014334035
+      }
+    },
+    {
+      "episode_index": 71,
+      "frames": 868,
+      "duration_s": 28.933333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14027714572657
+      },
+      "reachable_frames": {
+        "umi1_left": 857,
+        "umi2_right": 868,
+        "both": 857,
+        "at_least_one": 868
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.692675177844235,
+        "umi1_left_p95": 9.422522230814026,
+        "umi2_right_median": 4.394150697845636,
+        "umi2_right_p95": 9.498865746776687
+      }
+    },
+    {
+      "episode_index": 72,
+      "frames": 906,
+      "duration_s": 30.2,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13988482396595783
+      },
+      "reachable_frames": {
+        "umi1_left": 885,
+        "umi2_right": 906,
+        "both": 885,
+        "at_least_one": 906
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 13,
+        "umi1_left_reachable": 13,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.8870593605606163,
+        "umi1_left_p95": 9.693744145248898,
+        "umi2_right_median": 5.5289397215653056,
+        "umi2_right_p95": 9.342396777480548
+      }
+    },
+    {
+      "episode_index": 73,
+      "frames": 939,
+      "duration_s": 31.3,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1476984747880408
+      },
+      "reachable_frames": {
+        "umi1_left": 939,
+        "umi2_right": 927,
+        "both": 927,
+        "at_least_one": 939
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 14,
+        "umi1_left_reachable": 14,
+        "umi2_right_total": 10,
+        "umi2_right_reachable": 10
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.658191030362248,
+        "umi1_left_p95": 9.12858149646186,
+        "umi2_right_median": 4.608390800422762,
+        "umi2_right_p95": 9.583222873089056
+      }
+    },
+    {
+      "episode_index": 74,
+      "frames": 915,
+      "duration_s": 30.5,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15128632536072012
+      },
+      "reachable_frames": {
+        "umi1_left": 915,
+        "umi2_right": 915,
+        "both": 915,
+        "at_least_one": 915
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 12,
+        "umi1_left_reachable": 12,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.5837103998158133,
+        "umi1_left_p95": 9.390609304144377,
+        "umi2_right_median": 4.485624745362929,
+        "umi2_right_p95": 9.32019006041056
+      }
+    },
+    {
+      "episode_index": 75,
+      "frames": 842,
+      "duration_s": 28.066666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15566332039874028
+      },
+      "reachable_frames": {
+        "umi1_left": 631,
+        "umi2_right": 842,
+        "both": 631,
+        "at_least_one": 842
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 5,
+        "umi1_left_reachable": 5,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.0272406855853395,
+        "umi1_left_p95": 21.698752666004474,
+        "umi2_right_median": 3.3457468856941746,
+        "umi2_right_p95": 9.480809505524201
+      }
+    },
+    {
+      "episode_index": 76,
+      "frames": 921,
+      "duration_s": 30.7,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1587308235512934
+      },
+      "reachable_frames": {
+        "umi1_left": 921,
+        "umi2_right": 915,
+        "both": 915,
+        "at_least_one": 921
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.139905802985167,
+        "umi1_left_p95": 9.296570846733651,
+        "umi2_right_median": 2.155953772034145,
+        "umi2_right_p95": 9.27875031769607
+      }
+    },
+    {
+      "episode_index": 77,
+      "frames": 1249,
+      "duration_s": 41.63333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14060046440966706
+      },
+      "reachable_frames": {
+        "umi1_left": 1189,
+        "umi2_right": 1214,
+        "both": 1154,
+        "at_least_one": 1249
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.916228955076129,
+        "umi1_left_p95": 9.962993593542535,
+        "umi2_right_median": 3.8132786360014723,
+        "umi2_right_p95": 9.591700974282542
+      }
+    },
+    {
+      "episode_index": 78,
+      "frames": 1134,
+      "duration_s": 37.8,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14512691534282798
+      },
+      "reachable_frames": {
+        "umi1_left": 929,
+        "umi2_right": 1110,
+        "both": 908,
+        "at_least_one": 1131
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 3,
+        "umi1_left_reachable": 3,
+        "umi2_right_total": 12,
+        "umi2_right_reachable": 12
+      },
+      "position_error_mm": {
+        "umi1_left_median": 9.312255257856707,
+        "umi1_left_p95": 13.11674832392591,
+        "umi2_right_median": 3.46984909548732,
+        "umi2_right_p95": 9.654051367564312
+      }
+    },
+    {
+      "episode_index": 79,
+      "frames": 919,
+      "duration_s": 30.633333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14955243231320234
+      },
+      "reachable_frames": {
+        "umi1_left": 827,
+        "umi2_right": 687,
+        "both": 633,
+        "at_least_one": 881
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.620789540093181,
+        "umi1_left_p95": 71.98114331548204,
+        "umi2_right_median": 4.730077328497022,
+        "umi2_right_p95": 21.378010040278188
+      }
+    },
+    {
+      "episode_index": 80,
+      "frames": 861,
+      "duration_s": 28.7,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1557194108925764
+      },
+      "reachable_frames": {
+        "umi1_left": 853,
+        "umi2_right": 861,
+        "both": 853,
+        "at_least_one": 861
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 13,
+        "umi2_right_reachable": 13
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.553168234402532,
+        "umi1_left_p95": 9.446734638059114,
+        "umi2_right_median": 3.0200529358122945,
+        "umi2_right_p95": 9.267438639685114
+      }
+    },
+    {
+      "episode_index": 81,
+      "frames": 904,
+      "duration_s": 30.133333333333333,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14707103692437026
+      },
+      "reachable_frames": {
+        "umi1_left": 904,
+        "umi2_right": 904,
+        "both": 904,
+        "at_least_one": 904
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.531962128777529,
+        "umi1_left_p95": 9.354250790573696,
+        "umi2_right_median": 4.936511216050858,
+        "umi2_right_p95": 9.297759077219336
+      }
+    },
+    {
+      "episode_index": 82,
+      "frames": 1154,
+      "duration_s": 38.46666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1419235472128451
+      },
+      "reachable_frames": {
+        "umi1_left": 1154,
+        "umi2_right": 1141,
+        "both": 1141,
+        "at_least_one": 1154
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 16,
+        "umi1_left_reachable": 16,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.372751153161279,
+        "umi1_left_p95": 9.250693358715179,
+        "umi2_right_median": 5.605635375091209,
+        "umi2_right_p95": 9.509200166383621
+      }
+    },
+    {
+      "episode_index": 83,
+      "frames": 998,
+      "duration_s": 33.266666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13712238678288585
+      },
+      "reachable_frames": {
+        "umi1_left": 991,
+        "umi2_right": 998,
+        "both": 991,
+        "at_least_one": 998
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.225951969515471,
+        "umi1_left_p95": 9.5236014417825,
+        "umi2_right_median": 3.9137926999878445,
+        "umi2_right_p95": 9.194520372790308
+      }
+    },
+    {
+      "episode_index": 84,
+      "frames": 910,
+      "duration_s": 30.333333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14617421156765592
+      },
+      "reachable_frames": {
+        "umi1_left": 899,
+        "umi2_right": 910,
+        "both": 899,
+        "at_least_one": 910
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.120936344927979,
+        "umi1_left_p95": 9.566674352660822,
+        "umi2_right_median": 3.9845948836214045,
+        "umi2_right_p95": 9.259017287569176
+      }
+    },
+    {
+      "episode_index": 85,
+      "frames": 975,
+      "duration_s": 32.5,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15417506289918864
+      },
+      "reachable_frames": {
+        "umi1_left": 740,
+        "umi2_right": 975,
+        "both": 740,
+        "at_least_one": 975
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.047466517239458,
+        "umi1_left_p95": 24.48589600118664,
+        "umi2_right_median": 1.4954847943739162,
+        "umi2_right_p95": 9.363520243169138
+      }
+    },
+    {
+      "episode_index": 86,
+      "frames": 893,
+      "duration_s": 29.766666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13941176830106264
+      },
+      "reachable_frames": {
+        "umi1_left": 875,
+        "umi2_right": 887,
+        "both": 869,
+        "at_least_one": 893
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.621485305046947,
+        "umi1_left_p95": 9.724353268107384,
+        "umi2_right_median": 5.112879126426002,
+        "umi2_right_p95": 9.249376169209787
+      }
+    },
+    {
+      "episode_index": 87,
+      "frames": 1015,
+      "duration_s": 33.833333333333336,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13799695758980932
+      },
+      "reachable_frames": {
+        "umi1_left": 1015,
+        "umi2_right": 1015,
+        "both": 1015,
+        "at_least_one": 1015
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.669932005510457,
+        "umi1_left_p95": 9.442943072110321,
+        "umi2_right_median": 3.7706053765251704,
+        "umi2_right_p95": 9.41778679421986
+      }
+    },
+    {
+      "episode_index": 88,
+      "frames": 1010,
+      "duration_s": 33.666666666666664,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1346252618312432
+      },
+      "reachable_frames": {
+        "umi1_left": 1007,
+        "umi2_right": 1010,
+        "both": 1007,
+        "at_least_one": 1010
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.6812453562008525,
+        "umi1_left_p95": 9.440791766604258,
+        "umi2_right_median": 4.193591885987286,
+        "umi2_right_p95": 9.122835616869128
+      }
+    },
+    {
+      "episode_index": 89,
+      "frames": 912,
+      "duration_s": 30.4,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14840087828007606
+      },
+      "reachable_frames": {
+        "umi1_left": 901,
+        "umi2_right": 912,
+        "both": 901,
+        "at_least_one": 912
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.335650486316962,
+        "umi1_left_p95": 9.408758756444563,
+        "umi2_right_median": 4.692357182039425,
+        "umi2_right_p95": 9.241961964767858
+      }
+    },
+    {
+      "episode_index": 90,
+      "frames": 891,
+      "duration_s": 29.7,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1429827620932677
+      },
+      "reachable_frames": {
+        "umi1_left": 772,
+        "umi2_right": 891,
+        "both": 772,
+        "at_least_one": 891
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 12,
+        "umi1_left_reachable": 12,
+        "umi2_right_total": 10,
+        "umi2_right_reachable": 10
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.232448794862161,
+        "umi1_left_p95": 23.531337519605657,
+        "umi2_right_median": 3.8671433263971475,
+        "umi2_right_p95": 9.432248055340404
+      }
+    },
+    {
+      "episode_index": 91,
+      "frames": 880,
+      "duration_s": 29.333333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14763881064809198
+      },
+      "reachable_frames": {
+        "umi1_left": 850,
+        "umi2_right": 721,
+        "both": 721,
+        "at_least_one": 850
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 10,
+        "umi2_right_reachable": 10
+      },
+      "position_error_mm": {
+        "umi1_left_median": 3.6228936043645623,
+        "umi1_left_p95": 9.813708102396307,
+        "umi2_right_median": 5.8974248260177085,
+        "umi2_right_p95": 14.893980041759372
+      }
+    },
+    {
+      "episode_index": 92,
+      "frames": 1253,
+      "duration_s": 41.766666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1320775985466353
+      },
+      "reachable_frames": {
+        "umi1_left": 1253,
+        "umi2_right": 1236,
+        "both": 1236,
+        "at_least_one": 1253
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 0,
+        "umi1_left_reachable": 0,
+        "umi2_right_total": 19,
+        "umi2_right_reachable": 19
+      },
+      "position_error_mm": {
+        "umi1_left_median": 2.920260839520651,
+        "umi1_left_p95": 6.952583145249583,
+        "umi2_right_median": 3.405473838532682,
+        "umi2_right_p95": 9.56998419904097
+      }
+    },
+    {
+      "episode_index": 93,
+      "frames": 850,
+      "duration_s": 28.333333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1411734591283638
+      },
+      "reachable_frames": {
+        "umi1_left": 797,
+        "umi2_right": 760,
+        "both": 731,
+        "at_least_one": 826
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.333640660089056,
+        "umi1_left_p95": 10.432124084208644,
+        "umi2_right_median": 4.843755682610085,
+        "umi2_right_p95": 21.815143612204388
+      }
+    },
+    {
+      "episode_index": 94,
+      "frames": 966,
+      "duration_s": 32.2,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13784510402427128
+      },
+      "reachable_frames": {
+        "umi1_left": 944,
+        "umi2_right": 962,
+        "both": 940,
+        "at_least_one": 966
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.500297805250595,
+        "umi1_left_p95": 9.521065101791557,
+        "umi2_right_median": 5.950395158287887,
+        "umi2_right_p95": 9.388455999035257
+      }
+    },
+    {
+      "episode_index": 95,
+      "frames": 1196,
+      "duration_s": 39.86666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14151544209784792
+      },
+      "reachable_frames": {
+        "umi1_left": 1169,
+        "umi2_right": 1196,
+        "both": 1169,
+        "at_least_one": 1196
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 14,
+        "umi1_left_reachable": 14,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 2.6123653047446393,
+        "umi1_left_p95": 9.692047375052603,
+        "umi2_right_median": 4.623080880408524,
+        "umi2_right_p95": 8.061090395323443
+      }
+    },
+    {
+      "episode_index": 96,
+      "frames": 1117,
+      "duration_s": 37.233333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.135132396687165
+      },
+      "reachable_frames": {
+        "umi1_left": 1070,
+        "umi2_right": 1117,
+        "both": 1070,
+        "at_least_one": 1117
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 5,
+        "umi1_left_reachable": 5,
+        "umi2_right_total": 10,
+        "umi2_right_reachable": 10
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.160351937372887,
+        "umi1_left_p95": 9.872180936937603,
+        "umi2_right_median": 2.6545301546155686,
+        "umi2_right_p95": 9.416665640173314
+      }
+    },
+    {
+      "episode_index": 97,
+      "frames": 882,
+      "duration_s": 29.4,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13437837454557228
+      },
+      "reachable_frames": {
+        "umi1_left": 882,
+        "umi2_right": 682,
+        "both": 682,
+        "at_least_one": 882
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.028053059050412,
+        "umi1_left_p95": 9.140800677970814,
+        "umi2_right_median": 5.527094094211795,
+        "umi2_right_p95": 42.39188383339851
+      }
+    },
+    {
+      "episode_index": 98,
+      "frames": 1190,
+      "duration_s": 39.666666666666664,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13682434081172923
+      },
+      "reachable_frames": {
+        "umi1_left": 1185,
+        "umi2_right": 847,
+        "both": 842,
+        "at_least_one": 1190
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 14,
+        "umi1_left_reachable": 14,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.396790091981509,
+        "umi1_left_p95": 9.332708064149541,
+        "umi2_right_median": 6.546351618961126,
+        "umi2_right_p95": 16.333097657748983
+      }
+    },
+    {
+      "episode_index": 99,
+      "frames": 902,
+      "duration_s": 30.066666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.142185702787336
+      },
+      "reachable_frames": {
+        "umi1_left": 885,
+        "umi2_right": 895,
+        "both": 880,
+        "at_least_one": 900
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 5,
+        "umi2_right_reachable": 5
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.09862321837548,
+        "umi1_left_p95": 9.649082886482777,
+        "umi2_right_median": 5.234266162873723,
+        "umi2_right_p95": 9.447331021291012
+      }
+    },
+    {
+      "episode_index": 100,
+      "frames": 1017,
+      "duration_s": 33.9,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13592039260284464
+      },
+      "reachable_frames": {
+        "umi1_left": 1008,
+        "umi2_right": 1017,
+        "both": 1008,
+        "at_least_one": 1017
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 11,
+        "umi1_left_reachable": 11,
+        "umi2_right_total": 11,
+        "umi2_right_reachable": 11
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.8577929369772805,
+        "umi1_left_p95": 9.527703156744879,
+        "umi2_right_median": 4.233679707445214,
+        "umi2_right_p95": 9.322189195100593
+      }
+    },
+    {
+      "episode_index": 101,
+      "frames": 927,
+      "duration_s": 30.9,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1441960068970303
+      },
+      "reachable_frames": {
+        "umi1_left": 927,
+        "umi2_right": 913,
+        "both": 913,
+        "at_least_one": 927
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 10,
+        "umi1_left_reachable": 10,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.378685845109673,
+        "umi1_left_p95": 9.375505498511469,
+        "umi2_right_median": 3.8639459862562755,
+        "umi2_right_p95": 9.61338298438914
+      }
+    },
+    {
+      "episode_index": 102,
+      "frames": 787,
+      "duration_s": 26.233333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.13756591584535383
+      },
+      "reachable_frames": {
+        "umi1_left": 541,
+        "umi2_right": 765,
+        "both": 541,
+        "at_least_one": 765
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.49532224120847,
+        "umi1_left_p95": 19.265092090641367,
+        "umi2_right_median": 4.223920094579445,
+        "umi2_right_p95": 9.702234961961636
+      }
+    },
+    {
+      "episode_index": 103,
+      "frames": 773,
+      "duration_s": 25.766666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14418188121711828
+      },
+      "reachable_frames": {
+        "umi1_left": 530,
+        "umi2_right": 667,
+        "both": 492,
+        "at_least_one": 705
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.782059850759653,
+        "umi1_left_p95": 30.596699338124875,
+        "umi2_right_median": 5.134472337471723,
+        "umi2_right_p95": 40.31731227061025
+      }
+    },
+    {
+      "episode_index": 104,
+      "frames": 898,
+      "duration_s": 29.933333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14496650979270792
+      },
+      "reachable_frames": {
+        "umi1_left": 823,
+        "umi2_right": 898,
+        "both": 823,
+        "at_least_one": 898
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.567895247024086,
+        "umi1_left_p95": 11.364406139413287,
+        "umi2_right_median": 4.276408267577823,
+        "umi2_right_p95": 9.372095282764622
+      }
+    },
+    {
+      "episode_index": 105,
+      "frames": 820,
+      "duration_s": 27.333333333333332,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15808422854917953
+      },
+      "reachable_frames": {
+        "umi1_left": 592,
+        "umi2_right": 811,
+        "both": 592,
+        "at_least_one": 811
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.2203908429987935,
+        "umi1_left_p95": 37.8405883892714,
+        "umi2_right_median": 3.6896464777079663,
+        "umi2_right_p95": 9.45995097096044
+      }
+    },
+    {
+      "episode_index": 106,
+      "frames": 832,
+      "duration_s": 27.733333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.15953676169730427
+      },
+      "reachable_frames": {
+        "umi1_left": 811,
+        "umi2_right": 832,
+        "both": 811,
+        "at_least_one": 832
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 6,
+        "umi1_left_reachable": 6,
+        "umi2_right_total": 8,
+        "umi2_right_reachable": 8
+      },
+      "position_error_mm": {
+        "umi1_left_median": 5.047938253470679,
+        "umi1_left_p95": 9.654797988099753,
+        "umi2_right_median": 4.072062175899115,
+        "umi2_right_p95": 9.481508965914182
+      }
+    },
+    {
+      "episode_index": 107,
+      "frames": 817,
+      "duration_s": 27.233333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.16011548229755074
+      },
+      "reachable_frames": {
+        "umi1_left": 801,
+        "umi2_right": 817,
+        "both": 801,
+        "at_least_one": 817
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.246281751765601,
+        "umi1_left_p95": 9.614963867194575,
+        "umi2_right_median": 4.080561658105024,
+        "umi2_right_p95": 9.153415634542755
+      }
+    },
+    {
+      "episode_index": 108,
+      "frames": 847,
+      "duration_s": 28.233333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1513238530454953
+      },
+      "reachable_frames": {
+        "umi1_left": 787,
+        "umi2_right": 731,
+        "both": 721,
+        "at_least_one": 797
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.843343514545698,
+        "umi1_left_p95": 12.246909320731424,
+        "umi2_right_median": 5.179781648289749,
+        "umi2_right_p95": 24.646200043515503
+      }
+    },
+    {
+      "episode_index": 109,
+      "frames": 825,
+      "duration_s": 27.5,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1511539496513588
+      },
+      "reachable_frames": {
+        "umi1_left": 825,
+        "umi2_right": 725,
+        "both": 725,
+        "at_least_one": 825
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.44711231798677,
+        "umi1_left_p95": 9.342042227806175,
+        "umi2_right_median": 4.990166588869019,
+        "umi2_right_p95": 11.059667945312471
+      }
+    },
+    {
+      "episode_index": 110,
+      "frames": 883,
+      "duration_s": 29.433333333333334,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.16274538327483454
+      },
+      "reachable_frames": {
+        "umi1_left": 883,
+        "umi2_right": 702,
+        "both": 702,
+        "at_least_one": 883
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 8,
+        "umi1_left_reachable": 8,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.407532189544904,
+        "umi1_left_p95": 9.356342030239304,
+        "umi2_right_median": 5.5236183347706405,
+        "umi2_right_p95": 33.70245564367987
+      }
+    },
+    {
+      "episode_index": 111,
+      "frames": 902,
+      "duration_s": 30.066666666666666,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14436287128555894
+      },
+      "reachable_frames": {
+        "umi1_left": 733,
+        "umi2_right": 902,
+        "both": 733,
+        "at_least_one": 902
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 9,
+        "umi2_right_reachable": 9
+      },
+      "position_error_mm": {
+        "umi1_left_median": 7.184646251638537,
+        "umi1_left_p95": 13.016405963761429,
+        "umi2_right_median": 4.096493366144155,
+        "umi2_right_p95": 9.415052223661688
+      }
+    },
+    {
+      "episode_index": 112,
+      "frames": 935,
+      "duration_s": 31.166666666666668,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.1351372599189861
+      },
+      "reachable_frames": {
+        "umi1_left": 935,
+        "umi2_right": 764,
+        "both": 764,
+        "at_least_one": 935
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 7,
+        "umi2_right_reachable": 7
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.41963138141067,
+        "umi1_left_p95": 9.14654393495299,
+        "umi2_right_median": 5.400645094542361,
+        "umi2_right_p95": 32.06791808239616
+      }
+    },
+    {
+      "episode_index": 113,
+      "frames": 1001,
+      "duration_s": 33.36666666666667,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.14081882034547397
+      },
+      "reachable_frames": {
+        "umi1_left": 960,
+        "umi2_right": 988,
+        "both": 947,
+        "at_least_one": 1001
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 7,
+        "umi1_left_reachable": 7,
+        "umi2_right_total": 10,
+        "umi2_right_reachable": 10
+      },
+      "position_error_mm": {
+        "umi1_left_median": 6.513210634898659,
+        "umi1_left_p95": 9.81161641518433,
+        "umi2_right_median": 4.4520235145145115,
+        "umi2_right_p95": 9.452825703198144
+      }
+    },
+    {
+      "episode_index": 114,
+      "frames": 936,
+      "duration_s": 31.2,
+      "smoothing": {
+        "method": "butterworth",
+        "parameters": {
+          "cutoff_hz": 4.0,
+          "order": 3
+        },
+        "score": 0.16148447283301262
+      },
+      "reachable_frames": {
+        "umi1_left": 878,
+        "umi2_right": 921,
+        "both": 873,
+        "at_least_one": 926
+      },
+      "gripper_event_targets": {
+        "umi1_left_total": 9,
+        "umi1_left_reachable": 9,
+        "umi2_right_total": 6,
+        "umi2_right_reachable": 6
+      },
+      "position_error_mm": {
+        "umi1_left_median": 4.093490488843747,
+        "umi1_left_p95": 28.237752758200617,
+        "umi2_right_median": 4.461169104236536,
+        "umi2_right_p95": 9.632162317911042
+      }
+    }
+  ]
+}

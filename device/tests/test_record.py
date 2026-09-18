@@ -128,6 +128,7 @@ def test_spool_has_data_ignores_empty_scaffolding(tmp_path: Path):
     for name in ("in_progress", "complete", "sent", "staging"):
         (spool / name).mkdir(parents=True, exist_ok=True)
     (spool / record.CAPTURE_LOCK_FILE).touch()
+    (spool / record.RECORDER_LOCK_FILE).touch()
     (spool / record.STATUS_FILE).write_text("{}\n")
     assert not record.spool_has_data(spool)
 

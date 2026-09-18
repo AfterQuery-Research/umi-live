@@ -37,7 +37,7 @@ from umi_flow_device.display import (
 )
 from umi_flow_device.episode import EpisodeRecorder
 from umi_flow_device.lidar_monitor import LidarMonitor
-from umi_flow_device.operation_lock import CAPTURE_LOCK_FILE
+from umi_flow_device.operation_lock import CAPTURE_LOCK_FILE, RECORDER_LOCK_FILE, OperationLock
 from umi_flow_device.preflight import (
     CheckResult,
     PipelineResult,
@@ -141,7 +141,7 @@ def spool_has_data(path: Path) -> bool:
         return False
     scaffolding = {"in_progress", "complete", "sent"}
     for child in path.iterdir():
-        if child.name in {"staging", CAPTURE_LOCK_FILE, STATUS_FILE}:
+        if child.name in {"staging", CAPTURE_LOCK_FILE, RECORDER_LOCK_FILE, STATUS_FILE}:
             continue
         if child.name in scaffolding and child.is_dir():
             if any(child.iterdir()):
@@ -609,13 +609,11 @@ def follower_loop(
             cmd.respond(False, "command is invalid for the current recorder state")
 
 
-def main(args: Args) -> None:
+def _run_recorder(args: Args, spool_dir: Path) -> None:
     config_path = resolve_config_path(args)
     rig = core_config.load_rig_config(config_path)
     role = core_config.client_role(rig)
     dev_dir = device_root()
-    spool_dir = resolve_spool_dir(args.spool_dir)
-    confirm_existing_spool(spool_dir)
 
     manifest_role = rig.umis[0].name
     loaded_identity = {
@@ -742,6 +740,16 @@ def main(args: Args) -> None:
                 close()
         runtime_status.update(state="stopped", session_id=None, episode_id=None)
         signal.signal(signal.SIGTERM, previous_sigterm)
+
+
+def main(args: Args) -> None:
+    spool_dir = resolve_spool_dir(args.spool_dir)
+    confirm_existing_spool(spool_dir)
+    # The capture lock only excludes an active take from maintenance. Hold a distinct
+    # process-lifetime lock so a dev/eval invocation cannot run beside the systemd
+    # recorder and create a one-sided take or clobber its runtime status.
+    with OperationLock.for_recorder(spool_dir):
+        _run_recorder(args, spool_dir)
 
 
 if __name__ == "__main__":
