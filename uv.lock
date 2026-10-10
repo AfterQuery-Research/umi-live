@@ -10,10 +10,11 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "robot-umi",
-    "robot-umi-core",
-    "robot-umi-device",
-    "robot-umi-server",
+    "umi-flow",
+    "umi-flow-core",
+    "umi-flow-device",
+    "umi-flow-server",
+    "umi-flow-test-support",
 ]
 
 [[package]]
@@ -2186,15 +2187,6 @@ wheels = [
 ]
 
 [[package]]
-name = "python-multipart"
-version = "0.0.32"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
-]
-
-[[package]]
 name = "pytz"
 version = "2026.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2297,142 +2289,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c8/5a/b17e1e257d3e6f2e7758930e1256832c9ddd576f8631781e6a072914befa/retrying-1.4.2.tar.gz", hash = "sha256:d102e75d53d8d30b88562d45361d6c6c934da06fab31bd81c0420acb97a8ba39", size = 11411, upload-time = "2025-08-03T03:35:25.189Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/67/f3/6cd296376653270ac1b423bb30bd70942d9916b6978c6f40472d6ac038e7/retrying-1.4.2-py3-none-any.whl", hash = "sha256:bbc004aeb542a74f3569aeddf42a2516efefcdaff90df0eb38fbfbf19f179f59", size = 10859, upload-time = "2025-08-03T03:35:23.829Z" },
-]
-
-[[package]]
-name = "robot-umi"
-version = "0.1.0"
-source = { virtual = "." }
-
-[[package]]
-name = "robot-umi-core"
-version = "0.1.0"
-source = { editable = "common/robot-umi-core" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pyyaml" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=2.2" },
-    { name = "pyyaml", specifier = ">=6.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "ruff", specifier = ">=0.15.21" },
-]
-
-[[package]]
-name = "robot-umi-device"
-version = "0.1.0"
-source = { editable = "device" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "robot-umi-core" },
-    { name = "tyro" },
-]
-
-[package.optional-dependencies]
-pi = [
-    { name = "gpiozero" },
-    { name = "lgpio" },
-    { name = "spidev" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "ty" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "gpiozero", marker = "extra == 'pi'", specifier = ">=2.0" },
-    { name = "lgpio", marker = "extra == 'pi'", specifier = ">=0.2.2.0" },
-    { name = "numpy", specifier = ">=2.2.6" },
-    { name = "pillow", specifier = ">=10.0" },
-    { name = "robot-umi-core", editable = "common/robot-umi-core" },
-    { name = "spidev", marker = "extra == 'pi'", specifier = ">=3.6" },
-    { name = "tyro", specifier = ">=1.0.15" },
-]
-provides-extras = ["pi"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "ruff", specifier = ">=0.15.21" },
-    { name = "ty", specifier = ">=0.0.57" },
-]
-
-[[package]]
-name = "robot-umi-server"
-version = "0.1.0"
-source = { editable = "server" }
-dependencies = [
-    { name = "fastapi" },
-    { name = "huggingface-hub" },
-    { name = "lerobot", extra = ["dataset"] },
-    { name = "numpy" },
-    { name = "opencv-python-headless" },
-    { name = "python-multipart" },
-    { name = "robot-umi-core" },
-    { name = "scipy" },
-    { name = "tyro" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-align = [
-    { name = "gtsam" },
-    { name = "open3d" },
-]
-viz = [
-    { name = "matplotlib" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "robot-umi-device" },
-    { name = "ruff" },
-    { name = "ty" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.139.0" },
-    { name = "gtsam", marker = "extra == 'align'", specifier = ">=4.3a0" },
-    { name = "huggingface-hub", specifier = ">=1.23.0" },
-    { name = "lerobot", extras = ["dataset"], specifier = ">=0.6.0" },
-    { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.8" },
-    { name = "numpy", specifier = ">=2.2.6" },
-    { name = "open3d", marker = "extra == 'align'", specifier = ">=0.18" },
-    { name = "opencv-python-headless", specifier = ">=4.9.0" },
-    { name = "python-multipart", specifier = ">=0.0.32" },
-    { name = "robot-umi-core", editable = "common/robot-umi-core" },
-    { name = "scipy", specifier = ">=1.14" },
-    { name = "tyro", specifier = ">=1.0.15" },
-    { name = "uvicorn", specifier = ">=0.51.0" },
-]
-provides-extras = ["align", "viz"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "robot-umi-device", editable = "device" },
-    { name = "ruff", specifier = ">=0.15.21" },
-    { name = "ty", specifier = ">=0.0.57" },
 ]
 
 [[package]]
@@ -2971,6 +2827,167 @@ sdist = { url = "https://files.pythonhosted.org/packages/92/ff/5a28bdfd8c3ebec42
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/6d/b53b99a9f2766d095985947a5782f1702cabb129a34f7a802d7197af832f/tzdata-2026.3-py2.py3-none-any.whl", hash = "sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931", size = 348168, upload-time = "2026-07-10T08:50:36.46Z" },
 ]
+
+[[package]]
+name = "umi-flow"
+version = "0.1.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+tools = [
+    { name = "matplotlib" },
+    { name = "opencv-python-headless" },
+    { name = "umi-flow-core" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+tools = [
+    { name = "matplotlib", specifier = ">=3.10" },
+    { name = "opencv-python-headless", specifier = ">=4.9.0" },
+    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+]
+
+[[package]]
+name = "umi-flow-core"
+version = "0.1.0"
+source = { editable = "common/umi-flow-core" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.2" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "ruff", specifier = ">=0.15.21" },
+]
+
+[[package]]
+name = "umi-flow-device"
+version = "0.1.0"
+source = { editable = "device" }
+dependencies = [
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "pillow" },
+    { name = "tyro" },
+    { name = "umi-flow-core" },
+]
+
+[package.optional-dependencies]
+pi = [
+    { name = "gpiozero" },
+    { name = "lgpio" },
+    { name = "spidev" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "ty" },
+    { name = "umi-flow-test-support" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gpiozero", marker = "extra == 'pi'", specifier = ">=2.0" },
+    { name = "lgpio", marker = "extra == 'pi'", specifier = ">=0.2.2.0" },
+    { name = "numpy", specifier = ">=2.2.6" },
+    { name = "opencv-python-headless", specifier = ">=4.9.0" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "spidev", marker = "extra == 'pi'", specifier = ">=3.6" },
+    { name = "tyro", specifier = ">=1.0.15" },
+    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+]
+provides-extras = ["pi"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "ruff", specifier = ">=0.15.21" },
+    { name = "ty", specifier = ">=0.0.57" },
+    { name = "umi-flow-test-support", editable = "test-support" },
+]
+
+[[package]]
+name = "umi-flow-server"
+version = "0.1.0"
+source = { editable = "server" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "huggingface-hub" },
+    { name = "lerobot", extra = ["dataset"] },
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "scipy" },
+    { name = "umi-flow-core" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+align = [
+    { name = "gtsam" },
+    { name = "open3d" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "ty" },
+    { name = "umi-flow-device" },
+    { name = "umi-flow-test-support" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.139.0" },
+    { name = "gtsam", marker = "extra == 'align'", specifier = ">=4.3a0" },
+    { name = "huggingface-hub", specifier = ">=1.23.0" },
+    { name = "lerobot", extras = ["dataset"], specifier = ">=0.6.0" },
+    { name = "numpy", specifier = ">=2.2.6" },
+    { name = "open3d", marker = "extra == 'align'", specifier = ">=0.18" },
+    { name = "opencv-python-headless", specifier = ">=4.9.0" },
+    { name = "scipy", specifier = ">=1.14" },
+    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+    { name = "uvicorn", specifier = ">=0.51.0" },
+]
+provides-extras = ["align"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "ruff", specifier = ">=0.15.21" },
+    { name = "ty", specifier = ">=0.0.57" },
+    { name = "umi-flow-device", editable = "device" },
+    { name = "umi-flow-test-support", editable = "test-support" },
+]
+
+[[package]]
+name = "umi-flow-test-support"
+version = "0.1.0"
+source = { editable = "test-support" }
+dependencies = [
+    { name = "umi-flow-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "umi-flow-core", editable = "common/umi-flow-core" }]
 
 [[package]]
 name = "urllib3"

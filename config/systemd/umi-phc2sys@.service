@@ -13,7 +13,11 @@ BindsTo=umi-ptp@%i.service
 Type=simple
 ExecCondition=/bin/sh -c "ethtool -T %i | grep -q 'PTP Hardware Clock: [0-9]'"
 # -s CLOCK_REALTIME -c %i: system clock is the source, PHC follows (the Pi is master).
-ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c %i -O 0 -u 8
+# Chrony may step CLOCK_REALTIME after phc2sys's first update during boot. Without
+# a persistent step threshold, the PHC can remain days behind while phc2sys slews
+# at its 64,000,000 ppb limit, leaving the Airy permanently UnLock. The PHC is an
+# isolated LiDAR time source, so stepping it whenever it is over 1 ms out is safe.
+ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c %i -O 0 -u 8 -S 0.001
 Restart=on-failure
 RestartSec=5
 

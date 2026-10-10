@@ -38,12 +38,12 @@ if [[ "$GLIM_WS" != "none" && -f "$GLIM_WS/install/setup.bash" ]]; then
 fi
 
 # --- resolve the rosbag2 directory -------------------------------------------
-if [[ -f "$BAG_ARG/metadata.yaml" ]]; then
+if [[ -s "$BAG_ARG/metadata.yaml" ]]; then
     BAG="$BAG_ARG"
-elif [[ -f "$BAG_ARG/bag/metadata.yaml" ]]; then
+elif [[ -s "$BAG_ARG/bag/metadata.yaml" ]]; then
     BAG="$BAG_ARG/bag"
 else
-    echo "error: no rosbag2 (metadata.yaml) at $BAG_ARG or $BAG_ARG/bag" >&2
+    echo "error: missing or empty rosbag2 metadata at $BAG_ARG or $BAG_ARG/bag" >&2
     exit 66
 fi
 if [[ ! -f "$(dirname "$BAG")/COMPLETE" && ! -f "$BAG_ARG/COMPLETE" ]]; then
@@ -53,6 +53,8 @@ echo "slam: bag = $BAG"
 
 DUMP="$OUT_DIR/glim_dump"
 mkdir -p "$OUT_DIR"
+OUTPUT_OWNER=$(stat -c '%u:%g' "$OUT_DIR")
+trap 'chown -R "$OUTPUT_OWNER" "$OUT_DIR" || true' EXIT
 rm -f "$OUT_DIR/COMPLETE"
 rm -rf "$DUMP"
 

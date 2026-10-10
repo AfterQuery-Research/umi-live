@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from robot_umi_core import ports
-
-from robot_umi_device.lidar_monitor import (
-    parse_robosense_temp_c,
-    synth_imu_packet,
-    synth_msop_packet,
-)
-from robot_umi_device.pcap import PcapWriter, read_udp_packets
+from umi_flow_core import ports
+from umi_flow_device.lidar_monitor import parse_robosense_temp_c
+from umi_flow_device.pcap import read_udp_packets
+from umi_flow_test_support import PcapWriter, synth_imu_packet, synth_msop_packet
 
 
 def test_pcap_roundtrip(tmp_path):
@@ -48,12 +44,16 @@ def test_synth_msop_packet_shape():
     pkt = synth_msop_packet(temp_c=41.5)
     assert len(pkt) == ports.ROBOSENSE_MSOP_LEN
     assert pkt[:4] == ports.ROBOSENSE_MSOP_MAGIC
-    assert abs(parse_robosense_temp_c(pkt) - 41.5) < ports.ROBOSENSE_TEMP_RES_C
+    temp = parse_robosense_temp_c(pkt)
+    assert temp is not None
+    assert abs(temp - 41.5) < ports.ROBOSENSE_TEMP_RES_C
 
 
 def test_synth_msop_negative_temp_roundtrip():
     pkt = synth_msop_packet(temp_c=-10.0)
-    assert abs(parse_robosense_temp_c(pkt) - (-10.0)) < ports.ROBOSENSE_TEMP_RES_C
+    temp = parse_robosense_temp_c(pkt)
+    assert temp is not None
+    assert abs(temp - (-10.0)) < ports.ROBOSENSE_TEMP_RES_C
 
 
 def test_synth_imu_packet_shape():

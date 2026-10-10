@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# Calibrate both provisioned UMI cameras and deploy the accepted intrinsics atomically.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAIR_CONFIG="${PAIR_CONFIG:-$ROOT/provisioning/pair.env}"
+die() { echo "calibrate-pair: $*" >&2; exit 1; }
+log() { echo; echo "=== $* ==="; }
+
+DRY_RUN=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) echo "usage: bin/calibrate-pair [--dry-run]"; exit 0 ;;
+    *) die "unknown argument '$1'" ;;
+  esac
+done
+
+[ -f "$PAIR_CONFIG" ] || die "missing $PAIR_CONFIG (copy provisioning/pair.env.example)"
+# shellcheck disable=SC1090
+. "$PAIR_CONFIG"
+for name in LEADER FOLLOWER; do
+  [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
+  case "${!name}" in *@*) ;; *) die "$name must be user@host" ;; esac
+done
+
+leader_user="${LEADER%@*}"
+follower_user="${FOLLOWER%@*}"
+case "$leader_user" in ""|*[!A-Za-z0-9._-]*) die "invalid LEADER user '$leader_user'" ;; esac
+case "$follower_user" in ""|*[!A-Za-z0-9._-]*) die "invalid FOLLOWER user '$follower_user'" ;; esac
+
+leader_local="$ROOT/config/calib/umi1_calib.npz"
+follower_local="$ROOT/config/calib/umi2_calib.npz"
+leader_remote="/home/$leader_user/umi-flow/config/calib/umi1_calib.npz"
+follower_remote="/home/$follower_user/umi-flow/config/calib/umi2_calib.npz"
+
+if [ "$DRY_RUN" = 1 ]; then
+  echo "calibrate-pair dry run (no local or remote changes)"
+  echo "  umi1: $LEADER -> $leader_local -> $LEADER:$leader_remote"
+  echo "  umi2: $FOLLOWER -> $follower_local -> $FOLLOWER:$follower_remote"
+  echo "  sequence: verify -> generate board -> calibrate both -> deploy both"
+  exit 0
+fi
+
+command -v uv >/dev/null || die "uv is required (see README install step)"
+[ -t 0 ] || die "run interactively so you can position the calibration board"
+
+run_dir="$(mktemp -d "${TMPDIR:-/tmp}/umi-flow-calibration.XXXXXX")"
+success=0
+deployment_started=0
+cleanup() {
+  if [ "$success" = 0 ] && [ "$deployment_started" = 1 ]; then
+    rollback
+  fi
+  if [ "$success" = 1 ]; then
+    rm -R -- "$run_dir"
+  else
+    echo "calibration run preserved at $run_dir" >&2
+  fi
+}
+trap cleanup EXIT
+
+python_tool() {
+  (cd "$ROOT" && uv run --group tools python "$@")
+}
+
+log "verify both provisioned clients are idle"
+python_tool tools/calibrate_camera.py --preflight-host "$LEADER"
+python_tool tools/calibrate_camera.py --preflight-host "$FOLLOWER"
+
+log "display calibration board"
+python_tool tools/make_charuco.py --out "$run_dir/charuco.png" --open
+read -r -p "Display the ChArUco image full-screen, then press Enter to continue: "
+
+log "calibrate leader $LEADER (umi1)"
+python_tool tools/calibrate_camera.py \
+  --host "$LEADER" \
+  --out "$run_dir/umi1_calib.npz"
+
+log "calibrate follower $FOLLOWER (umi2)"
+python_tool tools/calibrate_camera.py \
+  --host "$FOLLOWER" \
+  --out "$run_dir/umi2_calib.npz"
+
+# Both solves passed before any existing calibration is touched. Prepare the local
+# replacements now; their final rename happens only after both remote deployments.
+leader_local_new="$ROOT/config/calib/.umi1_calib.npz.new.$$"
+follower_local_new="$ROOT/config/calib/.umi2_calib.npz.new.$$"
+leader_local_backup="$ROOT/config/calib/.umi1_calib.npz.backup.$$"
+follower_local_backup="$ROOT/config/calib/.umi2_calib.npz.backup.$$"
+install -m 0644 "$run_dir/umi1_calib.npz" "$leader_local_new"
+install -m 0644 "$run_dir/umi2_calib.npz" "$follower_local_new"
+cp -p "$leader_local" "$leader_local_backup"
+cp -p "$follower_local" "$follower_local_backup"
+
+# Re-check immediately before deployment so a take started during calibration cannot
+# have its snapshot changed underneath it.
+log "verify both clients are still idle"
+python_tool tools/calibrate_camera.py --preflight-host "$LEADER"
+python_tool tools/calibrate_camera.py --preflight-host "$FOLLOWER"
+
+SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
+run_id="$$"
+leader_new="$leader_remote.new.$run_id"
+follower_new="$follower_remote.new.$run_id"
+leader_backup="$leader_remote.backup.$run_id"
+follower_backup="$follower_remote.backup.$run_id"
+
+remote() { ssh "${SSH_OPTS[@]}" "$1" "$2"; }
+discard_staging() {
+  remote "$LEADER" "rm -f '$leader_new' '$leader_backup'" >/dev/null 2>&1 || true
+  remote "$FOLLOWER" "rm -f '$follower_new' '$follower_backup'" >/dev/null 2>&1 || true
+  rm -f -- "$leader_local_new" "$follower_local_new" \
+    "$leader_local_backup" "$follower_local_backup"
+}
+rollback() {
+  remote "$LEADER" \
+    "test ! -f '$leader_backup' || mv -f '$leader_backup' '$leader_remote'; rm -f '$leader_new'" \
+    >/dev/null 2>&1 || true
+  remote "$FOLLOWER" \
+    "test ! -f '$follower_backup' || mv -f '$follower_backup' '$follower_remote'; rm -f '$follower_new'" \
+    >/dev/null 2>&1 || true
+  test ! -f "$leader_local_backup" || mv -f -- "$leader_local_backup" "$leader_local"
+  test ! -f "$follower_local_backup" || mv -f -- "$follower_local_backup" "$follower_local"
+  rm -f -- "$leader_local_new" "$follower_local_new"
+  deployment_started=0
+}
+
+log "stage accepted calibrations on both clients"
+if ! scp "${SSH_OPTS[@]}" -q "$run_dir/umi1_calib.npz" "$LEADER:$leader_new" \
+  || ! scp "${SSH_OPTS[@]}" -q "$run_dir/umi2_calib.npz" "$FOLLOWER:$follower_new"; then
+  discard_staging
+  die "could not stage both calibrations; existing files were not changed"
+fi
+if ! remote "$LEADER" "test -f '$leader_remote' && cp -p '$leader_remote' '$leader_backup'" \
+  || ! remote "$FOLLOWER" "test -f '$follower_remote' && cp -p '$follower_remote' '$follower_backup'"; then
+  discard_staging
+  die "could not back up both existing remote calibrations"
+fi
+deployment_started=1
+
+log "activate calibrations"
+if ! remote "$LEADER" "mv -f '$leader_new' '$leader_remote'" \
+  || ! remote "$FOLLOWER" "mv -f '$follower_new' '$follower_remote'"; then
+  rollback
+  die "remote activation failed; attempted to restore both previous calibrations"
+fi
+
+mv -f -- "$leader_local_new" "$leader_local"
+mv -f -- "$follower_local_new" "$follower_local"
+remote "$LEADER" "rm -f '$leader_backup'" >/dev/null 2>&1 || true
+remote "$FOLLOWER" "rm -f '$follower_backup'" >/dev/null 2>&1 || true
+rm -f -- "$leader_local_backup" "$follower_local_backup"
+
+success=1
+deployment_started=0
+echo "calibration complete: local files and both clients now use the accepted intrinsics"

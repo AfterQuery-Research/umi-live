@@ -7,8 +7,7 @@ import threading
 from pathlib import Path
 
 import pytest
-
-from robot_umi_server.episode import extract_episode
+from umi_flow_server.episode import INGESTED_FILE, extract_episode, validate_episode
 
 
 def make_episode(path: Path, episode_name: str = "episode_test") -> Path:
@@ -25,6 +24,14 @@ def make_episode(path: Path, episode_name: str = "episode_test") -> Path:
 def tar_episode(source: Path, tar_path: Path) -> None:
     with tarfile.open(tar_path, "w") as tar:
         tar.add(source, arcname=source.name)
+
+
+@pytest.mark.parametrize("contents", ["", "\n  \n"])
+def test_validate_rejects_empty_checksums(tmp_path: Path, contents: str):
+    source = make_episode(tmp_path / "source")
+    (source / "checksums.sha256").write_text(contents)
+    with pytest.raises(ValueError, match="empty checksums"):
+        validate_episode(source)
 
 
 def test_extract_rejects_gzip_compressed_tar(tmp_path: Path):
@@ -123,6 +130,7 @@ def test_validate_runs_before_publish_on_the_staged_dir(tmp_path: Path):
     assert seen == [True]
     assert dest == raw / "episode_ok"
     assert (dest / "COMPLETE").exists()
+    assert int((dest / INGESTED_FILE).read_text()) > 0
 
 
 def test_concurrent_extract_of_same_episode_yields_one_winner(tmp_path: Path):

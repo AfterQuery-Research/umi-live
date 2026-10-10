@@ -1,100 +1,63 @@
 #!/usr/bin/env bash
-# bin/provision-server — stand up the PROCESSING HOST from your workstation, the same
-# way bin/provision-pi stands up a Pi: one local inventory, rendered and pushed. The
-# upload token is written ONCE (provisioning/secrets) and fanned out to the box here
-# and to each Pi by bin/provision-pi — the two can never mismatch.
-#
-#   cp provisioning/secrets.example    provisioning/secrets      # 3 secrets
-#   cp provisioning/server.env.example provisioning/server.env   # box settings
-#   ./bin/provision-server ubuntu@<box-ip>     # remote GPU box: render .env, rsync repo,
-#                                             # run install_server.sh, verify
-#   ./bin/provision-server --local             # Mac-as-host: just render ./.env here,
-#                                             # then run: PAIR=1 mac/run_processing.sh
-#
-# Idempotent; re-run after editing the inventory (edit the inventory, not the box).
+# Provision the single Ubuntu processing server from provisioning/pair.env.
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (script lives in bin/)
-die() { echo "provision_server: $*" >&2; exit 1; }
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAIR_CONFIG="${PAIR_CONFIG:-$ROOT/provisioning/pair.env}"
+die() { echo "provision-server: $*" >&2; exit 1; }
 log() { echo; echo "=== $* ==="; }
 
-BOX=""; LOCAL=0
 case "${1:-}" in
-  --local) LOCAL=1;;
-  -h|--help|"") sed -n '2,15p' "$0"; exit 0;;
-  *@*) BOX="$1";;
-  *) die "usage: ./bin/provision-server <user@box> | --local";;
+  "") ;;
+  -h|--help) echo "usage: bin/provision-server"; exit 0 ;;
+  *) die "unexpected argument '$1'" ;;
 esac
-
-SECRETS="$HERE/provisioning/secrets"
-SRVENV="$HERE/provisioning/server.env"
-[ -f "$SECRETS" ] || die "missing $SECRETS  (cp provisioning/secrets.example provisioning/secrets)"
-[ -f "$SRVENV" ] || die "missing $SRVENV  (cp provisioning/server.env.example provisioning/server.env)"
+[ -f "$PAIR_CONFIG" ] || die "missing $PAIR_CONFIG (copy provisioning/pair.env.example)"
 # shellcheck disable=SC1090
-. "$SECRETS"
-# shellcheck disable=SC1090
-. "$SRVENV"
-[ -n "${UPLOAD_TOKEN:-}" ] || die "UPLOAD_TOKEN is blank in $SECRETS  (openssl rand -hex 32)"
-[ -n "${REPO_ID:-}" ] || die "REPO_ID is blank in $SRVENV  (e.g. yourname/umi-dataset)"
-[ -n "${HF_TOKEN:-}" ] || echo "provision_server: WARN HF_TOKEN blank — datasets stay local-only (no Hub push)"
+. "$PAIR_CONFIG"
+[ -n "${SERVER:-}" ] || die "SERVER is blank in $PAIR_CONFIG"
+case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 
-render_env() {  # $1 = DATA_DIR value to embed
-  cat <<ENV
-# Rendered by bin/provision-server from provisioning/secrets + provisioning/server.env.
-# Edit the inventory and re-run ./bin/provision-server — not this file.
-ROBOT_UMI_UPLOAD_TOKEN=$UPLOAD_TOKEN
-HF_TOKEN=${HF_TOKEN:-}
-ROBOT_UMI_REPO_ID=$REPO_ID
-ROBOT_UMI_PUSH_TO_HUB=${PUSH_TO_HUB:-1}
-ROBOT_UMI_PUBLIC=${PUBLIC:-0}
-ROBOT_UMI_DATASET_ROOT=data/lerobot
-ROBOT_UMI_ENGINE=glim
-DATA_DIR=$1
-ROBOT_UMI_RUNNER_ARGS=${RUNNER_ARGS:-}
-ENV
-}
+SERVER_USER="${SERVER%@*}"
+REMOTE_REPO="/home/$SERVER_USER/umi-flow"
+case "${DATA_NAMESPACE:-}" in
+  "") SERVER_DATA_DIR="$REMOTE_REPO/data" ;;
+  "."|".."|*[!A-Za-z0-9._-]*)
+    die "DATA_NAMESPACE may contain only letters, numbers, dot, underscore, and hyphen"
+    ;;
+  *) SERVER_DATA_DIR="$REMOTE_REPO/data/$DATA_NAMESPACE" ;;
+esac
+SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
+server_ssh() { ssh "${SSH_OPTS[@]}" "$SERVER" "$@"; }
 
-if [ "$LOCAL" = 1 ]; then
-  # Mac-as-host: the processing host IS this machine; render the repo-local .env that
-  # mac/run_processing.sh sources. (HOST_UID/GID are a Linux-compose concern only.)
-  render_env "./data" > "$HERE/.env"
-  echo "provision_server: wrote $HERE/.env (token/HF/repo from the inventory)."
-  echo "Start processing with:  PAIR=1 INGEST_HOST=0.0.0.0 mac/run_processing.sh"
-  exit 0
-fi
+log "1/4 preflight: $SERVER"
+server_ssh true || die "cannot SSH to $SERVER"
+server_ssh 'sudo -n true' >/dev/null 2>&1 || die "$SERVER requires passwordless sudo"
 
-BOX_USER="${BOX%@*}"
-SSHOPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
-bssh() { ssh "${SSHOPTS[@]}" "$BOX" "$@"; }
-
-log "1/4 preflight"
-bssh true || die "cannot SSH to $BOX — set up key access first"
-bssh 'sudo -n true' 2>/dev/null \
-  || die "$BOX needs passwordless sudo for install_server.sh (standard on cloud images)"
-REMOTE_REPO="/home/$BOX_USER/$(basename "$HERE")"
-
-log "2/4 rsync repo -> $BOX:$REMOTE_REPO"
-# The inventory (secrets, rig files) and local data/venv NEVER leave this machine;
-# the box gets code + a rendered .env only.
-rsync -a \
+log "2/4 deploy repository"
+server_ssh "mkdir -p '$REMOTE_REPO'"
+rsync -a --delete \
+  --exclude-from "$ROOT/config/rsync-excludes" \
   --exclude '.git' --exclude '.venv' --exclude 'data' --exclude '__pycache__' \
   --exclude 'provisioning' --exclude '.env' --exclude 'config/umi.yaml' \
   --exclude 'device/v4l2_recorder/target' --exclude '*.rrd' \
   --exclude 'docker-compose.override.yml' \
-  -e "ssh ${SSHOPTS[*]}" "$HERE/" "$BOX:$REMOTE_REPO/"
+  -e "ssh ${SSH_OPTS[*]}" "$ROOT/" "$SERVER:$REMOTE_REPO/"
 
-log "3/4 render + push .env"
-# Preserve installer-managed HOST_UID/GID lines across re-provisions if present.
-KEEP="$(bssh "grep -E '^HOST_[UG]ID=' $REMOTE_REPO/.env 2>/dev/null" || true)"
-{ render_env "$REMOTE_REPO/data"; if [ -n "$KEEP" ]; then printf '%s\n' "$KEEP"; fi; } \
-  | bssh "cat > $REMOTE_REPO/.env"
-echo "server .env rendered (token fanned out from provisioning/secrets)"
+log "3/4 render internal server environment"
+# HF_REPO_ID/HF_TOKEN come from pair.env; blank = local-only dataset (no Hub push).
+server_ssh "cat > '$REMOTE_REPO/.env'" <<ENV
+# Rendered by bin/provision-server. Edit provisioning/pair.env and re-provision, not this.
+DATA_DIR=$SERVER_DATA_DIR
+HF_REPO_ID=${HF_REPO_ID:-}
+HF_TOKEN=${HF_TOKEN:-}
+ENV
 
-log "4/4 install_server.sh on $BOX (idempotent; first run ~15 min)"
-bssh "cd $REMOTE_REPO && bash server/scripts/install_server.sh" \
-  || die "install_server.sh failed on $BOX (see output above)"
+log "4/4 install server"
+server_ssh "cd '$REMOTE_REPO' && bash server/scripts/install_server.sh" \
+  || die "install_server.sh failed on $SERVER"
 
-echo
-echo "provision_server: done. Verify:"
-echo "  ssh $BOX 'curl -s -o /dev/null -w \"%{http_code}\\n\" -X POST http://localhost:8080/upload'   # 401 = up"
-echo "Now provision the Pis against it:  ./bin/provision-pi --target gpu <user@pi>"
-echo "(rig env: SERVER_SSH=\"$BOX\" for an SSH-only cloud box, or SERVER_URL for a LAN box)"
+code="$(server_ssh "curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/upload")"
+[ "$code" = 400 ] || die "ingest health check returned HTTP $code, expected 400"
+server_ssh 'systemctl is-active --quiet umi-runner' || die "umi-runner is not active"
+echo "server ready: $SERVER"

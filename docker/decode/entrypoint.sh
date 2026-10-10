@@ -18,9 +18,6 @@
 # A hard DECODE_MAX_SECS cap (default 7200s; episodes are minutes long at
 # 1x replay) backstops both. Idle/timeout values need on-GPU-box validation.
 #
-# TODO(livox): only the RoboSense parser is implemented. Livox (mid360)
-# episodes need a different replay path — we detect and refuse them below.
-
 # no -u: ROS/colcon setup.bash reference unset vars (AMENT_TRACE_SETUP_FILES,
 # COLCON_TRACE, ...) and are sourced repeatedly below.
 set -eo pipefail
@@ -37,12 +34,6 @@ START_TIMEOUT="${DECODE_START_TIMEOUT:-120}"
 
 [[ -d "$EPISODE_DIR" ]] || { echo "error: episode dir not found: $EPISODE_DIR" >&2; exit 66; }
 
-# --- refuse what we can't parse yet -----------------------------------------
-if [[ -f "$EPISODE_DIR/manifest.json" ]] && grep -qi livox "$EPISODE_DIR/manifest.json"; then
-    echo "error: episode manifest mentions Livox — Livox pcap replay is not implemented (TODO)" >&2
-    exit 65
-fi
-
 # --- locate the pcap ---------------------------------------------------------
 shopt -s nullglob
 if [[ -n "$SCOPE" ]]; then pcaps=("$EPISODE_DIR/${SCOPE}_lidar.pcap"); else pcaps=("$EPISODE_DIR"/umi*_lidar.pcap); fi
@@ -53,8 +44,8 @@ if [[ ${#pcaps[@]} -eq 0 ]]; then
 fi
 PCAP="${pcaps[0]}"
 if [[ ${#pcaps[@]} -gt 1 ]]; then
-    # TODO(multi-rig): decode each pcap into its own bag; single-rig for now.
-    echo "warning: ${#pcaps[@]} lidar pcaps found; using only $PCAP" >&2
+    echo "error: decode scope resolved more than one lidar pcap" >&2
+    exit 65
 fi
 echo "decode: pcap = $PCAP"
 
@@ -77,13 +68,35 @@ rm -rf "$BAG_DIR"   # rosbag2 refuses an existing -o dir; make reruns idempotent
 
 NODE_PID=""
 RECORD_PID=""
+OUTPUT_OWNER=$(stat -c '%u:%g' "$OUT_DIR")
+stop_group() {
+    local pid=$1 grace=$2
+    [[ -n "$pid" ]] || return 0
+    kill -INT -- -"$pid" 2>/dev/null || true
+    for ((i=0; i<grace; i++)); do
+        kill -0 -- -"$pid" 2>/dev/null || return 0
+        sleep 1
+    done
+    kill -KILL -- -"$pid" 2>/dev/null || true
+}
+shutdown() {
+    stop_group "$NODE_PID" 20
+    NODE_PID=""
+    # Give rosbag2 time to flush metadata after the driver has stopped.
+    stop_group "$RECORD_PID" 30
+    RECORD_PID=""
+}
 cleanup() {
-    # SIGINT (not KILL): rosbag2 finalizes metadata.yaml on SIGINT.
-    [[ -n "$NODE_PID" ]] && kill -INT "$NODE_PID" 2>/dev/null || true
-    [[ -n "$RECORD_PID" ]] && kill -INT "$RECORD_PID" 2>/dev/null || true
-    wait 2>/dev/null || true
+    local status=$?
+    trap - EXIT INT TERM
+    shutdown
+    # ROS needs root in the image; retries on the host must still own the output.
+    chown -R "$OUTPUT_OWNER" "$OUT_DIR" || true
+    return "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Recorder first so no early frames are missed (it waits for the topics).
 # -s mcap pins the storage format explicitly => "decoded_bag_v1" is stable
@@ -98,8 +111,10 @@ RECORD_PID=$!
 set +m
 sleep 3
 
+set -m
 ros2 run rslidar_sdk rslidar_sdk_node --ros-args -p config_path:="$RUN_CFG" &
 NODE_PID=$!
+set +m
 
 # --- wait for replay to finish (see header for the strategy) ------------------
 start=$(date +%s)
@@ -128,35 +143,37 @@ while :; do
         exit 1
     fi
     if (( now - start >= MAX_SECS )); then
-        echo "warning: hit DECODE_MAX_SECS=${MAX_SECS}; stopping" >&2
-        break
+        echo "error: hit DECODE_MAX_SECS=${MAX_SECS}; refusing partial decode" >&2
+        exit 1
     fi
 done
 
-# Orderly shutdown: driver first, then flush the recorder. SIGINT to the
-# `ros2 run` wrapper does NOT reliably reach the real node — kill by name with
-# bounded waits, then escalate (an unkillable node must not hang the stage).
-stop_all() {
-    local sig=$1
-    kill -"$sig" "$NODE_PID" 2>/dev/null || true
-    pkill -"$sig" -f "rslidar_sdk_node" 2>/dev/null || true
-}
-stop_all INT
-for _ in $(seq 1 20); do pgrep -f "rslidar_sdk_node" >/dev/null || break; sleep 1; done
-pgrep -f "rslidar_sdk_node" >/dev/null && stop_all KILL
-NODE_PID=""
-kill -INT -- -"$RECORD_PID" 2>/dev/null || kill -INT "$RECORD_PID" 2>/dev/null || true
-for _ in $(seq 1 30); do kill -0 "$RECORD_PID" 2>/dev/null || break; sleep 1; done
-kill -0 "$RECORD_PID" 2>/dev/null && kill -KILL -- -"$RECORD_PID" 2>/dev/null
-wait "$RECORD_PID" 2>/dev/null || true
-RECORD_PID=""
-trap - EXIT
+shutdown
 
 # rosbag2 writes metadata.yaml only on clean close — treat it as the success probe.
-if [[ ! -f "$BAG_DIR/metadata.yaml" ]]; then
+if [[ ! -s "$BAG_DIR/metadata.yaml" ]]; then
     echo "error: $BAG_DIR/metadata.yaml missing — bag did not close cleanly" >&2
     exit 1
 fi
+
+# A marker is not proof of usable decode output: empty/truncated metadata from
+# disk-full failures used to pass through to GLIM and retry forever.
+python3 - "$BAG_DIR/metadata.yaml" <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+try:
+    info = yaml.safe_load(Path(sys.argv[1]).read_text())["rosbag2_bagfile_information"]
+    counts = {
+        entry["topic_metadata"]["name"]: entry["message_count"]
+        for entry in info["topics_with_message_count"]
+    }
+    if any(counts.get(topic, 0) <= 0 for topic in ("/rslidar_points", "/rslidar_imu_data")):
+        raise ValueError("bag needs both LiDAR points and IMU messages")
+except (OSError, TypeError, KeyError, ValueError, yaml.YAMLError) as exc:
+    raise SystemExit(f"error: unusable decoded bag metadata: {exc}") from exc
+PY
 
 touch "$OUT_DIR/COMPLETE"
 echo "decode: done -> $BAG_DIR ($(du -sh "$BAG_DIR" | cut -f1))"

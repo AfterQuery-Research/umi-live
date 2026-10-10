@@ -18,10 +18,6 @@
 # Needs on-GPU-box validation: full colcon build, replay-end idle detection
 # timing in entrypoint.sh, recorded bag completeness (QoS/drops).
 #
-# TODO(livox): only the RoboSense pcap parser is wired up. Livox episodes
-# (mid360) need a different replay path (livox_ros_driver2 has no pcap replay)
-# — not implemented yet; entrypoint.sh refuses Livox episodes explicitly.
-
 # Pinned tag verified on Docker Hub 2026-07-15 (jazzy-ros-base on Ubuntu
 # 24.04 Noble). ros_base includes rosbag2; the explicit apt packages below
 # are belt-and-braces + self-documentation.

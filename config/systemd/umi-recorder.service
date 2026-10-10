@@ -1,7 +1,6 @@
 # UMI episode recorder. install_pi.sh substitutes @REPO@/@USER@ and installs this
 # to /etc/systemd/system/umi-recorder.service. Reads all deployment settings from
-# the repo-root .env (ROBOT_UMI_SERVER_URL / ROBOT_UMI_CONFIG / ROBOT_UMI_SPOOL_DIR
-# / ROBOT_UMI_UPLOAD_TOKEN). Enable to autostart on boot:
+# the repo-root .env (client config and SD-card spool path).
 #   sudo systemctl enable --now umi-recorder
 [Unit]
 Description=UMI episode recorder
@@ -18,10 +17,15 @@ User=@USER@
 SupplementaryGroups=video gpio spi dialout i2c
 WorkingDirectory=@REPO@
 EnvironmentFile=@REPO@/.env
-# server URL / config / spool all come from the EnvironmentFile above. The LCD kind +
-# all GPIO pins come from the rig config (controls:), so no --display here (--display
-# defaults to "auto" = use controls.display.kind).
+# Config and spool come from the rendered environment. Role is derived from the
+# config's fixed umi1/umi2 name; upload always uses the local SSH tunnel.
 ExecStart=@REPO@/.venv/bin/python device/scripts/record.py --buttons gpio
+# Give the Python process sole ownership of graceful shutdown. It catches
+# SIGTERM, stops/flushed the camera and lidar children, writes the manifest and
+# COMPLETE marker, then exits. systemd only kills the whole cgroup if that
+# orderly shutdown exceeds the capture drain/hash budget.
+KillMode=mixed
+TimeoutStopSec=120
 Restart=on-failure
 RestartSec=5
 

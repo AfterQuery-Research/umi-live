@@ -1,4 +1,4 @@
-"""Episode lifecycle: enable-mask modes, hermetic snapshot, manifest v2, checksums."""
+"""Fixed lidar episode lifecycle, hermetic snapshot, manifest v2, checksums."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-
-from robot_umi_core import config as core_config
-from robot_umi_core import layout, manifest
-
-from robot_umi_device.episode import EpisodeRecorder, write_checksums
-from robot_umi_device.mock_lidar import MockLidarPcapRecorder
-from robot_umi_device.pcap import read_udp_packets
-from robot_umi_device.sensors import SensorStats
+from umi_flow_core import config as core_config
+from umi_flow_core import layout, manifest
+from umi_flow_device.episode import EpisodeRecorder, write_checksums
+from umi_flow_device.operation_lock import OperationLock
+from umi_flow_device.pcap import read_udp_packets
+from umi_flow_device.safety import SafetyPolicy
+from umi_flow_device.sensors import SensorStats
+from umi_flow_test_support import MockLidarPcapRecorder
 
 
 class FakeCameraRecorder:
@@ -49,7 +49,6 @@ def rig_and_recorder(tmp_path):
     calib.write_bytes(b"npzblob")
     raw = {
         "version": 1,
-        "motion_source": "lidar",
         "task": "test",
         "umis": {
             "umi1": {
@@ -61,6 +60,7 @@ def rig_and_recorder(tmp_path):
                     "calib": "config/calib/umi1_calib.npz",
                 },
                 "lidar": {"iface": "eth0"},
+                "gripper": {"tag_ids": [2, 3]},
             }
         },
     }
@@ -87,15 +87,47 @@ def rig_and_recorder(tmp_path):
     return rig, recorder, sensors
 
 
+def test_start_rechecks_storage_headroom(rig_and_recorder, monkeypatch):
+    _rig, recorder, _sensors = rig_and_recorder
+
+    class Usage:
+        free = 99
+
+    recorder.safety_policy = SafetyPolicy(
+        min_free_bytes_after_take=100,
+        estimated_take_bytes=0,
+        metadata_reserve_bytes=0,
+    )
+    monkeypatch.setattr("umi_flow_device.safety.shutil.disk_usage", lambda _path: Usage())
+
+    with pytest.raises(RuntimeError, match="insufficient recording storage"):
+        recorder.start(session_id="sess_1", role="umi1")
+    assert recorder.active is None
+
+
+def test_capture_lock_excludes_maintenance(rig_and_recorder):
+    _rig, recorder, _sensors = rig_and_recorder
+    recorder.start(session_id="sess_1", role="umi1")
+
+    maintenance = OperationLock.for_spool(recorder.spool_dir)
+    with pytest.raises(RuntimeError, match="capture or maintenance is already active"):
+        maintenance.acquire()
+
+    recorder.cancel()
+    maintenance.acquire()
+    maintenance.release()
+
+
 def test_full_episode_lifecycle(rig_and_recorder):
     _rig, recorder, _sensors = rig_and_recorder
-    active = recorder.start("lidar")
+    active = recorder.start(session_id="sess_1", role="umi1")
     assert recorder.active is not None
     final = recorder.stop()
     assert final.exists() and final.parent.name == "complete"
 
     m = manifest.read_manifest(final / layout.MANIFEST_FILE)
-    assert m["mode"] == "lidar"
+    assert m["manifest_version"] == 3
+    assert "mode" not in m
     assert m["dataset_eligible"] is True
     assert set(m["sensors"]) == {"umi1/camera", "umi1/lidar"}
     assert m["ptp"]["eth0"]["locked"] is True
@@ -119,11 +151,9 @@ def test_full_episode_lifecycle(rig_and_recorder):
     assert active.episode_id == final.name
 
 
-def test_mode_arms_subset(tmp_path, rig_and_recorder):
+def test_fixed_capture_plan(rig_and_recorder):
     _rig, recorder, _sensors = rig_and_recorder
-    # 'vive' mode isn't realizable for this rig at parse time, but capture_plan
-    # itself only arms configured sensors: lidar mode must include the lidar.
-    active = recorder.start("lidar")
+    active = recorder.start(session_id="sess_1", role="umi1")
     keys = {s.sensor_key for s in active.sensors}
     assert keys == {"umi1/camera", "umi1/lidar"}
     recorder.stop()
@@ -135,7 +165,6 @@ def test_armed_sensor_error_marks_ineligible(tmp_path):
     (config_root / "config" / "c.npz").write_bytes(b"x")
     raw = {
         "version": 1,
-        "motion_source": "lidar",
         "umis": {
             "umi1": {
                 "camera": {
@@ -146,6 +175,7 @@ def test_armed_sensor_error_marks_ineligible(tmp_path):
                     "calib": "config/c.npz",
                 },
                 "lidar": {"iface": "eth0"},
+                "gripper": {"tag_ids": [2, 3]},
             }
         },
     }
@@ -159,7 +189,7 @@ def test_armed_sensor_error_marks_ineligible(tmp_path):
     recorder = EpisodeRecorder(
         rig, config_path, tmp_path / "spool", sensors, config_root=config_root
     )
-    recorder.start("lidar")
+    recorder.start(session_id="sess_1", role="umi1")
     final = recorder.stop()
     m = json.loads((final / layout.MANIFEST_FILE).read_text())
     assert m["dataset_eligible"] is False
@@ -170,7 +200,7 @@ def test_armed_sensor_error_marks_ineligible(tmp_path):
 
 def test_cancel_discards_episode(rig_and_recorder):
     _rig, recorder, _sensors = rig_and_recorder
-    active = recorder.start("lidar")
+    active = recorder.start(session_id="sess_1", role="umi1")
     path = active.path
     recorder.cancel()
     assert not path.exists()

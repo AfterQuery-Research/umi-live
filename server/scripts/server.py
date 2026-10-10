@@ -7,36 +7,23 @@ Processing (decode / SLAM / gripper / dataset) is the pipeline runner's job
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
-import tyro
 import uvicorn
-
-from robot_umi_server.server import ServerConfig, create_app
-
-UPLOAD_TOKEN_ENV = "ROBOT_UMI_UPLOAD_TOKEN"
-LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+from umi_flow_server.server import ServerConfig, create_app
 
 
-@dataclass
-class Args:
-    host: str = "0.0.0.0"
-    port: int = 8080
-    data_dir: Path = Path("data")
-
-
-def main(args: Args) -> None:
-    upload_token = os.environ.get(UPLOAD_TOKEN_ENV, "")
-    if args.host not in LOOPBACK_HOSTS and not upload_token:
-        raise SystemExit(
-            f"refusing to bind {args.host} without an upload token: set "
-            f"{UPLOAD_TOKEN_ENV} to a shared secret (matching the device), or "
-            f"bind 127.0.0.1 for local-only use."
+def main() -> None:
+    data_dir = Path(os.environ.get("DATA_DIR", "/data"))
+    recording_reserve_gib = int(os.environ.get("UMI_FLOW_RECORDING_RESERVE_GIB", "64"))
+    app = create_app(
+        ServerConfig(
+            data_dir=data_dir,
+            recording_reserve_bytes=recording_reserve_gib * 1024 * 1024 * 1024,
         )
-    app = create_app(ServerConfig(data_dir=args.data_dir, upload_token=upload_token))
-    uvicorn.run(app, host=args.host, port=args.port)
+    )
+    uvicorn.run(app, host="0.0.0.0", port=8080)
 
 
 if __name__ == "__main__":
-    main(tyro.cli(Args))
+    main()

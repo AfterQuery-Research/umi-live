@@ -1,333 +1,398 @@
 #!/usr/bin/env bash
-# bin/provision-pi — ONE local command: take a freshly-flashed Pi (SSH key access already
-# set up) to a running, boot-persistent UMI recorder you can immediately drive with the
-# buttons. Run this on your Mac/laptop, not on the Pi.
-#
-#   cp provisioning/secrets.example provisioning/secrets     # PI_PASSWORD + UPLOAD_TOKEN
-#   cp provisioning/rigs/example.env provisioning/rigs/<pi-host>.env   # target + rig params
-#   ./bin/provision-pi [--target mac|gpu|url] [--rig <name>] [--dry-run] [--no-reboot] <user@pi>
-#
-# It drives the Pi over SSH: ephemeral passwordless-sudo bootstrap (removed at the end),
-# rsync the repo, render+push config/umi.yaml + .env, mount the SSD (fstab, nofail), run
-# install_pi.sh, wire the upload target, then reboot + verify. Idempotent; re-runnable.
+# Internal helper used by bin/provision-pair. Public setup always provisions both clients.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (script lives in bin/)
-die() { echo "provision: $*" >&2; exit 1; }
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAIR_CONFIG="${PAIR_CONFIG:-$ROOT/provisioning/pair.env}"
+die() { echo "provision-pi: $*" >&2; exit 1; }
 log() { echo; echo "=== $* ==="; }
 
-# --- args --------------------------------------------------------------------
-RIG=""; PI=""; DRYRUN=0; REBOOT=1; TARGET_OVERRIDE=""
-while [ $# -gt 0 ]; do
+ROLE=""; DRY_RUN=0; REBOOT=1
+while [ "$#" -gt 0 ]; do
   case "$1" in
-    --rig) RIG="${2:?--rig needs a name}"; shift 2;;
-    --target) TARGET_OVERRIDE="${2:?--target needs mac|gpu|url}"; shift 2;;
-    --dry-run) DRYRUN=1; shift;;
-    --no-reboot) REBOOT=0; shift;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0;;
-    -*) die "unknown flag $1";;
-    *) [ -z "$PI" ] || die "unexpected extra argument '$1'"; PI="$1"; shift;;
+    --role) ROLE="${2:?--role needs leader or follower}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --no-reboot) REBOOT=0; shift ;;
+    -h|--help) echo "usage: bin/provision-pi --role leader|follower [--dry-run] [--no-reboot]"; exit 0 ;;
+    *) die "unknown argument '$1'" ;;
   esac
 done
-[ -n "$PI" ] || die "usage: ./bin/provision-pi [--target mac|gpu|url] [--rig <name>] [--dry-run] [--no-reboot] <user@pi>"
-case "$PI" in *@*) : ;; *) die "target must be user@host (got '$PI')";; esac
-PI_USER="${PI%@*}"; PI_HOST="${PI#*@}"
-[ -n "$RIG" ] || RIG="$PI_HOST"
-
-# --- secrets + inventory -----------------------------------------------------
-SECRETS="$HERE/provisioning/secrets"
-RIGFILE="$HERE/provisioning/rigs/$RIG.env"
-[ -f "$SECRETS" ] || die "missing $SECRETS  (cp provisioning/secrets.example provisioning/secrets)"
-[ -f "$RIGFILE" ] || die "missing $RIGFILE  (cp provisioning/rigs/example.env provisioning/rigs/$RIG.env)"
+case "$ROLE" in leader|follower) ;; *) die "--role must be leader or follower" ;; esac
+[ -f "$PAIR_CONFIG" ] || die "missing $PAIR_CONFIG (copy provisioning/pair.env.example)"
 # shellcheck disable=SC1090
-. "$SECRETS"
-# shellcheck disable=SC1090
-. "$RIGFILE"
-[ -n "${UPLOAD_TOKEN:-}" ] || die "UPLOAD_TOKEN is blank in $SECRETS  (openssl rand -hex 32)"
+. "$PAIR_CONFIG"
 
-REMOTE_REPO="/home/$PI_USER/robot-umi"
-SSHOPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
-pssh() { ssh "${SSHOPTS[@]}" "$PI" "$@"; }
-PYBIN="$HERE/.venv/bin/python"; [ -x "$PYBIN" ] || PYBIN="python3"
-
-# --- resolve the upload URL from the target ----------------------------------
-# --target (or the inventory's RIG_TARGET) picks where episodes upload:
-#   mac = a Mac running mac/run_processing.sh, reached via a boot-persistent Pi->Mac
-#         tunnel (arm64 CPU GLIM -> HF, no GPU box);
-#   gpu = a GPU box's ingest at SERVER_URL (compose decode + CUDA GLIM);
-#   url = any raw ingest URL. (lambda is accepted as an alias for gpu.)
-TARGET="${TARGET_OVERRIDE:-${RIG_TARGET:-}}"
-# Tunnel state: TUNNEL=1 => episodes upload through a boot-persistent Pi->endpoint
-# ssh -L tunnel (endpoint reachable only over :22, e.g. a Mac or a cloud GPU box). Each
-# tunneled target fills in the local/remote ports, the ssh endpoint, and where the Pi's
-# key must be trusted ("@mac" = this Mac locally; anything else = a remote user@host).
-TUNNEL=0; TUN_LOCAL=""; TUN_REMOTE=""; TUN_SSH=""; TUN_KEY_DEST=""
-case "$TARGET" in
-  mac)
-    [ -n "${MAC_HOST:-}" ] || die "target=mac needs MAC_HOST (user@mac) in $RIGFILE"
-    SERVER_URL="http://localhost:8091/upload"
-    TUNNEL=1; TUN_LOCAL=8091; TUN_REMOTE=8091; TUN_SSH="$MAC_HOST"; TUN_KEY_DEST="@mac";;
-  gpu|lambda)
-    TARGET="gpu"
-    if [ -n "${SERVER_SSH:-}" ]; then
-      # Box reachable ONLY over SSH (cloud instance, :8080 firewalled): tunnel the Pi's
-      # localhost:8080 -> the box's own localhost:8080 (its ingest), exactly like the mac
-      # target does on :8091. SERVER_URL is forced local; SERVER_SSH is the box's user@host.
-      SERVER_URL="http://localhost:8080/upload"
-      TUNNEL=1; TUN_LOCAL=8080; TUN_REMOTE=8080; TUN_SSH="$SERVER_SSH"; TUN_KEY_DEST="$SERVER_SSH"
-    else
-      [ -n "${SERVER_URL:-}" ] || die "target=gpu needs SERVER_URL (a directly-reachable box ingest) or SERVER_SSH (user@box, to tunnel to an SSH-only box) in $RIGFILE"
-    fi;;
-  url)
-    [ -n "${SERVER_URL:-}" ] || die "target=url needs SERVER_URL in $RIGFILE";;
-  *) die "target must be mac | gpu | url (got '${TARGET:-}') — set RIG_TARGET or pass --target";;
+for name in SERVER LEADER FOLLOWER TASK; do
+  [ -n "${!name:-}" ] || die "$name is blank in $PAIR_CONFIG"
+done
+case "${ALIGNMENT_ENABLED:-false}" in
+  true|false) ;;
+  *) die "ALIGNMENT_ENABLED must be true or false in $PAIR_CONFIG" ;;
 esac
+LEADER_HOTSPOT_ENABLED="${LEADER_HOTSPOT_ENABLED:-false}"
+PAIR_WIFI_SSID="umi-flow-pair"
+PAIR_WIFI_PASSWORD="${UMI_PAIR_PROVISION_PSK:-}"
+PAIR_WIFI_CHANNEL=44
+PAIR_WIFI_COUNTRY="US"
+case "$LEADER_HOTSPOT_ENABLED" in
+  true|false) ;;
+  *) die "LEADER_HOTSPOT_ENABLED must be true or false in $PAIR_CONFIG" ;;
+esac
+case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
+case "$LEADER" in *@*) ;; *) die "LEADER must be user@host" ;; esac
+case "$FOLLOWER" in *@*) ;; *) die "FOLLOWER must be user@host" ;; esac
 
-echo "provision: rig '$RIG' -> $PI   target=$TARGET  url=$SERVER_URL$([ "$DRYRUN" = 1 ] && echo '   [DRY RUN]')"
-
-render_tunnel_unit() {
-  sed -e "s#@USER@#$PI_USER#g" -e "s#@SSH_TARGET@#$TUN_SSH#g" \
-    -e "s#@LOCAL_PORT@#$TUN_LOCAL#g" -e "s#@REMOTE_PORT@#$TUN_REMOTE#g" \
-    "$HERE/config/systemd/umi-upload-tunnel.service"
-}
-
-render_mount_script() {
-  # Unquoted heredoc: LOCAL vars ($PI_USER, $SSD_*) expand here; REMOTE vars are \$-escaped.
-  cat <<REMOTE
-set -e
-mp="${SSD_MOUNTPOINT:-/media/$PI_USER/SSD}"
-spool="${SPOOL_DIR:-\$mp/umi_spool}"
-dev="${SSD_DEVICE:-}"
-uid=\$(id -u); gid=\$(id -g)
-if ! findmnt -rn "\$mp" >/dev/null 2>&1; then
-  if [ -z "\$dev" ]; then
-    dev=\$(lsblk -rno NAME,TYPE,FSTYPE,MOUNTPOINT | awk '\$2=="part"&&\$3!=""&&\$4==""&&\$1!~/^mmcblk/{print "/dev/"\$1; exit}')
-  fi
-  [ -n "\$dev" ] || { echo "no unmounted formatted SSD partition found; set SSD_DEVICE. lsblk:" >&2; lsblk >&2; exit 1; }
-  uuid=\$(sudo blkid -s UUID -o value "\$dev")
-  fstype=\$(sudo blkid -s TYPE -o value "\$dev")
-  # exfat/vfat carry no Unix ownership -> mount with our uid/gid so the user-run
-  # recorder can write. ext4/xfs use plain defaults + the chown below. passno=0 for
-  # exfat/vfat (NO boot-time fsck — fsck.exfat on a big/dirty volume can stall boot);
-  # ext-family keep passno=2 (quick, safe).
-  opts="defaults,nofail,x-systemd.device-timeout=30"
-  passno=2
-  case "\$fstype" in
-    exfat|vfat) opts="\$opts,uid=\$uid,gid=\$gid,umask=022"; passno=0 ;;
-  esac
-  sudo mkdir -p "\$mp"
-  grep -q "\$uuid" /etc/fstab || \
-    echo "UUID=\$uuid \$mp \$fstype \$opts 0 \$passno" | sudo tee -a /etc/fstab >/dev/null
-  sudo mount "\$mp"
+PAIR_WIFI_RADIO_IFACE="wlan0"
+PAIR_WIFI_UPLINK_IFACE="wlan0"
+PAIR_WIFI_IFACE="umi-pair0"
+if [ "$ROLE" = follower ]; then
+  PAIR_WIFI_IFACE="$PAIR_WIFI_RADIO_IFACE"
 fi
-sudo mkdir -p "\$spool"
-# chown is a no-op on exfat/vfat (ownership comes from the mount opts) — tolerate it.
-sudo chown -R "$PI_USER:$PI_USER" "\$spool" 2>/dev/null || true
-echo "spool \$spool on \$(findmnt -rno SOURCE,FSTYPE --target "\$spool")"
-REMOTE
+PAIR_WIFI_LEADER_IP="10.42.0.1"
+PAIR_WIFI_FOLLOWER_IP="10.42.0.2"
+PAIR_WIFI_SUBNET="10.42.0.0/24"
+if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  case "$PAIR_WIFI_PASSWORD" in
+    *[!A-Za-z0-9._-]*|"")
+      die "pair Wi-Fi credential is missing; run bin/provision-pair instead"
+      ;;
+  esac
+  [ "${#PAIR_WIFI_PASSWORD}" -ge 8 ] && [ "${#PAIR_WIFI_PASSWORD}" -le 63 ] \
+    || die "pair Wi-Fi credential must be 8-63 characters"
+fi
+
+PYTHON="$ROOT/.venv/bin/python"; [ -x "$PYTHON" ] || PYTHON="python3"
+GRIPPER_TAG_CONFIG="$ROOT/config/gripper_tags.yaml"
+[ -f "$GRIPPER_TAG_CONFIG" ] || die "gripper tag config not found: $GRIPPER_TAG_CONFIG"
+
+if [ "$ROLE" = leader ]; then
+  PI="$LEADER"; UMI_NAME="umi1"; CAMERA_CALIB="config/calib/umi1_calib.npz"
+  DISPLAY_KIND="lcd"
+else
+  PI="$FOLLOWER"; UMI_NAME="umi2"; CAMERA_CALIB="config/calib/umi2_calib.npz"
+  DISPLAY_KIND="none"
+fi
+ALIGNMENT_YAML=""
+if [ "$ROLE" = leader ] && [ "${ALIGNMENT_ENABLED:-false}" = true ]; then
+  ALIGNMENT_YAML="alignment:
+  enabled: true
+  reference: umi1
+  tier: 1"
+fi
+GRIPPER_CALIB_DIR="${GRIPPER_CALIB_DIR:-$ROOT/config/calib}"
+GRIPPER_RANGE="$GRIPPER_CALIB_DIR/${UMI_NAME}_gripper_range.json"
+TAGS="$(
+  PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" - "$GRIPPER_TAG_CONFIG" "$UMI_NAME" <<'PY'
+import sys
+
+from umi_flow_core.config import load_gripper_tag_pairs
+
+pair = load_gripper_tag_pairs(sys.argv[1])[sys.argv[2]]
+print(", ".join(str(tag_id) for tag_id in pair))
+PY
+)" || die "invalid gripper tag config: $GRIPPER_TAG_CONFIG"
+[ -f "$ROOT/$CAMERA_CALIB" ] || die "$ROLE camera calibration not found: $CAMERA_CALIB"
+GRIPPER_CALIB_YAML=""
+GRIPPER_REPORT="uncalibrated (legacy millimetre feature)"
+if [ -f "$GRIPPER_RANGE" ]; then
+  read -r GRIPPER_CLOSED_MM GRIPPER_OPEN_MM <<EOF
+$("$PYTHON" - "$GRIPPER_RANGE" "$UMI_NAME" <<'PY'
+import json, math, sys
+
+report = json.load(open(sys.argv[1]))
+if report.get("gripper") != sys.argv[2]:
+    raise SystemExit(f"calibration gripper {report.get('gripper')!r} != {sys.argv[2]!r}")
+closed = float(report["closed_width_mm"])
+opened = float(report["open_width_mm"])
+if not math.isfinite(closed) or not math.isfinite(opened) or opened <= closed:
+    raise SystemExit("gripper calibration endpoints must be finite and open > closed")
+print(closed, opened)
+PY
+)
+EOF
+  GRIPPER_CALIB_YAML="      closed_width_mm: $GRIPPER_CLOSED_MM
+      open_width_mm: $GRIPPER_OPEN_MM"
+  GRIPPER_REPORT="calibrated [$GRIPPER_CLOSED_MM, $GRIPPER_OPEN_MM] mm -> [0, 1]"
+else
+  echo "WARN: $GRIPPER_RANGE missing; run the interactive calibration and re-provision"
+fi
+
+PI_USER="${PI%@*}"
+REMOTE_REPO="/home/$PI_USER/umi-flow"
+SPOOL_DIR="/home/$PI_USER/umi-recordings"
+SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
+SSH_JUMP=""
+SSH_TARGET="$PI"
+use_private_follower_transport() {
+  SSH_JUMP="$LEADER"
+  SSH_TARGET="$PI_USER@$PAIR_WIFI_FOLLOWER_IP"
+}
+if [ "$ROLE" = follower ] && [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  use_private_follower_transport
+  if ! ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" true >/dev/null 2>&1; then
+    SSH_JUMP=""
+    SSH_TARGET="$PI"
+    if ! ssh "${SSH_OPTS[@]}" "$SSH_TARGET" true >/dev/null 2>&1; then
+      use_private_follower_transport
+      echo "waiting for follower to rejoin the private network..."
+      for _ in $(seq 1 30); do
+        if ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" true \
+          >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+    fi
+  fi
+fi
+pssh() {
+  if [ -n "$SSH_JUMP" ]; then
+    ssh "${SSH_OPTS[@]}" -J "$SSH_JUMP" "$SSH_TARGET" "$@"
+  else
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "$@"
+  fi
+}
+pcopy() {
+  if [ -n "$SSH_JUMP" ]; then
+    scp "${SSH_OPTS[@]}" -J "$SSH_JUMP" -q "$1" "$SSH_TARGET:$2"
+  else
+    scp "${SSH_OPTS[@]}" -q "$1" "$SSH_TARGET:$2"
+  fi
 }
 
-# --- 1. preflight + ephemeral passwordless sudo ------------------------------
-log "1/8 preflight + sudo"
-pssh true || die "cannot SSH to $PI — is key access set up?"
-SUDO_TEMP=0
+CFG_TMP="$(mktemp)"; ENV_TMP="$(mktemp)"; PAIR_WIFI_TMP="$(mktemp)"; SUDO_TEMP=0
 cleanup() {
+  rm -f "$CFG_TMP" "$ENV_TMP" "$PAIR_WIFI_TMP"
   if [ "$SUDO_TEMP" = 1 ]; then
-    pssh 'sudo rm -f /etc/sudoers.d/90-umi-provision' 2>/dev/null \
-      && echo "provision: removed ephemeral passwordless sudo" || true
+    pssh 'sudo -n rm -f /etc/sudoers.d/90-umi-provision' >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
-if [ "$DRYRUN" = 1 ]; then
-  echo "(dry run: skipping sudo bootstrap)"
-elif pssh 'sudo -n true' 2>/dev/null; then
-  echo "passwordless sudo already available"
+
+remove_temporary_sudo() {
+  if [ "$SUDO_TEMP" = 1 ]; then
+    pssh 'sudo -n rm -f /etc/sudoers.d/90-umi-provision' \
+      || die "could not remove temporary sudo access from $PI"
+    SUDO_TEMP=0
+  fi
+}
+
+log "1/7 preflight: $ROLE client $PI"
+if [ "$ROLE" = follower ] && [ "$LEADER_HOTSPOT_ENABLED" = false ] \
+  && [ "$DRY_RUN" = 0 ]; then
+  echo "waiting for follower on configured network: $PI"
+  follower_ready=0
+  for _ in $(seq 1 90); do
+    if ssh "${SSH_OPTS[@]}" -o ConnectTimeout=2 "$SSH_TARGET" true >/dev/null 2>&1; then
+      follower_ready=1
+      break
+    fi
+    sleep 2
+  done
+  [ "$follower_ready" = 1 ] || die "follower did not return on configured network: $PI"
 else
-  [ -n "${PI_PASSWORD:-}" ] || die "Pi needs a sudo password; set PI_PASSWORD in $SECRETS"
-  printf '%s\n' "$PI_PASSWORD" | pssh \
+  pssh true || die "cannot SSH to $PI"
+fi
+if [ "$DRY_RUN" = 1 ]; then
+  echo "dry run: skipping sudo bootstrap"
+elif pssh 'sudo -n true' >/dev/null 2>&1; then
+  echo "passwordless sudo available"
+else
+  password="${UMI_SUDO_PASSWORD:-}"
+  if [ -z "$password" ] && [ -t 0 ]; then
+    read -r -s -p "sudo password for $PI: " password
+    echo
+  fi
+  [ -n "$password" ] || die "$PI needs sudo; run interactively or configure passwordless sudo"
+  printf '%s\n' "$password" | pssh \
     "sudo -S -p '' sh -c 'printf \"%s ALL=(ALL) NOPASSWD:ALL\\n\" \"$PI_USER\" > /etc/sudoers.d/90-umi-provision && chmod 440 /etc/sudoers.d/90-umi-provision && visudo -cf /etc/sudoers.d/90-umi-provision'" \
-    || die "sudo bootstrap failed (wrong PI_PASSWORD?)"
+    || die "sudo bootstrap failed for $PI"
+  unset password
   SUDO_TEMP=1
-  echo "ephemeral passwordless sudo installed (removed at exit)"
+fi
+if [ "$DRY_RUN" = 0 ] && [ "$ROLE" = follower ] \
+  && [ "$LEADER_HOTSPOT_ENABLED" = false ]; then
+  pssh 'sudo -n systemctl disable --now umi-pair-wifi@follower.service >/dev/null 2>&1 || true'
+  echo "follower locked to configured network for provisioning"
 fi
 
-# --- 2. deliver the repo -----------------------------------------------------
-log "2/8 rsync repo -> $REMOTE_REPO"
-# No --delete (don't wipe Pi state); exclude local-only + secret files so the Mac's own
-# .env (with its HF token) and the provisioning secrets NEVER land on the Pi.
-if [ "$DRYRUN" = 1 ]; then
-  echo "(dry run: skipping rsync)"
-else
-  rsync -a \
-    --exclude '.git' --exclude '.venv' --exclude 'target' --exclude '__pycache__' \
-    --exclude 'data' --exclude 'provisioning' --exclude '.env' --exclude 'config/umi.yaml' \
-    --exclude 'docker-compose.override.yml' \
-    -e "ssh ${SSHOPTS[*]}" "$HERE/" "$PI:$REMOTE_REPO/"
+log "2/7 render fixed $ROLE configuration"
+CAMERA_DEVICE="$(pssh 'ls /dev/v4l/by-path/*usb-*-video-index0 2>/dev/null | head -1' || true)"
+[ -n "$CAMERA_DEVICE" ] || die "no USB camera found on $PI"
+if [ "$LEADER_HOTSPOT_ENABLED" = true ] && [ "$ROLE" = leader ]; then
+  USB_WIFI_IFACES="$(pssh '
+    for path in /sys/class/net/*/wireless; do
+      [ -e "$path" ] || continue
+      iface="${path%/wireless}"
+      iface="${iface##*/}"
+      [ "$iface" = umi-pair0 ] && continue
+      if udevadm info --query=property --path="/sys/class/net/$iface" 2>/dev/null \
+        | grep -qx "ID_BUS=usb"; then
+        printf "%s\n" "$iface"
+      fi
+    done
+  ' || true)"
+  case "$USB_WIFI_IFACES" in
+    "") die "leader needs exactly one USB Wi-Fi adapter; found none" ;;
+    *$'\n'*) die "leader needs exactly one USB Wi-Fi adapter; found: $USB_WIFI_IFACES" ;;
+    *) PAIR_WIFI_RADIO_IFACE="$USB_WIFI_IFACES" ;;
+  esac
 fi
-
-# --- 3. rig config -----------------------------------------------------------
-log "3/8 rig config"
-CFG_TMP="$(mktemp)"
-if [ -n "${RIG_CONFIG_FILE:-}" ]; then
-  cp "$HERE/$RIG_CONFIG_FILE" "$CFG_TMP"
-  echo "using $RIG_CONFIG_FILE verbatim"
-else
-  CAM="${CAMERA_DEVICE:-}"
-  if [ -z "$CAM" ]; then
-    # A USB UVC camera's capture node is …-usb-…-video-index0. Match usb- specifically
-    # to skip the Pi's onboard codec / ISP (pisp_be) nodes and the usbv2- speed alias.
-    CAM="$(pssh 'ls /dev/v4l/by-path/*usb-*-video-index0 2>/dev/null | head -1')" || true
-    [ -n "$CAM" ] && echo "discovered camera: $CAM" \
-      || echo "WARN: no USB camera by-path found on the Pi — set CAMERA_DEVICE in $RIGFILE"
-  fi
-  cat > "$CFG_TMP" <<YAML
+if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  pssh "iw dev '$PAIR_WIFI_RADIO_IFACE' info >/dev/null" \
+    || die "$ROLE pair Wi-Fi radio $PAIR_WIFI_RADIO_IFACE not found on $PI"
+fi
+json_string() { "$PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+TASK_YAML="$(json_string "$TASK")"
+CAMERA_YAML="$(json_string "$CAMERA_DEVICE")"
+CALIB_YAML="$(json_string "$CAMERA_CALIB")"
+cat > "$CFG_TMP" <<YAML
 version: 1
-motion_source: "${MOTION_SOURCE:-lidar}"
-task: "${TASK:-umi demo task}"
+task: $TASK_YAML
+$ALIGNMENT_YAML
 controls:
-  buttons: { record: ${BTN_RECORD:-12}, quit: ${BTN_QUIT:-16}, mode: ${BTN_MODE:-22} }
-  display: { kind: ${LCD_KIND:-lcd}, dc: ${LCD_DC:-25}, rst: ${LCD_RST:-27}, bl: ${LCD_BL:-18} }
+  buttons: { record: 12, quit: 16 }
+  display: { kind: $DISPLAY_KIND, dc: 25, rst: 27, bl: 18 }
 umis:
-  ${UMI_NAME:-umi1}:
+  $UMI_NAME:
     camera:
-      device: "${CAM}"
-      width: ${CAMERA_WIDTH:-800}
-      height: ${CAMERA_HEIGHT:-600}
-      fps: ${CAMERA_FPS:-30}
-      exposure: ${CAMERA_EXPOSURE:-100}
-      calib: "${CAMERA_CALIB:-config/calib/umi1_calib.npz}"
+      device: $CAMERA_YAML
+      width: 800
+      height: 600
+      fps: 30
+      exposure: 100
+      calib: $CALIB_YAML
     lidar:
-      type: "${LIDAR_TYPE:-auto}"
-      iface: "${LIDAR_IFACE:-eth0}"
-      host_ip: "${LIDAR_HOST_IP:-192.168.1.102}"
-      lidar_ip: "${LIDAR_IP:-192.168.1.200}"
+      iface: eth0
+      host_ip: 192.168.1.102
+      lidar_ip: 192.168.1.200
     gripper:
-      tag_ids: [${GRIPPER_TAGS:-0, 1}]
+      tag_ids: [$TAGS]
       stride: 2
+$GRIPPER_CALIB_YAML
 YAML
-fi
-# Validate locally with the repo's own parser BEFORE pushing (catches pin collisions,
-# non-4:3 camera, unknown keys) so a bad rig never reaches the Pi.
-PYTHONPATH="$HERE/common/robot-umi-core/src" "$PYBIN" -c \
-  'import sys; from robot_umi_core.config import load_rig_config; load_rig_config(sys.argv[1])' \
-  "$CFG_TMP" || die "rendered umi.yaml is invalid (see error above)"
-echo "--- config/umi.yaml ---"; sed 's/^/    /' "$CFG_TMP"
+PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" -c \
+  'import sys; from umi_flow_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
+  "$CFG_TMP" "$ROLE"
 
-# --- 4. .env -----------------------------------------------------------------
-log "4/8 .env (Pi scope — no HF token)"
-# Two-Pi bimanual coordination (from the rig inventory). Solo => nothing here; the generic
-# umi-recorder unit reads these, so no per-role systemd edit is needed.
 COORD_ENV=""
-if [ -n "${ROLE:-}" ] && [ "$ROLE" != "solo" ]; then
-  COORD_ENV="ROBOT_UMI_ROLE=$ROLE"
-  [ -n "${TIME_REF:-}" ] && COORD_ENV="$COORD_ENV
-ROBOT_UMI_TIME_REF=$TIME_REF"
-  if [ "$ROLE" = "leader" ]; then
-    [ -n "${PEER_HOST:-}" ] || die "ROLE=leader needs PEER_HOST (the follower's IP) in $RIGFILE"
-    COORD_ENV="$COORD_ENV
-ROBOT_UMI_PEER=$PEER_HOST:${CONTROL_PORT:-9140}"
+if [ "$ROLE" = leader ]; then
+  if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+    COORD_ENV="UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140"
   else
-    COORD_ENV="$COORD_ENV
-ROBOT_UMI_LISTEN_PORT=${CONTROL_PORT:-9140}"
+    COORD_ENV="UMI_FLOW_PEER=${FOLLOWER#*@}:9140"
   fi
-  echo "coordination: role=$ROLE  peer=${PEER_HOST:-n/a}:${CONTROL_PORT:-9140}  time_ref=${TIME_REF:-n/a}"
 fi
-ENV_TMP="$(mktemp)"
 cat > "$ENV_TMP" <<ENV
-# Rendered by bin/provision-pi for rig '$RIG'. Edit the inventory + re-provision, not this.
-ROBOT_UMI_SERVER_URL=$SERVER_URL
-ROBOT_UMI_UPLOAD_TOKEN=$UPLOAD_TOKEN
-ROBOT_UMI_CONFIG=config/umi.yaml
-ROBOT_UMI_SPOOL_DIR=${SPOOL_DIR:-/media/$PI_USER/SSD/umi_spool}
+# Rendered by bin/provision-pi. Re-run bin/provision-pair to change it.
+UMI_FLOW_CONFIG=config/umi.yaml
+UMI_FLOW_SPOOL_DIR=$SPOOL_DIR
 $COORD_ENV
 ENV
-echo "server_url=$SERVER_URL  spool=${SPOOL_DIR:-/media/$PI_USER/SSD/umi_spool}"
+cat > "$PAIR_WIFI_TMP" <<ENV
+# Rendered by bin/provision-pi. Contains the private pair-network credential.
+UMI_LEADER_HOTSPOT_ENABLED=$LEADER_HOTSPOT_ENABLED
+UMI_PAIR_ROLE=$ROLE
+UMI_PAIR_RADIO_IFACE=$PAIR_WIFI_RADIO_IFACE
+UMI_PAIR_UPLINK_IFACE=$PAIR_WIFI_UPLINK_IFACE
+UMI_PAIR_IFACE=$PAIR_WIFI_IFACE
+UMI_PAIR_SSID=$PAIR_WIFI_SSID
+UMI_PAIR_PSK=$PAIR_WIFI_PASSWORD
+UMI_PAIR_CHANNEL=$PAIR_WIFI_CHANNEL
+UMI_PAIR_COUNTRY=$PAIR_WIFI_COUNTRY
+UMI_PAIR_LEADER_IP=$PAIR_WIFI_LEADER_IP
+UMI_PAIR_FOLLOWER_IP=$PAIR_WIFI_FOLLOWER_IP
+UMI_PAIR_SUBNET=$PAIR_WIFI_SUBNET
+ENV
+if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  PAIR_WIFI_REPORT="$PAIR_WIFI_SSID/$PAIR_WIFI_CHANNEL radio=$PAIR_WIFI_RADIO_IFACE uplink=$PAIR_WIFI_UPLINK_IFACE"
+else
+  PAIR_WIFI_REPORT="disabled"
+fi
+echo "$ROLE=$PI camera=$CAMERA_DEVICE calib=$CAMERA_CALIB tags=[$TAGS] gripper=$GRIPPER_REPORT pair_wifi=$PAIR_WIFI_REPORT spool=$SPOOL_DIR"
 
-if [ "$DRYRUN" = 1 ]; then
-  rm -f "$CFG_TMP" "$ENV_TMP"
-  echo; echo "provision: DRY RUN complete — validated + rendered; nothing pushed/mounted/installed."
+if [ "$DRY_RUN" = 1 ]; then
+  echo "dry run complete: configuration validated; no files changed"
   exit 0
 fi
 
-pssh "mkdir -p $REMOTE_REPO/config"
-scp "${SSHOPTS[@]}" -q "$CFG_TMP" "$PI:$REMOTE_REPO/config/umi.yaml"
-scp "${SSHOPTS[@]}" -q "$ENV_TMP" "$PI:$REMOTE_REPO/.env"
-rm -f "$CFG_TMP" "$ENV_TMP"
-
-# --- 5. mount the SSD --------------------------------------------------------
-if [ "${ALLOW_SD_SPOOL:-0}" = "1" ]; then
-  log "5/8 spool — ALLOW_SD_SPOOL=1: no SSD, spooling to $SPOOL_DIR on the SD card"
-  pssh "mkdir -p '$SPOOL_DIR'"
-else
-  log "5/8 SSD spool (mount existing + fstab nofail)"
-  render_mount_script | pssh 'bash -s' || die "SSD mount failed (check the disk / set SSD_DEVICE, or set ALLOW_SD_SPOOL=1 to spool to the SD card)"
+log "3/7 deploy repository and runtime configuration"
+pssh "mkdir -p '$REMOTE_REPO/config' '$SPOOL_DIR'"
+RSYNC_SSH="ssh ${SSH_OPTS[*]}"
+if [ -n "$SSH_JUMP" ]; then
+  RSYNC_SSH="$RSYNC_SSH -J $SSH_JUMP"
 fi
+rsync -a --delete \
+  --exclude-from "$ROOT/config/rsync-excludes" \
+  --exclude '.git' --exclude '.venv' --exclude 'target' --exclude '__pycache__' \
+  --exclude 'data' --exclude 'provisioning' --exclude '.env' --exclude 'config/umi.yaml' \
+  --exclude '.pair-wifi.env' \
+  --exclude 'demo-output' --exclude 'bin/render-demo' \
+  --exclude 'tools/render_slam_demo.py' --exclude 'server/tests/test_slam_demo.py' \
+  --exclude 'docker-compose.override.yml' \
+  -e "$RSYNC_SSH" "$ROOT/" "$SSH_TARGET:$REMOTE_REPO/"
+pcopy "$CFG_TMP" "$REMOTE_REPO/config/umi.yaml"
+pcopy "$ENV_TMP" "$REMOTE_REPO/.env"
+pcopy "$PAIR_WIFI_TMP" "$REMOTE_REPO/.pair-wifi.env"
+pssh "chmod 600 '$REMOTE_REPO/.pair-wifi.env'"
 
-# --- 6. run the installer ----------------------------------------------------
-log "6/8 install_pi.sh — apt/rust/venv/build/setcap/lidar-net/PTP/unit (~20-40 min)"
-pssh "cd $REMOTE_REPO && DEBIAN_FRONTEND=noninteractive ROBOT_UMI_ALLOW_SD_SPOOL=${ALLOW_SD_SPOOL:-0} PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH device/scripts/install_pi.sh" \
-  || die "install_pi.sh failed (see output above)"
+log "4/7 install recorder"
+pssh "cd '$REMOTE_REPO' && DEBIAN_FRONTEND=noninteractive PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH device/scripts/install_pi.sh" \
+  || die "install_pi.sh failed on $PI"
 
-# --- 6b. chrony (cross-Pi time sync for bimanual pairs) ----------------------
-if [ -n "${TIME_REF:-}" ]; then
-  log "chrony — discipline this Pi's clock to $TIME_REF (cross-Pi bimanual sync)"
-  # Append the shared reference (idempotent), enable chrony, and kill WiFi power-save
-  # (its jitter is the main enemy of sub-frame cross-Pi sync). Best-effort throughout.
-  pssh "sudo apt-get install -y -q chrony >/dev/null 2>&1 || true
-    L='server $TIME_REF iburst minpoll 2 maxpoll 4'
-    grep -qF \"\$L\" /etc/chrony/chrony.conf 2>/dev/null || echo \"\$L\" | sudo tee -a /etc/chrony/chrony.conf >/dev/null
-    sudo systemctl enable --now chrony >/dev/null 2>&1 || sudo systemctl enable --now chronyd >/dev/null 2>&1 || true
-    sudo systemctl restart chrony >/dev/null 2>&1 || sudo systemctl restart chronyd >/dev/null 2>&1 || true
-    for w in /sys/class/net/wl*; do sudo iw dev \$(basename \$w) set power_save off 2>/dev/null || true; done" \
-    || echo "WARN: chrony setup had issues (cross-Pi sync may be degraded); check 'chronyc tracking'"
-fi
+log "5/7 authorize and install the SSH upload tunnel"
+pssh 'test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 >/dev/null'
+PI_KEY="$(pssh 'cat ~/.ssh/id_ed25519.pub')"
+printf '%s\n' "$PI_KEY" | ssh "${SSH_OPTS[@]}" "$SERVER" \
+  'umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; key=$(cat); grep -qF "$key" ~/.ssh/authorized_keys || printf "%s\n" "$key" >> ~/.ssh/authorized_keys' \
+  || die "could not authorize $PI on $SERVER"
+sed -e "s#@USER@#$PI_USER#g" -e "s#@SSH_TARGET@#$SERVER#g" \
+    -e 's#@LOCAL_PORT@#8080#g' -e 's#@REMOTE_PORT@#8080#g' \
+    "$ROOT/config/systemd/umi-upload-tunnel.service" \
+  | pssh 'sudo tee /etc/systemd/system/umi-upload-tunnel.service >/dev/null'
+pssh 'sudo systemctl daemon-reload && sudo systemctl enable umi-upload-tunnel >/dev/null'
 
-# --- 7. upload target --------------------------------------------------------
-log "7/8 upload target ($TARGET)"
-if [ "$TUNNEL" = 1 ]; then
-  # Give the Pi a key and trust it on the tunnel endpoint (this Mac, or the box).
-  pssh 'test -f ~/.ssh/id_ed25519 || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 >/dev/null'
-  PIKEY="$(pssh 'cat ~/.ssh/id_ed25519.pub')"
-  if [ "$TUN_KEY_DEST" = "@mac" ]; then
-    # Endpoint is THIS Mac (we're running here): trust the Pi's key locally.
-    AUTH="$HOME/.ssh/authorized_keys"
-    mkdir -p "$HOME/.ssh"; touch "$AUTH"; chmod 600 "$AUTH"
-    if grep -qF "$PIKEY" "$AUTH"; then echo "Pi key already trusted on this Mac"; else
-      echo "$PIKEY" >> "$AUTH"; echo "added the Pi's key to this Mac's authorized_keys"
-    fi
-  else
-    # Endpoint is a remote box: append the Pi's key to ITS authorized_keys over SSH.
-    printf '%s\n' "$PIKEY" | ssh "${SSHOPTS[@]}" "$TUN_KEY_DEST" \
-      'umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; k=$(cat); grep -qF "$k" ~/.ssh/authorized_keys || printf "%s\n" "$k" >> ~/.ssh/authorized_keys' \
-      && echo "trusted the Pi's key on $TUN_KEY_DEST" \
-      || die "could not add the Pi's key to $TUN_KEY_DEST (is it SSH-reachable from this Mac?)"
-  fi
-  render_tunnel_unit | pssh 'sudo tee /etc/systemd/system/umi-upload-tunnel.service >/dev/null'
-  pssh 'sudo systemctl daemon-reload && sudo systemctl enable umi-upload-tunnel >/dev/null'
-  echo "umi-upload-tunnel enabled (Pi localhost:$TUN_LOCAL -> $TUN_SSH:$TUN_REMOTE)."
-else
-  echo "direct upload to $SERVER_URL — no tunnel needed."
-fi
-
-# --- 8. reboot + verify ------------------------------------------------------
 if [ "$REBOOT" = 0 ]; then
-  echo; echo "provision: --no-reboot set. Reboot the Pi to bring up the recorder + SSD + tunnel."
+  log "6/7 remove temporary sudo access"
+  remove_temporary_sudo
+  echo "provisioned $ROLE; reboot $PI before recording"
   exit 0
 fi
-log "8/8 reboot + verify"
-pssh 'sudo systemctl reboot' 2>/dev/null || true
-echo "rebooting $PI; waiting for it to come back..."
-sleep 20
-back=0
-for _ in $(seq 1 36); do pssh true 2>/dev/null && { back=1; break; }; sleep 5; done
-[ "$back" = 1 ] || die "Pi did not come back after reboot — check it manually"
-pssh 'bash -s' <<'VERIFY' || true
-set +e
-echo "--- umi-recorder ---"; systemctl is-active umi-recorder \
-  || { echo "(recent log)"; journalctl -u umi-recorder -n 8 --no-pager; }
-sp="$(. ~/robot-umi/.env 2>/dev/null; echo "${ROBOT_UMI_SPOOL_DIR:-/}")"
-echo "--- spool fs ($sp) ---"; df -h --output=source,target "$sp" 2>/dev/null | tail -1
-echo "--- units ---"; systemctl --no-legend --plain list-units 'umi-*' 2>/dev/null | awk '{print $1, $4}'
-VERIFY
-echo; echo "provision: done. Press the record button to capture — episodes queue on the SSD"
-echo "and upload to '$TARGET' when it's reachable (recording never waits on the target)."
+
+log "6/7 reboot"
+BOOT_ID_BEFORE="$(pssh 'cat /proc/sys/kernel/random/boot_id')"
+[ -n "$BOOT_ID_BEFORE" ] || die "could not read boot ID from $PI"
+pssh 'sudo -n true' >/dev/null 2>&1 || die "lost sudo access before rebooting $PI"
+pssh 'sudo -n systemctl reboot' >/dev/null 2>&1 || true
+if [ "$ROLE" = follower ] && [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+  use_private_follower_transport
+fi
+echo "waiting for $PI to reboot..."
+sleep 5
+rebooted=0
+for _ in $(seq 1 36); do
+  BOOT_ID_AFTER="$(pssh 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null || true)"
+  if [ -n "$BOOT_ID_AFTER" ] && [ "$BOOT_ID_AFTER" != "$BOOT_ID_BEFORE" ]; then
+    rebooted=1
+    break
+  fi
+  sleep 5
+done
+[ "$rebooted" = 1 ] || die "$PI did not complete a verified reboot"
+
+log "7/7 remove temporary sudo access and verify"
+remove_temporary_sudo
+services_ready=0
+for _ in $(seq 1 20); do
+  WIFI_READY="true"
+  if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
+    WIFI_READY="systemctl is-active --quiet umi-pair-wifi@$ROLE"
+  fi
+  if pssh "$WIFI_READY && systemctl is-active --quiet umi-recorder && systemctl is-active --quiet umi-upload-tunnel && test -d '$SPOOL_DIR'"; then
+    services_ready=1
+    break
+  fi
+  sleep 2
+done
+[ "$services_ready" = 1 ] || die "$ROLE services failed verification on $PI"
+echo "$ROLE client ready: $PI"

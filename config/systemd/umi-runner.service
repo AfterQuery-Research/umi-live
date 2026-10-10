@@ -3,7 +3,7 @@
 # @REPO@/@USER@ and installs this to /etc/systemd/system/umi-runner.service.
 # Survives SSH logout/reboot (the old failure: the runner died with the session).
 # Runs from the repo so `docker compose run` finds docker-compose.yml + .env, and
-# runs gripper/dataset in-process (needs the robot-umi-server venv + ffmpeg).
+# runs gripper/dataset in-process (needs the umi-flow-server venv + ffmpeg).
 [Unit]
 Description=UMI pipeline runner
 Wants=network-online.target
@@ -19,12 +19,8 @@ WorkingDirectory=@REPO@
 # this, deleting DATA_DIR from .env would expand ${DATA_DIR} to empty and the
 # runner would use the repo root while compose mounts ./data — a split brain.
 Environment=DATA_DIR=./data
-# Extra runner flags from .env, e.g. ROBOT_UMI_RUNNER_ARGS=--pair to merge two Pis'
-# episodes into one bimanual (12-D) dataset. Empty by default (single-UMI). systemd
-# word-splits an unquoted ${VAR} on whitespace, so "--pair" becomes its own argument.
-Environment=ROBOT_UMI_RUNNER_ARGS=
 EnvironmentFile=@REPO@/.env
-ExecStart=@REPO@/.venv/bin/python server/scripts/runner.py --data-dir ${DATA_DIR} ${ROBOT_UMI_RUNNER_ARGS}
+ExecStart=@REPO@/.venv/bin/python server/scripts/runner.py
 Restart=on-failure
 RestartSec=10
 

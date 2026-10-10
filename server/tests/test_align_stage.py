@@ -6,10 +6,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
-
-from robot_umi_core import geom
-from robot_umi_server import align_stage as A
-from robot_umi_server.trajectory import PoseTrack
+from umi_flow_core import geom
+from umi_flow_server import align_stage as A
+from umi_flow_server.trajectory import PoseTrack
 
 
 def _track(n: int) -> PoseTrack:
@@ -81,9 +80,7 @@ def test_read_submaps_parses_poses(tmp_path):
     d = tmp_path / "glim"
     (d / "submaps").mkdir(parents=True)
     (d / "submaps" / "poses.txt").write_text(
-        "# id stamp x y z qx qy qz qw\n"
-        "0 100.5 1 2 3 0 0 0 1\n"
-        "1 101.5 4 5 6 0 0 0 1\n"
+        "# id stamp x y z qx qy qz qw\n0 100.5 1 2 3 0 0 0 1\n1 101.5 4 5 6 0 0 0 1\n"
     )
     sm = A.read_submaps(d, load_clouds=False)
     assert np.allclose(sm.stamps, [100.5, 101.5])

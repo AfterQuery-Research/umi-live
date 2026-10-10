@@ -12,7 +12,7 @@ files are ALREADY in TUM format::
 so "conversion" here is selection + validation:
 
 * prefer ``traj_lidar.txt`` (globally optimized, LiDAR frame — matches what
-  we compare against the Vive EE trajectory) over ``odom_lidar.txt``
+  it is the globally optimized trajectory) over ``odom_lidar.txt``
   (odometry-only, drifts), then the IMU-frame variants;
 * drop malformed lines, sort by timestamp, de-duplicate stamps
   (global mapping can emit a frame twice around submap boundaries).

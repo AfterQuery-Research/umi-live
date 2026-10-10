@@ -1,0 +1,5 @@
+# Local analysis workspaces and internal review material are never deployment inputs.
+/dataset-filtering/
+/dataset-filtering-tests/
+/*CODEBASE_REVIEW.md
+/*.SCOPE.md

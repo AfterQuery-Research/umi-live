@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # Configure ONE Pi interface for ONE lidar. Run as root, once per lidar:
 #   sudo device/scripts/setup_lidar_net.sh eth0 192.168.1.102/24 192.168.1.200
-#   sudo device/scripts/setup_lidar_net.sh eth1 192.168.2.102/24 192.168.2.200
-#
-# Two-lidar rigs: each lidar gets its OWN interface + subnet (a USB3-GbE dongle
-# for the second). RoboSense units all ship at 192.168.1.200 — reprovision the
-# second unit's IP via its web UI before wiring it to eth1.
 #
 # Two silent failure modes this handles (both proven on hardware):
 #   1. A network manager wipes a manual `ip addr add`, so we write a PERSISTENT
@@ -14,7 +9,7 @@
 #      default route is set, so internet stays on wlan0.
 #   2. rp_filter drops the lidar's unicast on a multi-homed Pi. Note: pcap
 #      capture (AF_PACKET) taps pre-routing and would see packets anyway, but
-#      the advisory monitor + Livox waker use UDP sockets, which do not.
+#      the advisory monitor uses UDP sockets, which do not.
 set -eo pipefail
 
 IFACE="${1:?usage: setup_lidar_net.sh <iface> <host_cidr> <lidar_ip>}"
@@ -35,7 +30,8 @@ elif command -v netplan >/dev/null 2>&1; then
   # A higher-numbered file overrides cloud-init's dhcp on this iface. No gateway/route,
   # so ${IFACE} never becomes the default route (internet stays on wlan0).
   NP="/etc/netplan/99-lidar-${IFACE}.yaml"
-  cat > "${NP}" <<EOF
+  NP_NEW="$(mktemp)"
+  cat > "${NP_NEW}" <<EOF
 network:
   version: 2
   ethernets:
@@ -45,9 +41,15 @@ network:
       optional: true
       addresses: [${HOST_CIDR}]
 EOF
-  chmod 600 "${NP}"
-  netplan generate
-  netplan apply
+  if cmp -s "${NP_NEW}" "${NP}"; then
+    echo "netplan lidar configuration unchanged"
+    rm -f "${NP_NEW}"
+  else
+    install -m 600 "${NP_NEW}" "${NP}"
+    rm -f "${NP_NEW}"
+    netplan generate
+    netplan apply
+  fi
 else
   echo "ERROR: neither nmcli (NetworkManager) nor netplan found — cannot set a" >&2
   echo "persistent static IP on ${IFACE}. Install one, or set it by hand:" >&2

@@ -6,6 +6,8 @@
 .git
 data
 docker
+!docker/ingest/
+!docker/ingest/requirements.txt
 **/.venv
 **/__pycache__
 **/*.pyc

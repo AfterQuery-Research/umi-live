@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UMI to YAM replay viewer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: #f5f6f8;
+      --foreground: #17202a;
+      --card: #ffffff;
+      --card-foreground: #17202a;
+      --muted: #e9edf1;
+      --muted-foreground: #5b6673;
+      --border: #d5dbe2;
+      --primary: #17202a;
+      --primary-foreground: #ffffff;
+      --accent: #e4ebf2;
+      --destructive: #c53b3b;
+      --series-1: #197b83;
+      --series-2: #c87817;
+      --series-3: #697586;
+      --series-ok: #2e8b57;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #111418;
+        --foreground: #edf1f5;
+        --card: #181d23;
+        --card-foreground: #edf1f5;
+        --muted: #242b33;
+        --muted-foreground: #a7b0bb;
+        --border: #323b45;
+        --primary: #edf1f5;
+        --primary-foreground: #111418;
+        --accent: #252f39;
+        --destructive: #ff7770;
+        --series-1: #55c2c8;
+        --series-2: #f0aa4b;
+        --series-3: #9ea9b7;
+        --series-ok: #65c98c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, select, input { font: inherit; }
+    button, select {
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--card-foreground);
+      padding: 7px 10px;
+    }
+    button { cursor: pointer; font-weight: 500; }
+    button:hover { background: var(--accent); }
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 2px solid var(--series-1);
+      outline-offset: 2px;
+    }
+    main { max-width: 1500px; margin: 0 auto; padding: 20px; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: clamp(20px, 2.3vw, 30px); font-weight: 500; letter-spacing: -0.025em; }
+    .subtitle { color: var(--muted-foreground); margin-top: 4px; }
+    .read-only {
+      white-space: nowrap;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 9px;
+      color: var(--muted-foreground);
+      background: var(--card);
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, .8fr) minmax(0, .8fr) auto;
+      align-items: end;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .toolbar select { width: 100%; min-width: 0; }
+    label { display: grid; gap: 5px; color: var(--muted-foreground); font-size: 12px; }
+    .primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    .primary:hover { opacity: .88; background: var(--primary); }
+    .status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      padding: 10px 0;
+      border-top: 1px solid var(--border);
+      color: var(--muted-foreground);
+      min-height: 44px;
+    }
+    .status strong { color: var(--foreground); font-weight: 500; }
+    .views { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .panel {
+      min-width: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      padding: 11px 13px;
+      border-bottom: 1px solid var(--border);
+    }
+    h2 { margin: 0; font-size: 14px; font-weight: 500; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted-foreground); font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .swatch { width: 10px; height: 3px; border-radius: 4px; display: inline-block; }
+    .line-key { width: 18px; height: 0; border-top: 3px solid var(--muted-foreground); display: inline-block; }
+    .line-key.dashed { border-top-style: dashed; opacity: .8; }
+    .canvas { height: clamp(340px, 45vw, 610px); min-height: 340px; position: relative; }
+    .canvas canvas { display: none; }
+    .projection-svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+    }
+    .projection-svg:active { cursor: grabbing; }
+    .canvas-note {
+      position: absolute;
+      left: 10px;
+      bottom: 9px;
+      color: var(--muted-foreground);
+      font-size: 11px;
+      background: color-mix(in srgb, var(--card) 82%, transparent);
+      padding: 4px 6px;
+      border-radius: 5px;
+      pointer-events: none;
+    }
+    .playback {
+      display: grid;
+      grid-template-columns: auto auto 1fr auto;
+      align-items: center;
+      gap: 9px;
+      margin-top: 12px;
+    }
+    .playback input[type="range"] { width: 100%; accent-color: var(--series-1); }
+    .time { min-width: 105px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .metric { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 11px 12px; }
+    .metric-label { color: var(--muted-foreground); font-size: 12px; }
+    .metric-value { font-size: 20px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .metric-detail { color: var(--muted-foreground); font-size: 12px; margin-top: 1px; }
+    .error { color: var(--destructive); }
+    @media (max-width: 880px) {
+      .views { grid-template-columns: 1fr; }
+      .canvas { height: 430px; }
+    }
+    @media (max-width: 620px) {
+      main { padding: 12px; }
+      header { display: block; }
+      .read-only { display: inline-block; margin-top: 10px; }
+      .toolbar { grid-template-columns: 1fr; }
+      .playback { grid-template-columns: auto auto 1fr; }
+      .time { grid-column: 1 / -1; text-align: left; }
+      .metrics { grid-template-columns: 1fr; }
+      .canvas { height: 360px; }
+    }
+  </style>
+  <script type="importmap">
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"}}
+  </script>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>UMI → YAM replay lab</h1>
+      <div class="subtitle" id="sourceLabel">Loading episode index…</div>
+    </div>
+    <div class="read-only">Read-only source · local outputs</div>
+  </header>
+
+  <section class="toolbar" aria-label="Episode controls">
+    <label>Episode
+      <select id="episodeSelect" aria-label="Episode"></select>
+    </label>
+    <label>Smoothing
+      <select id="smootherSelect" aria-label="Smoothing algorithm">
+        <option value="auto">Auto (lowest distortion-aware score)</option>
+        <option value="gaussian">Gaussian · σ 3 frames</option>
+        <option value="butterworth">Butterworth · 4 Hz</option>
+        <option value="savgol">Savitzky–Golay · 15 frames</option>
+      </select>
+    </label>
+    <label>Trajectory solver
+      <select id="solverSelect" aria-label="Trajectory solver">
+        <option value="continuous">Continuous optimizer</option>
+        <option value="greedy">Greedy IK diagnostic</option>
+      </select>
+    </label>
+    <button class="primary" id="loadButton">Load episode</button>
+  </section>
+
+  <div class="status" id="status" aria-live="polite">Preparing viewer…</div>
+
+  <section class="views">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>UMI targets</h2>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--series-1)"></i>umi1 · left</span>
+          <span><i class="swatch" style="background:var(--series-2)"></i>umi2 · right</span>
+          <span><i class="swatch" style="background:var(--series-3)"></i>raw</span>
+        </div>
+      </div>
+      <div class="canvas" id="umiView"><div class="canvas-note">Drag to orbit · scroll to zoom</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2 id="yamPanelTitle">Original UMI ↔ optimized YAM overlay</h2>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--series-1)"></i>left</span>
+          <span><i class="swatch" style="background:var(--series-2)"></i>right</span>
+          <span><i class="line-key dashed"></i>original UMI</span>
+          <span><i class="line-key"></i><span id="achievedLegendLabel">optimized FK</span></span>
+        </div>
+      </div>
+      <div class="canvas" id="yamView"><div class="canvas-note" id="overlayNote">dashed: original UMI · solid: optimized FK · connector: current deviation</div></div>
+    </div>
+  </section>
+
+  <section class="playback" aria-label="Playback timeline">
+    <button id="playButton" aria-label="Play or pause">Play</button>
+    <select id="speedSelect" aria-label="Playback speed">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+    <input id="timeline" type="range" min="0" max="1" value="0" step="1" aria-label="Frame">
+    <div class="time" id="timeLabel">0.00 / 0.00 s</div>
+  </section>
+
+  <section class="metrics" aria-label="Trajectory metrics">
+    <div class="metric">
+      <div class="metric-label">Estimated high-frequency noise</div>
+      <div class="metric-value" id="noiseValue">—</div>
+      <div class="metric-detail" id="noiseDetail">translation · rotation</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Selected smoothing</div>
+      <div class="metric-value" id="smoothValue">—</div>
+      <div class="metric-detail" id="smoothDetail">distortion · direction</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label" id="reachLabel">Both arms within target tolerance</div>
+      <div class="metric-value" id="reachValue">—</div>
+      <div class="metric-detail" id="reachDetail">position tolerance 10 mm</div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+  import * as THREE from "three";
+  import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.js";
+
+  const css = getComputedStyle(document.documentElement);
+  const colors = {
+    background: css.getPropertyValue("--card").trim(),
+    grid: css.getPropertyValue("--border").trim(),
+    left: css.getPropertyValue("--series-1").trim(),
+    right: css.getPropertyValue("--series-2").trim(),
+    raw: css.getPropertyValue("--series-3").trim(),
+    ok: css.getPropertyValue("--series-ok").trim(),
+    miss: css.getPropertyValue("--destructive").trim()
+  };
+  const state = { data: null, frame: 0, playing: false, playbackTime: 0, lastTime: 0, savedResults: false };
+  const dom = Object.fromEntries([
+    "sourceLabel","episodeSelect","smootherSelect","solverSelect","loadButton","status","playButton",
+    "speedSelect","timeline","timeLabel","noiseValue","noiseDetail","smoothValue",
+    "smoothDetail","reachLabel","reachValue","reachDetail","yamPanelTitle",
+    "achievedLegendLabel","overlayNote"
+  ].map(id => [id, document.getElementById(id)]));
+
+  function makeScene(containerId) {
+    const container = document.getElementById(containerId);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(colors.background);
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 20);
+    camera.position.set(1.25, -1.25, 0.85);
+    camera.up.set(0, 0, 1);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    container.prepend(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0.25, 0, 0.2);
+    controls.enableDamping = true;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6570, 2.1));
+    const key = new THREE.DirectionalLight(0xffffff, 1.8);
+    key.position.set(1, -1, 2);
+    scene.add(key);
+    const grid = new THREE.GridHelper(1.6, 16, colors.grid, colors.grid);
+    grid.rotation.x = Math.PI / 2;
+    grid.material.transparent = true;
+    grid.material.opacity = 0.52;
+    scene.add(grid);
+    function resize() {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(container);
+    resize();
+    return { scene, camera, renderer, controls, dynamic: new THREE.Group() };
+  }
+
+  const umi = makeScene("umiView");
+  const yam = makeScene("yamView");
+  umi.scene.add(umi.dynamic);
+  yam.scene.add(yam.dynamic);
+
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  function makeProjection(containerId, kind) {
+    const container = document.getElementById(containerId);
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.classList.add("projection-svg");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", kind === "umi" ? "3D UMI target trajectories" : "Original UMI trajectory overlaid with YAM replay path");
+    container.prepend(svg);
+    const view = { svg, container, kind, yaw: -0.72, pitch: 0.54, zoom: 1, dragging: false, x: 0, y: 0 };
+    svg.addEventListener("pointerdown", event => {
+      view.dragging = true; view.x = event.clientX; view.y = event.clientY;
+      svg.setPointerCapture(event.pointerId);
+    });
+    svg.addEventListener("pointermove", event => {
+      if (!view.dragging) return;
+      view.yaw += (event.clientX - view.x) * .008;
+      view.pitch = Math.max(.12, Math.min(1.25, view.pitch + (event.clientY - view.y) * .006));
+      view.x = event.clientX; view.y = event.clientY;
+      renderProjection(view);
+    });
+    svg.addEventListener("pointerup", () => { view.dragging = false; });
+    svg.addEventListener("wheel", event => {
+      event.preventDefault();
+      view.zoom = Math.max(.5, Math.min(2.8, view.zoom * Math.exp(-event.deltaY * .001)));
+      renderProjection(view);
+    }, { passive: false });
+    new ResizeObserver(() => renderProjection(view)).observe(container);
+    return view;
+  }
+  const umiProjection = makeProjection("umiView", "umi");
+  const yamProjection = makeProjection("yamView", "yam");
+
+  function project(view, point) {
+    const width = Math.max(1, view.container.clientWidth);
+    const height = Math.max(1, view.container.clientHeight);
+    const cosYaw = Math.cos(view.yaw), sinYaw = Math.sin(view.yaw);
+    const x = cosYaw * point[0] - sinYaw * point[1];
+    const depth = sinYaw * point[0] + cosYaw * point[1];
+    const vertical = point[2] * Math.cos(view.pitch) - depth * Math.sin(view.pitch);
+    const scale = Math.min(width, height) * .78 * view.zoom;
+    return [width * .48 + x * scale, height * .61 - vertical * scale];
+  }
+
+  function svgElement(name, attributes = {}) {
+    const element = document.createElementNS(svgNamespace, name);
+    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+    return element;
+  }
+
+  function addSvgLine(parent, view, a, b, stroke, width, opacity = 1) {
+    const pa = project(view, a), pb = project(view, b);
+    parent.append(svgElement("line", { x1:pa[0], y1:pa[1], x2:pb[0], y2:pb[1], stroke, "stroke-width":width, "stroke-linecap":"round", opacity }));
+  }
+
+  function addSvgCircle(parent, view, point, radius, fill, stroke = "none") {
+    const p = project(view, point);
+    parent.append(svgElement("circle", { cx:p[0], cy:p[1], r:radius, fill, stroke, "stroke-width":2 }));
+  }
+
+  function addTrajectory(parent, view, frames, arm, stroke, width, opacity, options = {}) {
+    const start = options.start ?? 0;
+    const end = options.end ?? frames.length;
+    const points = frames.slice(start, end).map(frame => project(view, frame[arm]).join(",")).join(" ");
+    const attributes = { points, fill:"none", stroke, "stroke-width":width, "stroke-linejoin":"round", "stroke-linecap":"round", opacity };
+    if (options.dash) attributes["stroke-dasharray"] = options.dash;
+    parent.append(svgElement("polyline", attributes));
+  }
+
+  function achievedPositions(data) {
+    if (data.achieved_positions) return data.achieved_positions;
+    return data.robot_links.map(frame => frame.map(points => points[points.length - 1]));
+  }
+
+  function distanceMm(a, b) {
+    return 1000 * Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  }
+
+  function percentile(values, fraction) {
+    const sorted = [...values].sort((a, b) => a - b);
+    if (!sorted.length) return 0;
+    return sorted[Math.min(sorted.length - 1, Math.floor(fraction * (sorted.length - 1)))];
+  }
+
+  function renderProjection(view) {
+    const svg = view.svg;
+    const width = Math.max(1, view.container.clientWidth), height = Math.max(1, view.container.clientHeight);
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.replaceChildren();
+    const grid = svgElement("g", { opacity:.62 });
+    for (let step = -6; step <= 6; step++) {
+      const value = step / 10;
+      addSvgLine(grid, view, [-.55,value,0], [.7,value,0], colors.grid, 1);
+      addSvgLine(grid, view, [value,-.6,0], [value,.6,0], colors.grid, 1);
+    }
+    svg.append(grid);
+    if (!state.data) return;
+    const data = state.data;
+    const trajectories = svgElement("g");
+    if (view.kind === "umi") {
+      for (let arm = 0; arm < 2; arm++) {
+        addTrajectory(trajectories, view, data.raw_positions, arm, colors.raw, 2, .46);
+        addTrajectory(trajectories, view, data.smoothed_positions, arm, arm ? colors.right : colors.left, 3, .96);
+      }
+      svg.append(trajectories);
+      for (let arm = 0; arm < 2; arm++) {
+        const point = data.smoothed_positions[state.frame][arm];
+        const armColor = arm ? colors.right : colors.left;
+        addSvgCircle(svg, view, point, 8, armColor, colors.background);
+        const quaternion = data.smoothed_quaternions[state.frame][arm];
+        const axes = rotatedAxes(quaternion, .085);
+        addSvgLine(svg, view, point, sum3(point, axes[0]), "#e35c5c", 3);
+        addSvgLine(svg, view, point, sum3(point, axes[1]), "#58a66b", 3);
+        addSvgLine(svg, view, point, sum3(point, axes[2]), "#4f83cc", 3);
+      }
+    } else {
+      const achieved = state.achievedPositions || achievedPositions(data);
+      for (let arm = 0; arm < 2; arm++) {
+        const armColor = arm ? colors.right : colors.left;
+        addTrajectory(trajectories, view, data.raw_positions, arm, armColor, 2, .5, { dash:"7 7" });
+        addTrajectory(trajectories, view, achieved, arm, armColor, 3, .35);
+        addTrajectory(trajectories, view, achieved, arm, armColor, 4, .98, { end:state.frame + 1 });
+      }
+      svg.append(trajectories);
+      for (let arm = 0; arm < 2; arm++) {
+        const armColor = arm ? colors.right : colors.left;
+        const points = data.robot_links[state.frame][arm];
+        for (let index = 0; index < points.length - 1; index++) addSvgLine(svg, view, points[index], points[index + 1], armColor, 10);
+        for (const point of points) addSvgCircle(svg, view, point, 6, armColor, colors.background);
+        const original = data.raw_positions[state.frame][arm];
+        const optimized = achieved[state.frame][arm];
+        const overlayError = distanceMm(original, optimized);
+        const reachable = data.reachable[state.frame][arm];
+        addSvgLine(svg, view, original, optimized, overlayError <= 10 ? colors.ok : colors.miss, 2, .9);
+        addSvgCircle(svg, view, original, 8, colors.background, armColor);
+        addSvgCircle(svg, view, optimized, 6, reachable ? colors.ok : colors.miss, colors.background);
+      }
+    }
+  }
+
+  function sum3(a, b) { return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+  function rotatedAxes(q, length) {
+    const [x,y,z,w] = q;
+    const xx=x*x, yy=y*y, zz=z*z, xy=x*y, xz=x*z, yz=y*z, wx=w*x, wy=w*y, wz=w*z;
+    return [
+      [(1-2*(yy+zz))*length, (2*(xy+wz))*length, (2*(xz-wy))*length],
+      [(2*(xy-wz))*length, (1-2*(xx+zz))*length, (2*(yz+wx))*length],
+      [(2*(xz+wy))*length, (2*(yz-wx))*length, (1-2*(xx+yy))*length]
+    ];
+  }
+
+  function clearGroup(group) {
+    while (group.children.length) {
+      const child = group.children.pop();
+      child.traverse?.(object => {
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) object.material.forEach(m => m.dispose());
+        else object.material?.dispose?.();
+      });
+    }
+  }
+
+  function line(points, color, opacity = 1) {
+    const geometry = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(...p)));
+    const material = new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity });
+    return new THREE.Line(geometry, material);
+  }
+
+  function sphere(radius, color, opacity = 1) {
+    return new THREE.Mesh(
+      new THREE.SphereGeometry(radius, 18, 12),
+      new THREE.MeshStandardMaterial({ color, transparent: opacity < 1, opacity, roughness: .65 })
+    );
+  }
+
+  function cylinder(color) {
+    return new THREE.Mesh(
+      new THREE.CylinderGeometry(.018, .018, 1, 12),
+      new THREE.MeshStandardMaterial({ color, roughness: .6, metalness: .04 })
+    );
+  }
+
+  function placeSegment(mesh, a, b) {
+    const start = new THREE.Vector3(...a);
+    const end = new THREE.Vector3(...b);
+    const delta = end.clone().sub(start);
+    mesh.position.copy(start.clone().add(end).multiplyScalar(.5));
+    mesh.scale.set(1, Math.max(delta.length(), .001), 1);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+  }
+
+  function buildVisuals(data) {
+    clearGroup(umi.dynamic);
+    clearGroup(yam.dynamic);
+    const armColors = [colors.left, colors.right];
+    state.umiMarkers = [];
+    state.umiAxes = [];
+    state.armSegments = [];
+    state.armJoints = [];
+    state.targetMarkers = [];
+    state.achievedPositions = achievedPositions(data);
+    const isContinuous = data.mode === "umi_pose_continuous";
+    dom.yamPanelTitle.textContent = isContinuous
+      ? "Original UMI ↔ optimized YAM overlay"
+      : data.mode === "umi_pose_ik"
+        ? "Original UMI ↔ greedy IK overlay"
+        : "YAM trajectory playback";
+    dom.achievedLegendLabel.textContent = isContinuous ? "optimized FK" : "replayed FK";
+    dom.overlayNote.textContent = `dashed: original UMI · solid: ${isContinuous ? "optimized" : "replayed"} FK · connector: current deviation`;
+    for (let arm = 0; arm < 2; arm++) {
+      const raw = data.raw_positions.map(frame => frame[arm]);
+      const smooth = data.smoothed_positions.map(frame => frame[arm]);
+      const achieved = state.achievedPositions.map(frame => frame[arm]);
+      umi.dynamic.add(line(raw, colors.raw, .42));
+      umi.dynamic.add(line(smooth, armColors[arm], .96));
+      yam.dynamic.add(line(raw, armColors[arm], .34));
+      yam.dynamic.add(line(achieved, armColors[arm], .92));
+      const marker = sphere(.025, armColors[arm]);
+      umi.dynamic.add(marker);
+      state.umiMarkers.push(marker);
+      const axes = new THREE.AxesHelper(.11);
+      umi.dynamic.add(axes);
+      state.umiAxes.push(axes);
+
+      const target = sphere(.022, armColors[arm], .75);
+      yam.dynamic.add(target);
+      state.targetMarkers.push(target);
+      const segments = [];
+      const joints = [];
+      for (let i = 0; i < 7; i++) {
+        const segment = cylinder(armColors[arm]);
+        yam.dynamic.add(segment);
+        segments.push(segment);
+      }
+      for (let i = 0; i < 8; i++) {
+        const joint = sphere(i === 7 ? .022 : .024, armColors[arm]);
+        yam.dynamic.add(joint);
+        joints.push(joint);
+      }
+      state.armSegments.push(segments);
+      state.armJoints.push(joints);
+    }
+    renderProjection(umiProjection);
+    renderProjection(yamProjection);
+  }
+
+  function renderFrame(frame) {
+    const data = state.data;
+    if (!data) return;
+    state.frame = Math.max(0, Math.min(frame, data.frames - 1));
+    const clearance = data.interarm_clearance_mm?.[state.frame];
+    const clearanceGate = data.interarm_clearance_gate_mm ?? 5;
+    const interarmUnsafe = Number.isFinite(clearance) && clearance < clearanceGate;
+    for (let arm = 0; arm < 2; arm++) {
+      const target = data.smoothed_positions[state.frame][arm];
+      state.umiMarkers[arm].position.set(...target);
+      state.umiAxes[arm].position.set(...target);
+      const q = data.smoothed_quaternions[state.frame][arm];
+      state.umiAxes[arm].quaternion.set(q[0], q[1], q[2], q[3]);
+      const width = data.grippers[state.frame][arm];
+      const normalizedWidth = Math.max(.55, Math.min(1.55, .55 + width / 120));
+      state.umiMarkers[arm].scale.set(normalizedWidth, .7, .7);
+
+      const reachable = data.reachable[state.frame][arm];
+      state.targetMarkers[arm].position.set(...data.raw_positions[state.frame][arm]);
+      state.targetMarkers[arm].material.color.set(reachable ? colors.ok : colors.miss);
+      const points = data.robot_links[state.frame][arm];
+      const armColor = interarmUnsafe ? colors.miss : (arm ? colors.right : colors.left);
+      for (let i = 0; i < 7; i++) {
+        placeSegment(state.armSegments[arm][i], points[i], points[i + 1]);
+        state.armSegments[arm][i].material.color.set(armColor);
+      }
+      for (let i = 0; i < 8; i++) {
+        state.armJoints[arm][i].position.set(...points[i]);
+        state.armJoints[arm][i].material.color.set(armColor);
+      }
+    }
+    dom.timeline.value = String(state.frame);
+    const time = data.timestamps[state.frame] - data.timestamps[0];
+    state.playbackTime = time;
+    dom.timeLabel.textContent = `${time.toFixed(2)} / ${data.duration_s.toFixed(2)} s · frame ${state.frame}`;
+    const misses = data.reachable[state.frame].map((ok, i) => ok ? null : i).filter(x => x !== null);
+    if (data.mode === "umi_pose_continuous") {
+      const errors = data.position_error_mm[state.frame];
+      const achieved = state.achievedPositions[state.frame];
+      const overlayErrors = [0, 1].map(arm => distanceMm(data.raw_positions[state.frame][arm], achieved[arm]));
+      const label = data.precomputed ? `Saved Lambda trajectory · ${data.selected_profile}` : "Continuous optimized trajectory";
+      const prefix = misses.length ? `<strong class="error">Continuous tracking deviation</strong>` : `<strong>${label}</strong>`;
+      const clearanceStatus = Number.isFinite(clearance)
+        ? `<span class="${interarmUnsafe ? "error" : ""}">inter-arm ${clearance.toFixed(1)} mm · gate ≥${clearanceGate.toFixed(0)} mm</span>`
+        : "";
+      dom.status.innerHTML = `${prefix}<span>left raw↔FK ${overlayErrors[0].toFixed(1)} mm</span><span>right raw↔FK ${overlayErrors[1].toFixed(1)} mm</span><span>smoothed-target fit ${Math.max(...errors).toFixed(1)} mm · no IK jump</span>${clearanceStatus}`;
+    } else if (misses.length) {
+      const names = misses.map(i => i === 0 ? "umi1/left" : "umi2/right").join(" + ");
+      const next = findNextReachable(state.frame, misses);
+      dom.status.innerHTML = `<strong class="error">IK miss: ${names}</strong><span>holding last reachable pose${next ? ` · next reachable frame ${next}` : ""}</span>`;
+    } else {
+      const errors = data.position_error_mm[state.frame];
+      dom.status.innerHTML = `<strong>Frame reachable</strong><span>left error ${errors[0].toFixed(1)} mm</span><span>right error ${errors[1].toFixed(1)} mm</span><span>${data.task}</span>`;
+    }
+    renderProjection(umiProjection);
+    renderProjection(yamProjection);
+  }
+
+  function findNextReachable(from, arms) {
+    for (let frame = from + 1; frame < state.data.frames; frame++) {
+      if (arms.every(arm => state.data.reachable[frame][arm])) return frame;
+    }
+    return null;
+  }
+
+  async function loadIndex({ loadSelected = true } = {}) {
+    try {
+      const previousEpisode = dom.episodeSelect.value;
+      const response = await fetch("/api/episodes", { cache: "no-store" });
+      if (!response.ok) throw new Error(await response.text());
+      const index = await response.json();
+      state.savedResults = Boolean(index.precomputed_results);
+      updateSavedControlState();
+      dom.sourceLabel.textContent = `${index.source} · ${index.episodes.length} episodes · ${(index.total_duration_s / 60).toFixed(1)} min`;
+      dom.episodeSelect.replaceChildren(...index.episodes.map(ep => {
+        const option = document.createElement("option");
+        option.value = ep.episode_index;
+        option.textContent = `Episode ${ep.episode_index} · ${ep.duration_s.toFixed(1)} s · ${ep.length} frames`;
+        return option;
+      }));
+      const requestedEpisode = new URLSearchParams(window.location.search).get("episode");
+      const preferredEpisode = previousEpisode || requestedEpisode;
+      if (preferredEpisode && [...dom.episodeSelect.options].some(option => option.value === preferredEpisode)) {
+        dom.episodeSelect.value = preferredEpisode;
+      }
+      const requestedSolver = new URLSearchParams(window.location.search).get("solver");
+      if ([...dom.solverSelect.options].some(option => option.value === requestedSolver)) {
+        dom.solverSelect.value = requestedSolver;
+      }
+      const requestedSmoother = new URLSearchParams(window.location.search).get("smoother");
+      if ([...dom.smootherSelect.options].some(option => option.value === requestedSmoother)) {
+        dom.smootherSelect.value = requestedSmoother;
+      }
+      if (loadSelected) await loadEpisode();
+    } catch (error) {
+      dom.status.innerHTML = `<strong class="error">Could not load dataset index</strong><span>${escapeHtml(String(error))}</span>`;
+    }
+  }
+
+  async function loadEpisode() {
+    state.playing = false;
+    dom.playButton.textContent = "Play";
+    dom.loadButton.disabled = true;
+    const continuous = dom.solverSelect.value === "continuous";
+    dom.status.innerHTML = continuous
+      ? (state.savedResults
+        ? "<strong>Loading saved Lambda solve…</strong><span>the viewer will not rerun IK</span>"
+        : "<strong>Optimizing locally…</strong><span>strict contact IK + continuous bimanual spline; source files stay unchanged</span>")
+      : "<strong>Processing locally…</strong><span>smoothing + greedy IK diagnostic; source files stay unchanged</span>";
+    const episode = dom.episodeSelect.value;
+    const smoother = dom.smootherSelect.value;
+    const solver = dom.solverSelect.value;
+    try {
+      const response = await fetch(`/api/episode/${episode}?smoother=${encodeURIComponent(smoother)}&solver=${encodeURIComponent(solver)}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(body.detail || response.statusText);
+      }
+      state.data = await response.json();
+      state.frame = 0;
+      dom.timeline.max = String(state.data.frames - 1);
+      buildVisuals(state.data);
+      updateMetrics();
+      renderFrame(0);
+    } catch (error) {
+      dom.status.innerHTML = `<strong class="error">Episode failed</strong><span>${escapeHtml(String(error))}</span>`;
+    } finally {
+      dom.loadButton.disabled = false;
+    }
+  }
+
+  function updateMetrics() {
+    const data = state.data;
+    if (data.mode === "umi_pose_ik" || data.mode === "umi_pose_continuous") {
+      dom.noiseValue.textContent = `${data.noise.translation_hf_rms_mm.toFixed(2)} mm`;
+      dom.noiseDetail.textContent = `>6 Hz estimate · ${data.noise.rotation_hf_rms_deg.toFixed(3)}° rotation`;
+      dom.smoothValue.textContent = data.smoothing.method;
+      const m = data.smoothing.metrics;
+      dom.smoothDetail.textContent = `${m.translation_distortion_rms_mm.toFixed(2)} mm RMS change · direction ${m.direction_cosine_median.toFixed(3)}`;
+      const fraction = data.retarget.reachability.both_fraction;
+      dom.reachValue.textContent = `${(100 * fraction).toFixed(1)}%`;
+      if (data.mode === "umi_pose_continuous") {
+        const events = data.retarget.contact_events;
+        const timing = data.retarget.timing;
+        const overlayErrors = data.raw_positions.flatMap((frame, index) =>
+          [0, 1].map(arm => distanceMm(frame[arm], state.achievedPositions[index][arm]))
+        );
+        const overlayP95 = percentile(overlayErrors, .95);
+        const minimumClearance = Math.min(...data.interarm_clearance_mm);
+        dom.reachLabel.textContent = "Continuous bimanual tracking";
+        dom.reachDetail.textContent = `${events.strictly_feasible}/${events.total} strict contacts · raw↔FK p95 ${overlayP95.toFixed(1)} mm · min inter-arm ${minimumClearance.toFixed(1)} mm · ${timing.method}`;
+      } else {
+        dom.reachLabel.textContent = "Greedy framewise IK coverage";
+        dom.reachDetail.textContent = `${data.retarget.orientation_tolerance_deg.toFixed(0)}° orientation tolerance · hold on miss`;
+      }
+    } else {
+      dom.noiseValue.textContent = "joint space";
+      dom.noiseDetail.textContent = "source has no Cartesian UMI poses";
+      dom.smoothValue.textContent = "not applied";
+      dom.smoothDetail.textContent = "direct YAM forward kinematics reference";
+      dom.reachValue.textContent = `${(100 * data.retarget.reachability.both_fraction).toFixed(1)}%`;
+      dom.reachLabel.textContent = "Joint-limit coverage";
+      dom.reachDetail.textContent = "joint-limit check";
+    }
+  }
+
+  function animate(now) {
+    requestAnimationFrame(animate);
+    if (!state.lastTime) state.lastTime = now;
+    const dt = Math.min(.1, (now - state.lastTime) / 1000);
+    state.lastTime = now;
+    if (state.playing && state.data) {
+      state.playbackTime += dt * Number(dom.speedSelect.value);
+      if (state.playbackTime >= state.data.duration_s) {
+        state.playbackTime = 0;
+        state.playing = false;
+        dom.playButton.textContent = "Play";
+        renderFrame(0);
+      } else {
+        const absoluteTime = state.data.timestamps[0] + state.playbackTime;
+        let low = state.frame, high = state.data.frames - 1;
+        if (state.data.timestamps[low] > absoluteTime) low = 0;
+        while (low < high) {
+          const middle = Math.ceil((low + high) / 2);
+          if (state.data.timestamps[middle] <= absoluteTime) low = middle;
+          else high = middle - 1;
+        }
+        if (low !== state.frame) renderFrame(low);
+      }
+    }
+    umi.controls.update();
+    yam.controls.update();
+    umi.renderer.render(umi.scene, umi.camera);
+    yam.renderer.render(yam.scene, yam.camera);
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value;
+    return div.innerHTML;
+  }
+
+  function updateSavedControlState() {
+    dom.smootherSelect.disabled = state.savedResults && dom.solverSelect.value === "continuous";
+  }
+
+  dom.loadButton.addEventListener("click", loadEpisode);
+  dom.solverSelect.addEventListener("change", updateSavedControlState);
+  dom.playButton.addEventListener("click", () => {
+    if (!state.data) return;
+    state.playing = !state.playing;
+    state.playbackTime = state.data.timestamps[state.frame] - state.data.timestamps[0];
+    dom.playButton.textContent = state.playing ? "Pause" : "Play";
+  });
+  dom.timeline.addEventListener("input", () => { state.playing = false; dom.playButton.textContent = "Play"; renderFrame(Number(dom.timeline.value)); });
+  window.addEventListener("keydown", event => {
+    if (event.target.matches("select,button,input")) return;
+    if (event.code === "Space") { event.preventDefault(); dom.playButton.click(); }
+    if (event.code === "ArrowRight" && state.data) renderFrame(state.frame + 1);
+    if (event.code === "ArrowLeft" && state.data) renderFrame(state.frame - 1);
+  });
+
+  requestAnimationFrame(animate);
+  loadIndex();
+  setInterval(() => loadIndex({ loadSelected: false }), 10000);
+</script>
+</body>
+</html>

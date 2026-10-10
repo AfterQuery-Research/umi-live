@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from robot_umi_server.gripper import (
+from umi_flow_server.gripper import (
     GripperGeometry,
     gripper_widths,
     identity_calib,
@@ -29,7 +29,7 @@ def test_identity_calib_pinhole_from_resolution():
 
 
 def test_scale_calib_preserves_unprojection_across_resolutions():
-    from robot_umi_server.gripper import FisheyeCalib, scale_calib
+    from umi_flow_server.gripper import FisheyeCalib, scale_calib
 
     K = np.array([[541.4, 0, 950.5], [0, 541.4, 612.2], [0, 0, 1.0]])
     D = np.array([-0.043, -0.001, -0.002, 2.6e-5])
@@ -147,7 +147,7 @@ def test_load_calib_reads_fisheye(tmp_path):
 
 def test_roi_detection_matches_full_frame():
     cv2 = pytest.importorskip("cv2")
-    from robot_umi_server.gripper import FisheyeCalib, GripperDetector
+    from umi_flow_server.gripper import FisheyeCalib, GripperDetector
 
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     frame = np.full((480, 640, 3), 255, np.uint8)
@@ -163,8 +163,8 @@ def test_roi_detection_matches_full_frame():
         image_size=(640, 480),
         model="fisheye",
     )
-    full = GripperDetector(calib, GripperGeometry(), roi_top_frac=0.0).width_mm(frame)
-    roi = GripperDetector(calib, GripperGeometry(), roi_top_frac=0.5).width_mm(frame)
+    full = GripperDetector(calib, GripperGeometry(), (0, 1), roi_top_frac=0.0).width_mm(frame)
+    roi = GripperDetector(calib, GripperGeometry(), (0, 1), roi_top_frac=0.5).width_mm(frame)
     assert full is not None and roi is not None
     # the y-offset maps ROI corners back to full-frame coords -> identical width
     assert roi == pytest.approx(full, rel=1e-6)
@@ -172,7 +172,7 @@ def test_roi_detection_matches_full_frame():
 
 def test_detector_returns_none_with_only_one_tag():
     cv2 = pytest.importorskip("cv2")
-    from robot_umi_server.gripper import FisheyeCalib, GripperDetector
+    from umi_flow_server.gripper import FisheyeCalib, GripperDetector
 
     # render a single DICT_4X4_50 marker (id 0) on a white frame -> both tags not present
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -185,15 +185,15 @@ def test_detector_returns_none_with_only_one_tag():
         image_size=(640, 480),
         model="fisheye",
     )
-    det = GripperDetector(calib, GripperGeometry())
+    det = GripperDetector(calib, GripperGeometry(), (0, 1))
     assert det.width_mm(frame) is None  # only tag 0 present, need both 0 and 1
 
 
 def test_detector_per_arm_target_ids():
     cv2 = pytest.importorskip("cv2")
-    from robot_umi_server.gripper import GripperConfig, detector_from_config
+    from umi_flow_server.gripper import GripperConfig, detector_from_config
 
-    # frame carries umi2's tags (2 and 3) only
+    # The frame carries only one configured pair (2 and 3).
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     frame = np.full((480, 640, 3), 255, np.uint8)
     frame[360:440, 100:180] = cv2.cvtColor(
@@ -203,7 +203,7 @@ def test_detector_per_arm_target_ids():
         cv2.aruco.generateImageMarker(d, 3, 80), cv2.COLOR_GRAY2RGB
     )
     cfg = GripperConfig(geom=GripperGeometry())
-    d23 = detector_from_config(cfg, 640, 480, target_ids=(2, 3))  # umi2
-    d01 = detector_from_config(cfg, 640, 480, target_ids=(0, 1))  # umi1
+    d23 = detector_from_config(cfg, 640, 480, target_ids=(2, 3))
+    d01 = detector_from_config(cfg, 640, 480, target_ids=(0, 1))
     assert d23.width_mm(frame) is not None  # sees its own tags
-    assert d01.width_mm(frame) is None  # umi1's ids absent -> no false read
+    assert d01.width_mm(frame) is None  # other configured IDs are absent -> no false read

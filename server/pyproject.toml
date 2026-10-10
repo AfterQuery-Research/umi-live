@@ -1,8 +1,7 @@
 [project]
-name = "robot-umi-server"
+name = "umi-flow-server"
 version = "0.1.0"
-description = "HTTP ingest, pipeline runner, and GPU SLAM stages for Robot UMI episodes"
-readme = "README.md"
+description = "Paired ingest, GLIM pipeline, and local LeRobot dataset generation"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139.0",
@@ -13,10 +12,8 @@ dependencies = [
     # lack the GTK system libraries the default opencv-python wheel loads.
     # Floor sits inside lerobot's opencv-python-headless>=4.9,<4.14 window.
     "opencv-python-headless>=4.9.0",
-    "python-multipart>=0.0.32",
-    "robot-umi-core",
+    "umi-flow-core",
     "scipy>=1.14",
-    "tyro>=1.0.15",
     "uvicorn>=0.51.0",
 ]
 
@@ -32,12 +29,6 @@ align = [
     "open3d>=0.18",
     "gtsam>=4.3a0",
 ]
-# Debug viewers (mac/live_pose_plot.py, mac/plot_recording.py). matplotlib only; the
-# offline video also uses ffmpeg (system) for MP4, falling back to an animated GIF.
-viz = [
-    "matplotlib>=3.8",
-]
-
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12.0"]
 build-backend = "uv_build"
@@ -45,14 +36,16 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "robot-umi-device",
+    "umi-flow-device",
+    "umi-flow-test-support",
     "ruff>=0.15.21",
     "ty>=0.0.57",
 ]
 
 [tool.uv.sources]
-robot-umi-device = { workspace = true }
-robot-umi-core = { workspace = true }
+umi-flow-device = { workspace = true }
+umi-flow-core = { workspace = true }
+umi-flow-test-support = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

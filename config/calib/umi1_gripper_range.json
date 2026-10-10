@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "calibration_type": "umi_gripper_width_two_point",
+  "gripper": "umi1",
+  "source_units": "millimeters",
+  "closed_width_mm": 43.66749258526551,
+  "open_width_mm": 123.93276493014974,
+  "span_mm": 80.26527234488424,
+  "normalization_formula": "clip((width_mm - closed_width_mm) / (open_width_mm - closed_width_mm), 0, 1)",
+  "normalized_semantics": {
+    "0": "closed",
+    "1": "open"
+  },
+  "endpoints": {
+    "closed": {
+      "samples": 30,
+      "median_width_mm": 43.66749258526551,
+      "mean_width_mm": 43.64070183913993,
+      "std_width_mm": 0.03855437228509663,
+      "mad_width_mm": 0.0,
+      "min_width_mm": 43.539402555836745,
+      "max_width_mm": 43.66749258526551
+    },
+    "open": {
+      "samples": 30,
+      "median_width_mm": 123.93276493014974,
+      "mean_width_mm": 123.94825029960275,
+      "std_width_mm": 0.039836513007024024,
+      "mad_width_mm": 0.0,
+      "min_width_mm": 123.83180550648672,
+      "max_width_mm": 124.00682718492995
+    }
+  },
+  "measurement": {
+    "host": "lidar-umi@10.103.2.175",
+    "camera_calibration": "config/calib/umi1_calib.npz",
+    "tag_ids": [
+      2,
+      3
+    ],
+    "frame_size": [
+      800,
+      600
+    ],
+    "geometry": {
+      "plane_mm": 61.9,
+      "front_mm": 30.1
+    },
+    "requested_samples_per_endpoint": 30,
+    "maximum_endpoint_std_mm": 1.0
+  }
+}

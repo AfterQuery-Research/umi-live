@@ -1,7 +1,7 @@
 [project]
-name = "robot-umi"
+name = "umi-flow"
 version = "0.1.0"
-description = "Robot UMI data-collection stack: Raspberry Pi recorder, shared core, and GPU SLAM ingest server"
+description = "UMI Flow data-collection stack: Raspberry Pi recorder, shared core, and GPU SLAM ingest server"
 requires-python = ">=3.12"
 dependencies = []
 
@@ -9,7 +9,17 @@ dependencies = []
 package = false
 
 [tool.uv.workspace]
-members = ["common/robot-umi-core", "device", "server"]
+members = ["common/umi-flow-core", "device", "server", "test-support"]
+
+[dependency-groups]
+tools = [
+    "matplotlib>=3.10",
+    "opencv-python-headless>=4.9.0",
+    "umi-flow-core",
+]
+
+[tool.uv.sources]
+umi-flow-core = { workspace = true }
 
 [tool.ruff]
 line-length = 100

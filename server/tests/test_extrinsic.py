@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import yaml
-
-from robot_umi_core import difop, layout
-from robot_umi_device.pcap import PcapWriter
-from robot_umi_server import extrinsic
+from umi_flow_core import difop, layout
+from umi_flow_server import extrinsic
+from umi_flow_test_support import PcapWriter
 
 OTHER = (0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 1.0)  # a distinct, identity-rotation extrinsic
 
@@ -29,8 +28,12 @@ def _write_pcap(path, *, difop_ext=None, msop=False):
         )
     if msop:
         w.write_udp(
-            2, b"\x00" * 32, src_ip="192.168.1.200", src_port=6699,
-            dst_ip="192.168.1.102", dst_port=6699,
+            2,
+            b"\x00" * 32,
+            src_ip="192.168.1.200",
+            src_port=6699,
+            dst_ip="192.168.1.102",
+            dst_port=6699,
         )
     w.close()
 
@@ -38,17 +41,14 @@ def _write_pcap(path, *, difop_ext=None, msop=False):
 def _write_snapshot(episode_dir, *, override=None):
     snap = episode_dir / layout.CONFIG_SNAPSHOT_DIR
     snap.mkdir(parents=True, exist_ok=True)
-    lidar = {"type": "auto", "iface": "eth0"}
+    lidar = {"iface": "eth0"}
     if override is not None:
         lidar["t_lidar_imu"] = list(override)
     cfg = {
         "version": 1,
-        "motion_source": "lidar",
         "umis": {
             "umi1": {
-                "camera": {
-                    "device": "d", "width": 800, "height": 600, "fps": 30, "calib": "c.npz"
-                },
+                "camera": {"device": "d", "width": 800, "height": 600, "fps": 30, "calib": "c.npz"},
                 "lidar": lidar,
             }
         },
@@ -59,7 +59,9 @@ def _write_snapshot(episode_dir, *, override=None):
 def test_extract_from_pcap(tmp_path):
     p = tmp_path / _pcap_name()
     _write_pcap(p, difop_ext=difop.DEFAULT_AIRY_T_LIDAR_IMU)
-    assert np.allclose(difop.extract_t_lidar_imu(p), difop.DEFAULT_AIRY_T_LIDAR_IMU, atol=1e-5)
+    actual = difop.extract_t_lidar_imu(p)
+    assert actual is not None
+    assert np.allclose(actual, difop.DEFAULT_AIRY_T_LIDAR_IMU, atol=1e-5)
 
 
 def test_extract_none_without_difop(tmp_path):
