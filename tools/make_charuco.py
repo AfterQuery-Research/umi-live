@@ -28,7 +28,7 @@ def generate_board(width: int, height: int, margin: int):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=Path("/tmp/umi-flow-charuco.png"))
+    parser.add_argument("--out", type=Path, default=Path("/tmp/umi-live-charuco.png"))
     parser.add_argument("--width", type=int, default=1600)
     parser.add_argument("--height", type=int, default=1000)
     parser.add_argument("--margin", type=int, default=40)

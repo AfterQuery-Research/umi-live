@@ -1,7 +1,7 @@
 [project]
-name = "umi-flow-device"
+name = "umi-live-device"
 version = "0.1.0"
-description = "Raspberry Pi recorder and uploader for UMI Flow episodes"
+description = "Raspberry Pi recorder and uploader for UMI-Live episodes"
 requires-python = ">=3.12"
 dependencies = [
     # Floor kept at 2.2 so the workspace can co-resolve with lerobot's
@@ -9,7 +9,7 @@ dependencies = [
     "numpy>=2.2.6",
     "opencv-python-headless>=4.9.0",
     "pillow>=10.0",
-    "umi-flow-core",
+    "umi-live-core",
     "tyro>=1.0.15",
 ]
 
@@ -24,8 +24,8 @@ pi = [
 ]
 
 [tool.uv.sources]
-umi-flow-core = { workspace = true }
-umi-flow-test-support = { workspace = true }
+umi-live-core = { workspace = true }
+umi-live-test-support = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
@@ -36,7 +36,7 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.15.21",
     "ty>=0.0.57",
-    "umi-flow-test-support",
+    "umi-live-test-support",
 ]
 
 [tool.pytest.ini_options]

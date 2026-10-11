@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Render one synchronized, four-panel UMI Flow conference demo.
+"""Render one synchronized, four-panel UMI-Live conference demo.
 
 The paired episode's leader-camera timeline is the master clock. Both onboard cameras
 and both processed SLAM trajectories are sampled onto that clock; the external operator
 video uses one explicit offset because it has no shared hardware timestamp.
 
-    uv run --package umi-flow-server python tools/render_slam_demo.py \
+    uv run --package umi-live-server python tools/render_slam_demo.py \
       RAW_EPISODE DERIVED_EPISODE final.mp4 \
       --operator-video operator.mov --operator-offset-s 2.4
 
@@ -29,10 +29,10 @@ from typing import Any
 import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
-from umi_flow_core import config as core_config
-from umi_flow_core import layout
-from umi_flow_server.dataset_stage import load_frame_stream, pose_track_for_umi
-from umi_flow_server.trajectory import resample, states_from_track
+from umi_live_core import config as core_config
+from umi_live_core import layout
+from umi_live_server.dataset_stage import load_frame_stream, pose_track_for_umi
+from umi_live_server.trajectory import resample, states_from_track
 
 LEFT_COLOR = (255, 178, 50)  # BGR cyan-blue
 RIGHT_COLOR = (105, 92, 255)  # BGR coral
@@ -379,7 +379,7 @@ def _ffmpeg_process(
         "-movflags",
         "+faststart",
         "-metadata",
-        "title=UMI Flow synchronized dual-SLAM demo",
+        "title=UMI-Live synchronized dual-SLAM demo",
         str(output),
     ]
     return subprocess.Popen(command, stdin=subprocess.PIPE)

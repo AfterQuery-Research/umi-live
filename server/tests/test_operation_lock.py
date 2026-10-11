@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import pytest
-from umi_flow_server.operation_lock import PipelineLease, PipelineLeaseBusyError
+from umi_live_server.operation_lock import PipelineLease, PipelineLeaseBusyError
 
 
 def test_maintenance_excludes_stages_and_other_maintenance(tmp_path: Path) -> None:

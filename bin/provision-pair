@@ -36,7 +36,7 @@ if [ "${LEADER_HOTSPOT_ENABLED:-false}" = true ]; then
     PAIR_WIFI_SECRET="$(
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
         "${LEADER:-}" \
-        'sed -n "s/^UMI_PAIR_PSK=//p" ~/umi-flow/.pair-wifi.env 2>/dev/null | head -1' \
+        'sed -n "s/^UMI_PAIR_PSK=//p" ~/umi-live/.pair-wifi.env 2>/dev/null | head -1' \
         2>/dev/null || true
     )"
     if [ -n "$PAIR_WIFI_SECRET" ]; then
@@ -87,7 +87,7 @@ if [ "${LEADER_HOTSPOT_ENABLED:-false}" = true ] \
   for _ in $(seq 1 30); do
     if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
       "$LEADER" "ping -c 1 -W 1 10.42.0.2 >/dev/null && \
-      cd ~/umi-flow && .venv/bin/python -c 'import socket; socket.create_connection((\"10.42.0.2\", 9140), 2).close()'" \
+      cd ~/umi-live && .venv/bin/python -c 'import socket; socket.create_connection((\"10.42.0.2\", 9140), 2).close()'" \
       >/dev/null 2>&1; then
       ready=1
       break
@@ -106,7 +106,7 @@ elif [ "${LEADER_HOTSPOT_ENABLED:-false}" != true ]; then
     ready=0
     for _ in $(seq 1 30); do
       if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
-        "$LEADER" "cd ~/umi-flow && .venv/bin/python -c 'import socket; socket.create_connection((\"${FOLLOWER#*@}\", 9140), 2).close()'" \
+        "$LEADER" "cd ~/umi-live && .venv/bin/python -c 'import socket; socket.create_connection((\"${FOLLOWER#*@}\", 9140), 2).close()'" \
         >/dev/null 2>&1; then
         ready=1
         break

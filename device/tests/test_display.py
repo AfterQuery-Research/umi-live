@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PIL import Image
-from umi_flow_device.display import StatusDisplay
+from umi_live_device.display import StatusDisplay
 
 
 class FakePanel:

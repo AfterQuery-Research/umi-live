@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-from umi_flow_core import config as core_config
-from umi_flow_core import layout, manifest
-from umi_flow_device.episode import EpisodeRecorder, write_checksums
-from umi_flow_device.operation_lock import OperationLock
-from umi_flow_device.pcap import read_udp_packets
-from umi_flow_device.safety import SafetyPolicy
-from umi_flow_device.sensors import SensorStats
-from umi_flow_test_support import MockLidarPcapRecorder
+from umi_live_core import config as core_config
+from umi_live_core import layout, manifest
+from umi_live_device.episode import EpisodeRecorder, write_checksums
+from umi_live_device.operation_lock import OperationLock
+from umi_live_device.pcap import read_udp_packets
+from umi_live_device.safety import SafetyPolicy
+from umi_live_device.sensors import SensorStats
+from umi_live_test_support import MockLidarPcapRecorder
 
 
 class FakeCameraRecorder:
@@ -98,7 +98,7 @@ def test_start_rechecks_storage_headroom(rig_and_recorder, monkeypatch):
         estimated_take_bytes=0,
         metadata_reserve_bytes=0,
     )
-    monkeypatch.setattr("umi_flow_device.safety.shutil.disk_usage", lambda _path: Usage())
+    monkeypatch.setattr("umi_live_device.safety.shutil.disk_usage", lambda _path: Usage())
 
     with pytest.raises(RuntimeError, match="insufficient recording storage"):
         recorder.start(session_id="sess_1", role="umi1")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
-from umi_flow_server.trajectory import (
+from umi_live_server.trajectory import (
     PoseTrack,
     actions_from_states,
     read_tum,
@@ -83,7 +83,7 @@ def test_states_shared_origin():
 
 
 def test_states_basis_remap_umi_convention():
-    from umi_flow_core import geom
+    from umi_live_core import geom
 
     # GLIM-frame motions: forward=-y, right=-x, up=+z (Airy mount, recalibrated
     # 2026-07-16 after the factory IMU extrinsic fix).

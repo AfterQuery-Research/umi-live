@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from umi_flow_server.operation_lock import PipelineLeaseBusyError
+from umi_live_server.operation_lock import PipelineLeaseBusyError
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "archive_published_raw.py"
 spec = importlib.util.spec_from_file_location("archive_published_raw", SCRIPT)

@@ -19,7 +19,7 @@ for name in UMI_PAIR_ROLE UMI_PAIR_RADIO_IFACE UMI_PAIR_IFACE UMI_PAIR_SSID \
 done
 case "$UMI_PAIR_ROLE" in leader|follower) ;; *) die "invalid role $UMI_PAIR_ROLE" ;; esac
 
-RUNTIME_DIR=/run/umi-flow-pair
+RUNTIME_DIR=/run/umi-live-pair
 HOSTAPD_CONFIG="$RUNTIME_DIR/hostapd.conf"
 WPA_NETWORK_ID_FILE="$RUNTIME_DIR/follower-network-id"
 

@@ -14,6 +14,6 @@ wheels/
 .ruff_cache/
 
 # Local episode spool
-umi_flow_spool/
+umi_live_spool/
 # Legacy default retained during the environment/path migration.
 robot_umi_spool/

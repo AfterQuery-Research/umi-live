@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from umi_flow_core import config as core_config
-from umi_flow_server.dataset_stage import (
+from umi_live_core import config as core_config
+from umi_live_server.dataset_stage import (
     _ENSURED_HUB_REPOS,
     _ensure_hub_repo,
     _reconcile_unpushed_receipts,
@@ -23,7 +23,7 @@ from umi_flow_server.dataset_stage import (
     normalize_gripper_widths,
     pose_track_for_umi,
 )
-from umi_flow_server.trajectory import PoseTrack, write_tum
+from umi_live_server.trajectory import PoseTrack, write_tum
 
 
 def _fake_encoder():
@@ -36,7 +36,7 @@ def _fake_encoder():
 
 
 def test_video_encoder_waits_for_capacity_without_growing_queue(monkeypatch):
-    from umi_flow_server import dataset_stage
+    from umi_live_server import dataset_stage
 
     encoder = _fake_encoder()
     queue = encoder._frame_queues["camera"]
@@ -143,7 +143,7 @@ class _FakeHubApi:
 
 def _stale_publication(tmp_path: Path, episode_id: str = "paired_sess_1") -> tuple[Path, Path]:
     data_dir = tmp_path / "data"
-    dataset_dir = data_dir / "lerobot" / "local" / "umi-flow"
+    dataset_dir = data_dir / "lerobot" / "local" / "umi-live"
     mark_appended(dataset_dir, episode_id)
     raw_dir = data_dir / "raw_episodes" / episode_id
     raw_dir.mkdir(parents=True)

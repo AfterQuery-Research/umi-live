@@ -8,8 +8,8 @@ import json
 import os
 from pathlib import Path
 
-from umi_flow_server.dataset_stage import reconcile_hub_publication
-from umi_flow_server.operation_lock import PipelineLease, PipelineLeaseBusyError
+from umi_live_server.dataset_stage import reconcile_hub_publication
+from umi_live_server.operation_lock import PipelineLease, PipelineLeaseBusyError
 
 
 def main() -> None:

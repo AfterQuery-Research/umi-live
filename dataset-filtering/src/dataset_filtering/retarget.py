@@ -17,7 +17,7 @@ from dataset_filtering.smoothing import detect_gripper_events
 INCHES_TO_METRES = 0.0254
 DEFAULT_PAIR_SEPARATION_M = 18.0 * INCHES_TO_METRES
 
-# UMI state convention from umi_flow_core.geom: +X up, +Y right, +Z forward.
+# UMI state convention from umi_live_core.geom: +X up, +Y right, +Z forward.
 # Robot-world convention here: +X forward, +Y left, +Z up.
 UMI_TO_ROBOT_BASIS = np.asarray(
     [

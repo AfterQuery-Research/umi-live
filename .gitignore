@@ -3,7 +3,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 target/
-umi_flow_spool/
+umi_live_spool/
 # Legacy default retained during the environment/path migration.
 robot_umi_spool/
 config/umi.yaml

@@ -1,6 +1,6 @@
 """Generate a printable PDF sheet of configured ArUco gripper tags, grouped per arm.
 
-The gripper-width detector (server/src/umi_flow_server/gripper.py) reads two ArUco tags from
+The gripper-width detector (server/src/umi_live_server/gripper.py) reads two ArUco tags from
 DICT_4X4_50 on each gripper's two jaws. To keep the two arms unambiguous (so a camera
 that ever glimpses the other gripper can't confuse them), each arm uses its own pair from
 config/gripper_tags.yaml.
@@ -27,7 +27,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
-from umi_flow_core.config import GRIPPER_ARUCO_DICTIONARY, load_gripper_tag_pairs
+from umi_live_core.config import GRIPPER_ARUCO_DICTIONARY, load_gripper_tag_pairs
 
 ARUCO_DICT = GRIPPER_ARUCO_DICTIONARY
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "gripper_tags.yaml"

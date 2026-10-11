@@ -10,12 +10,12 @@ import os
 from pathlib import Path
 
 import uvicorn
-from umi_flow_server.server import ServerConfig, create_app
+from umi_live_server.server import ServerConfig, create_app
 
 
 def main() -> None:
     data_dir = Path(os.environ.get("DATA_DIR", "/data"))
-    recording_reserve_gib = int(os.environ.get("UMI_FLOW_RECORDING_RESERVE_GIB", "64"))
+    recording_reserve_gib = int(os.environ.get("UMI_LIVE_RECORDING_RESERVE_GIB", "64"))
     app = create_app(
         ServerConfig(
             data_dir=data_dir,

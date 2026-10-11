@@ -7,12 +7,12 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from umi_flow_device.camera import RustV4L2Camera, join_errors
+from umi_live_device.camera import RustV4L2Camera, join_errors
 
 
 def make_fresh_rust_project(root: Path) -> Path:
     project = root / "v4l2_recorder"
-    binary = project / "target" / "release" / "umi-flow-v4l2-recorder"
+    binary = project / "target" / "release" / "umi-live-v4l2-recorder"
     (project / "src").mkdir(parents=True)
     binary.parent.mkdir(parents=True)
     (project / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
@@ -67,13 +67,13 @@ def make_camera(
         builds.append(list(cmd))
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr("umi_flow_device.camera.subprocess.Popen", process_cls)
+    monkeypatch.setattr("umi_live_device.camera.subprocess.Popen", process_cls)
     monkeypatch.setattr(
-        "umi_flow_device.camera.os.killpg", lambda pid, sig: killed.append((pid, sig))
+        "umi_live_device.camera.os.killpg", lambda pid, sig: killed.append((pid, sig))
     )
-    monkeypatch.setattr("umi_flow_device.camera.subprocess.run", fake_run)
+    monkeypatch.setattr("umi_live_device.camera.subprocess.run", fake_run)
     # Builds are faked above, so the toolchain probe must be too (CI has no cargo).
-    monkeypatch.setattr("umi_flow_device.camera.shutil.which", lambda _: "/usr/bin/cargo")
+    monkeypatch.setattr("umi_live_device.camera.shutil.which", lambda _: "/usr/bin/cargo")
     camera = RustV4L2Camera("/dev/video0", 1920, 1200, 30, repo_root=tmp_path)
     return camera, killed, builds
 

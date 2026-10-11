@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from umi_flow_server.gripper import (
+from umi_live_server.gripper import (
     GripperGeometry,
     gripper_widths,
     identity_calib,
@@ -29,7 +29,7 @@ def test_identity_calib_pinhole_from_resolution():
 
 
 def test_scale_calib_preserves_unprojection_across_resolutions():
-    from umi_flow_server.gripper import FisheyeCalib, scale_calib
+    from umi_live_server.gripper import FisheyeCalib, scale_calib
 
     K = np.array([[541.4, 0, 950.5], [0, 541.4, 612.2], [0, 0, 1.0]])
     D = np.array([-0.043, -0.001, -0.002, 2.6e-5])
@@ -147,7 +147,7 @@ def test_load_calib_reads_fisheye(tmp_path):
 
 def test_roi_detection_matches_full_frame():
     cv2 = pytest.importorskip("cv2")
-    from umi_flow_server.gripper import FisheyeCalib, GripperDetector
+    from umi_live_server.gripper import FisheyeCalib, GripperDetector
 
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     frame = np.full((480, 640, 3), 255, np.uint8)
@@ -172,7 +172,7 @@ def test_roi_detection_matches_full_frame():
 
 def test_detector_returns_none_with_only_one_tag():
     cv2 = pytest.importorskip("cv2")
-    from umi_flow_server.gripper import FisheyeCalib, GripperDetector
+    from umi_live_server.gripper import FisheyeCalib, GripperDetector
 
     # render a single DICT_4X4_50 marker (id 0) on a white frame -> both tags not present
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -191,7 +191,7 @@ def test_detector_returns_none_with_only_one_tag():
 
 def test_detector_per_arm_target_ids():
     cv2 = pytest.importorskip("cv2")
-    from umi_flow_server.gripper import GripperConfig, detector_from_config
+    from umi_live_server.gripper import GripperConfig, detector_from_config
 
     # The frame carries only one configured pair (2 and 3).
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)

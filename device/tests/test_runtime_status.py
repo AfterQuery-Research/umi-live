@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from umi_flow_device.runtime_status import RuntimeStatus
+from umi_live_device.runtime_status import RuntimeStatus
 
 
 def test_runtime_status_is_atomic_and_retains_loaded_identity(tmp_path: Path) -> None:

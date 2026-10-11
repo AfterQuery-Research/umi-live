@@ -10,11 +10,11 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "umi-flow",
-    "umi-flow-core",
-    "umi-flow-device",
-    "umi-flow-server",
-    "umi-flow-test-support",
+    "umi-live",
+    "umi-live-core",
+    "umi-live-device",
+    "umi-live-server",
+    "umi-live-test-support",
 ]
 
 [[package]]
@@ -2829,7 +2829,7 @@ wheels = [
 ]
 
 [[package]]
-name = "umi-flow"
+name = "umi-live"
 version = "0.1.0"
 source = { virtual = "." }
 
@@ -2837,7 +2837,7 @@ source = { virtual = "." }
 tools = [
     { name = "matplotlib" },
     { name = "opencv-python-headless" },
-    { name = "umi-flow-core" },
+    { name = "umi-live-core" },
 ]
 
 [package.metadata]
@@ -2846,13 +2846,13 @@ tools = [
 tools = [
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "opencv-python-headless", specifier = ">=4.9.0" },
-    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+    { name = "umi-live-core", editable = "common/umi-live-core" },
 ]
 
 [[package]]
-name = "umi-flow-core"
+name = "umi-live-core"
 version = "0.1.0"
-source = { editable = "common/umi-flow-core" }
+source = { editable = "common/umi-live-core" }
 dependencies = [
     { name = "numpy" },
     { name = "pyyaml" },
@@ -2877,7 +2877,7 @@ dev = [
 ]
 
 [[package]]
-name = "umi-flow-device"
+name = "umi-live-device"
 version = "0.1.0"
 source = { editable = "device" }
 dependencies = [
@@ -2885,7 +2885,7 @@ dependencies = [
     { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "tyro" },
-    { name = "umi-flow-core" },
+    { name = "umi-live-core" },
 ]
 
 [package.optional-dependencies]
@@ -2900,7 +2900,7 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
     { name = "ty" },
-    { name = "umi-flow-test-support" },
+    { name = "umi-live-test-support" },
 ]
 
 [package.metadata]
@@ -2912,7 +2912,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0" },
     { name = "spidev", marker = "extra == 'pi'", specifier = ">=3.6" },
     { name = "tyro", specifier = ">=1.0.15" },
-    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+    { name = "umi-live-core", editable = "common/umi-live-core" },
 ]
 provides-extras = ["pi"]
 
@@ -2921,11 +2921,11 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.15.21" },
     { name = "ty", specifier = ">=0.0.57" },
-    { name = "umi-flow-test-support", editable = "test-support" },
+    { name = "umi-live-test-support", editable = "test-support" },
 ]
 
 [[package]]
-name = "umi-flow-server"
+name = "umi-live-server"
 version = "0.1.0"
 source = { editable = "server" }
 dependencies = [
@@ -2935,7 +2935,7 @@ dependencies = [
     { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "scipy" },
-    { name = "umi-flow-core" },
+    { name = "umi-live-core" },
     { name = "uvicorn" },
 ]
 
@@ -2950,8 +2950,8 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
     { name = "ty" },
-    { name = "umi-flow-device" },
-    { name = "umi-flow-test-support" },
+    { name = "umi-live-device" },
+    { name = "umi-live-test-support" },
 ]
 
 [package.metadata]
@@ -2964,7 +2964,7 @@ requires-dist = [
     { name = "open3d", marker = "extra == 'align'", specifier = ">=0.18" },
     { name = "opencv-python-headless", specifier = ">=4.9.0" },
     { name = "scipy", specifier = ">=1.14" },
-    { name = "umi-flow-core", editable = "common/umi-flow-core" },
+    { name = "umi-live-core", editable = "common/umi-live-core" },
     { name = "uvicorn", specifier = ">=0.51.0" },
 ]
 provides-extras = ["align"]
@@ -2974,20 +2974,20 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.15.21" },
     { name = "ty", specifier = ">=0.0.57" },
-    { name = "umi-flow-device", editable = "device" },
-    { name = "umi-flow-test-support", editable = "test-support" },
+    { name = "umi-live-device", editable = "device" },
+    { name = "umi-live-test-support", editable = "test-support" },
 ]
 
 [[package]]
-name = "umi-flow-test-support"
+name = "umi-live-test-support"
 version = "0.1.0"
 source = { editable = "test-support" }
 dependencies = [
-    { name = "umi-flow-core" },
+    { name = "umi-live-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "umi-flow-core", editable = "common/umi-flow-core" }]
+requires-dist = [{ name = "umi-live-core", editable = "common/umi-live-core" }]
 
 [[package]]
 name = "urllib3"

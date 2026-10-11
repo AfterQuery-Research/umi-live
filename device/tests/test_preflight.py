@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-from umi_flow_device.preflight import (
+from umi_live_device.preflight import (
     CHECK_FRAME_COUNT,
     AiryTimeSyncCheck,
     ArucoTagDetector,
@@ -12,7 +12,7 @@ from umi_flow_device.preflight import (
     ServerAdmissionCheck,
     StorageHeadroomCheck,
 )
-from umi_flow_device.safety import SafetyPolicy
+from umi_live_device.safety import SafetyPolicy
 
 
 class FakeFrames:
@@ -165,7 +165,7 @@ def test_storage_headroom_check_uses_projected_post_take_reserve(tmp_path, monke
     class Usage:
         free = 199
 
-    monkeypatch.setattr("umi_flow_device.safety.shutil.disk_usage", lambda _path: Usage())
+    monkeypatch.setattr("umi_live_device.safety.shutil.disk_usage", lambda _path: Usage())
     check = StorageHeadroomCheck(
         "umi1",
         tmp_path,

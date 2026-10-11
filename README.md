@@ -1,6 +1,6 @@
-# UMI Flow
+# UMI-Live
 
-UMI Flow records synchronized bimanual demonstrations from two handheld UMI clients and produces a local [LeRobot](https://github.com/huggingface/lerobot) dataset. Each arm contributes a 6-D pose plus a calibrated 0–1 gripper value to the 14-D `observation.state`; pose-delta `action` remains 12-D.
+UMI-Live records synchronized bimanual demonstrations from two handheld UMI clients and produces a local [LeRobot](https://github.com/huggingface/lerobot) dataset. Each arm contributes a 6-D pose plus a calibrated 0–1 gripper value to the 14-D `observation.state`; pose-delta `action` remains 12-D.
 
 ## Requirements
 
@@ -37,10 +37,10 @@ Network setup and SSH key management are outside this guide.
 Clone only on the machine running setup. The provisioning commands copy the repository to all three devices.
 
 ```sh
-git clone https://github.com/AfterQuery-Research/umi-flow.git
-cd umi-flow
+git clone https://github.com/AfterQuery-Research/umi-live.git
+cd umi-live
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --package umi-flow-core
+uv sync --package umi-live-core
 ```
 
 The physical gripper-label assignments are defined once in `config/gripper_tags.yaml`.
@@ -104,9 +104,9 @@ idle camera. Sweep the board until every calibration passes; the command then at
 Before collecting a new dataset, calibrate each physical gripper's fully closed/open endpoints:
 
 ```sh
-uv run --package umi-flow-server python \
+uv run --package umi-live-server python \
   dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi1
-uv run --package umi-flow-server python \
+uv run --package umi-live-server python \
   dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi2
 ./bin/provision-pair
 ```
@@ -146,9 +146,9 @@ Each take runs through `pair -> decode -> GLIM -> gripper -> dataset`.
 | Data | Location |
 | --- | --- |
 | Client recordings | `~/umi-recordings/sent/` on each client |
-| Paired recordings | `~/umi-flow/data/raw_episodes/` on the server |
-| Processing outputs | `~/umi-flow/data/derived/` on the server |
-| LeRobot dataset | `~/umi-flow/data/lerobot/local/umi-flow/` on the server |
+| Paired recordings | `~/umi-live/data/raw_episodes/` on the server |
+| Processing outputs | `~/umi-live/data/derived/` on the server |
+| LeRobot dataset | `~/umi-live/data/lerobot/local/umi-live/` on the server |
 
 A take is complete when `data/derived/<paired-session>/dataset/COMPLETE` exists.
 One hour later, the server automatically removes its duplicate paired sources and

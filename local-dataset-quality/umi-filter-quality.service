@@ -6,12 +6,12 @@ Wants=umi-runner.service
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/umi-flow-local/dataset-quality
+WorkingDirectory=/home/ubuntu/umi-live-local/dataset-quality
 Environment=OMP_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=NUMEXPR_NUM_THREADS=1
-ExecStart=/home/ubuntu/umi-flow-local/dataset-quality/filtering/.venv/bin/python /home/ubuntu/umi-flow-local/dataset-quality/filter_watcher.py --repo-root /home/ubuntu/umi-flow --results /home/ubuntu/umi-flow-local/dataset-quality/results --workers 16
+ExecStart=/home/ubuntu/umi-live-local/dataset-quality/filtering/.venv/bin/python /home/ubuntu/umi-live-local/dataset-quality/filter_watcher.py --repo-root /home/ubuntu/umi-live --results /home/ubuntu/umi-live-local/dataset-quality/results --workers 16
 Restart=always
 RestartSec=5
 TimeoutStopSec=5

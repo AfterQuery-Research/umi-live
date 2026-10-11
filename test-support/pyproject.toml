@@ -1,14 +1,14 @@
 [project]
-name = "umi-flow-test-support"
+name = "umi-live-test-support"
 version = "0.1.0"
-description = "Synthetic sensor fixtures used only by the UMI Flow test suites"
+description = "Synthetic sensor fixtures used only by the UMI-Live test suites"
 requires-python = ">=3.12"
 dependencies = [
-    "umi-flow-core",
+    "umi-live-core",
 ]
 
 [tool.uv.sources]
-umi-flow-core = { workspace = true }
+umi-live-core = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]

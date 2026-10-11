@@ -19,7 +19,7 @@ if spec is None or spec.loader is None:
 base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
-GATE_STATUS = "/home/ubuntu/umi-flow-local/dataset-quality/results/status.json"
+GATE_STATUS = "/home/ubuntu/umi-live-local/dataset-quality/results/status.json"
 GATE_PROBE = f"cat {GATE_STATUS}"
 
 

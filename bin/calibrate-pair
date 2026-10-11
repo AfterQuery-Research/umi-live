@@ -31,8 +31,8 @@ case "$follower_user" in ""|*[!A-Za-z0-9._-]*) die "invalid FOLLOWER user '$foll
 
 leader_local="$ROOT/config/calib/umi1_calib.npz"
 follower_local="$ROOT/config/calib/umi2_calib.npz"
-leader_remote="/home/$leader_user/umi-flow/config/calib/umi1_calib.npz"
-follower_remote="/home/$follower_user/umi-flow/config/calib/umi2_calib.npz"
+leader_remote="/home/$leader_user/umi-live/config/calib/umi1_calib.npz"
+follower_remote="/home/$follower_user/umi-live/config/calib/umi2_calib.npz"
 
 if [ "$DRY_RUN" = 1 ]; then
   echo "calibrate-pair dry run (no local or remote changes)"
@@ -45,7 +45,7 @@ fi
 command -v uv >/dev/null || die "uv is required (see README install step)"
 [ -t 0 ] || die "run interactively so you can position the calibration board"
 
-run_dir="$(mktemp -d "${TMPDIR:-/tmp}/umi-flow-calibration.XXXXXX")"
+run_dir="$(mktemp -d "${TMPDIR:-/tmp}/umi-live-calibration.XXXXXX")"
 success=0
 deployment_started=0
 cleanup() {

@@ -4,9 +4,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from umi_flow_core import ports
-from umi_flow_core.lidar_clock import pcap_host_clock_mapping
-from umi_flow_test_support.lidar import PcapWriter, synth_msop_packet
+from umi_live_core import ports
+from umi_live_core.lidar_clock import pcap_host_clock_mapping
+from umi_live_test_support.lidar import PcapWriter, synth_msop_packet
 
 
 def _write_clock_pcap(
