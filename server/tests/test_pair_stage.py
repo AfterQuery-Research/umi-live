@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from umi_flow_core import config as core_config
-from umi_flow_core import layout, manifest
-from umi_flow_device.episode import EpisodeRecorder
-from umi_flow_server import pair_stage
-from umi_flow_server.runner import Executor, Runner, default_stages
-from umi_flow_test_support import MockLidarPcapRecorder
+from umi_live_core import config as core_config
+from umi_live_core import layout, manifest
+from umi_live_device.episode import EpisodeRecorder
+from umi_live_server import pair_stage
+from umi_live_server.runner import Executor, Runner, default_stages
+from umi_live_test_support import MockLidarPcapRecorder
 
 from tests.helpers import CvCameraRecorder
 

@@ -1,6 +1,6 @@
 """Test helpers: build REAL v2 episodes using the actual device code.
 
-The episode fixture is produced by ``umi_flow_device.episode.EpisodeRecorder``
+The episode fixture is produced by ``umi_live_device.episode.EpisodeRecorder``
 with a cv2-backed fake camera (real MJPEG AVI + frames jsonl) and the mock lidar
 (synthetic RoboSense-shaped pcap) — so server tests exercise the same bytes the
 Pi produces.
@@ -15,11 +15,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
-from umi_flow_core import config as core_config
-from umi_flow_core import layout, manifest
-from umi_flow_device.episode import EpisodeRecorder
-from umi_flow_device.sensors import SensorStats
-from umi_flow_test_support import MockLidarPcapRecorder
+from umi_live_core import config as core_config
+from umi_live_core import layout, manifest
+from umi_live_device.episode import EpisodeRecorder
+from umi_live_device.sensors import SensorStats
+from umi_live_test_support import MockLidarPcapRecorder
 
 FRAME_PERIOD_NS = 33_333_333
 ROOT = Path(__file__).resolve().parents[2]
@@ -159,7 +159,7 @@ def make_v2_episode(tmp_path: Path, frames: int = 6, ptp_locked: bool = True) ->
 
 def make_paired_episode(tmp_path: Path, frames: int = 6) -> Path:
     """Build the only processable input: a merged umi1+umi2 episode."""
-    from umi_flow_server.pair_stage import merge_pair
+    from umi_live_server.pair_stage import merge_pair
 
     leader = make_arm_episode(tmp_path, "umi1", frames=frames)
     follower = make_arm_episode(tmp_path, "umi2", frames=frames)

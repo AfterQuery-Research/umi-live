@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn recorder_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_umi-flow-v4l2-recorder"))
+    PathBuf::from(env!("CARGO_BIN_EXE_umi-live-v4l2-recorder"))
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -14,7 +14,7 @@ fn temp_dir(name: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     env::temp_dir().join(format!(
-        "umi_flow_v4l2_{name}_{}_{}",
+        "umi_live_v4l2_{name}_{}_{}",
         std::process::id(),
         nanos
     ))

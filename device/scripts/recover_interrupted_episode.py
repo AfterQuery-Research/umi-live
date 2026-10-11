@@ -18,11 +18,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from umi_flow_core import config as core_config
-from umi_flow_core import layout, manifest
-from umi_flow_device.episode import write_checksums
-from umi_flow_device.operation_lock import OperationLock
-from umi_flow_device.runtime_status import STATUS_FILE
+from umi_live_core import config as core_config
+from umi_live_core import layout, manifest
+from umi_live_device.episode import write_checksums
+from umi_live_device.operation_lock import OperationLock
+from umi_live_device.runtime_status import STATUS_FILE
 
 
 def _json(path: Path) -> dict[str, Any]:

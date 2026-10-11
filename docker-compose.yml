@@ -1,4 +1,4 @@
-# docker-compose.yml — portable GPU processing server for UMI Flow.
+# docker-compose.yml — portable GPU processing server for UMI-Live.
 #
 # One box (Lambda GPU instance or on-prem NVIDIA machine) runs:
 #   * umi-ingest   — the ONLY long-running service: FastAPI upload endpoint

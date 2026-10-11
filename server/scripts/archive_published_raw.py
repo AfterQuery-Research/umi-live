@@ -22,7 +22,7 @@ from typing import Any
 
 from huggingface_hub import HfApi
 from huggingface_hub.errors import RemoteEntryNotFoundError
-from umi_flow_server.operation_lock import PipelineLease, PipelineLeaseBusyError
+from umi_live_server.operation_lock import PipelineLease, PipelineLeaseBusyError
 
 PAYLOAD_NAMES = (
     "umi1_camera.mjpeg.avi",
@@ -75,7 +75,7 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 
 def _eligible_candidates(data_dir: Path, *, min_age_seconds: float) -> list[Path]:
-    ledger_path = data_dir / "lerobot/local/umi-flow/.umi_appended_episodes.txt"
+    ledger_path = data_dir / "lerobot/local/umi-live/.umi_appended_episodes.txt"
     ledger = {line.strip() for line in ledger_path.read_text().splitlines() if line.strip()}
     cutoff = time.time() - min_age_seconds
     candidates: list[tuple[float, Path]] = []

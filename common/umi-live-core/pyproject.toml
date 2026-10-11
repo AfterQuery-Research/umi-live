@@ -1,0 +1,24 @@
+[project]
+name = "umi-live-core"
+version = "0.1.0"
+description = "Shared truths for the UMI-Live stack: episode layout, manifest schema, rig config + schema derivation, pose geometry, lidar port constants"
+requires-python = ">=3.12"
+# Dependency budget is deliberately tiny (the Pi imports this): numpy + pyyaml ONLY.
+# No cv2, no lerobot, no fastapi, no ROS.
+dependencies = [
+    "numpy>=2.2",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.21",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

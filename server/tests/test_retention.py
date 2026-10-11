@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from umi_flow_server.retention import DEFAULT_RETENTION_SECONDS, PRUNED_FILE, prune_completed
+from umi_live_server.retention import DEFAULT_RETENTION_SECONDS, PRUNED_FILE, prune_completed
 
 
 def make_session(data_dir: Path, session_id: str, *, age_seconds: int, complete: bool) -> Path:

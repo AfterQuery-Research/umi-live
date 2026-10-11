@@ -7,8 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import umi_flow_server.runner as runner_module
-from umi_flow_server.runner import Executor, Runner, StageRun, default_stages
+import umi_live_server.runner as runner_module
+from umi_live_server.runner import Executor, Runner, StageRun, default_stages
 
 from tests.helpers import make_paired_episode
 
@@ -319,7 +319,7 @@ def test_run_forever_never_queues_more_than_worker_limit(tmp_path: Path, monkeyp
         pass
 
     monkeypatch.setattr(runner, "ready_runs", lambda: ready)
-    monkeypatch.setattr("umi_flow_server.pair_stage.pair_once", lambda _data_dir: None)
+    monkeypatch.setattr("umi_live_server.pair_stage.pair_once", lambda _data_dir: None)
     monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", RecordingPool)
     monkeypatch.setattr(
         runner_module.time, "sleep", lambda _seconds: (_ for _ in ()).throw(StopLoop)

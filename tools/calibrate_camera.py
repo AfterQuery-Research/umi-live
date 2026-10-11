@@ -15,7 +15,7 @@ Offline inputs use the same board and solver:
         --video umi1_camera.mjpeg.avi --out config/calib/umi1_calib.npz
 
 Generate the matching board with tools/make_charuco.py. The output contract is the one
-server/src/umi_flow_server/gripper.py reads: K, dist, image_size, model="fisheye".
+server/src/umi_live_server/gripper.py reads: K, dist, image_size, model="fisheye".
 """
 
 from __future__ import annotations

@@ -19,7 +19,7 @@ esac
 case "$SERVER" in *@*) ;; *) die "SERVER must be user@host" ;; esac
 
 SERVER_USER="${SERVER%@*}"
-REMOTE_REPO="/home/$SERVER_USER/umi-flow"
+REMOTE_REPO="/home/$SERVER_USER/umi-live"
 case "${DATA_NAMESPACE:-}" in
   "") SERVER_DATA_DIR="$REMOTE_REPO/data" ;;
   "."|".."|*[!A-Za-z0-9._-]*)

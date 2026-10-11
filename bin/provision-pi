@@ -30,7 +30,7 @@ case "${ALIGNMENT_ENABLED:-false}" in
   *) die "ALIGNMENT_ENABLED must be true or false in $PAIR_CONFIG" ;;
 esac
 LEADER_HOTSPOT_ENABLED="${LEADER_HOTSPOT_ENABLED:-false}"
-PAIR_WIFI_SSID="umi-flow-pair"
+PAIR_WIFI_SSID="umi-live-pair"
 PAIR_WIFI_PASSWORD="${UMI_PAIR_PROVISION_PSK:-}"
 PAIR_WIFI_CHANNEL=44
 PAIR_WIFI_COUNTRY="US"
@@ -82,10 +82,10 @@ fi
 GRIPPER_CALIB_DIR="${GRIPPER_CALIB_DIR:-$ROOT/config/calib}"
 GRIPPER_RANGE="$GRIPPER_CALIB_DIR/${UMI_NAME}_gripper_range.json"
 TAGS="$(
-  PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" - "$GRIPPER_TAG_CONFIG" "$UMI_NAME" <<'PY'
+  PYTHONPATH="$ROOT/common/umi-live-core/src" "$PYTHON" - "$GRIPPER_TAG_CONFIG" "$UMI_NAME" <<'PY'
 import sys
 
-from umi_flow_core.config import load_gripper_tag_pairs
+from umi_live_core.config import load_gripper_tag_pairs
 
 pair = load_gripper_tag_pairs(sys.argv[1])[sys.argv[2]]
 print(", ".join(str(tag_id) for tag_id in pair))
@@ -118,7 +118,7 @@ else
 fi
 
 PI_USER="${PI%@*}"
-REMOTE_REPO="/home/$PI_USER/umi-flow"
+REMOTE_REPO="/home/$PI_USER/umi-live"
 SPOOL_DIR="/home/$PI_USER/umi-recordings"
 SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
 SSH_JUMP=""
@@ -271,22 +271,22 @@ umis:
       stride: 2
 $GRIPPER_CALIB_YAML
 YAML
-PYTHONPATH="$ROOT/common/umi-flow-core/src" "$PYTHON" -c \
-  'import sys; from umi_flow_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
+PYTHONPATH="$ROOT/common/umi-live-core/src" "$PYTHON" -c \
+  'import sys; from umi_live_core.config import client_role,load_rig_config; actual=client_role(load_rig_config(sys.argv[1])); assert actual == sys.argv[2], (actual, sys.argv[2])' \
   "$CFG_TMP" "$ROLE"
 
 COORD_ENV=""
 if [ "$ROLE" = leader ]; then
   if [ "$LEADER_HOTSPOT_ENABLED" = true ]; then
-    COORD_ENV="UMI_FLOW_PEER=$PAIR_WIFI_FOLLOWER_IP:9140"
+    COORD_ENV="UMI_LIVE_PEER=$PAIR_WIFI_FOLLOWER_IP:9140"
   else
-    COORD_ENV="UMI_FLOW_PEER=${FOLLOWER#*@}:9140"
+    COORD_ENV="UMI_LIVE_PEER=${FOLLOWER#*@}:9140"
   fi
 fi
 cat > "$ENV_TMP" <<ENV
 # Rendered by bin/provision-pi. Re-run bin/provision-pair to change it.
-UMI_FLOW_CONFIG=config/umi.yaml
-UMI_FLOW_SPOOL_DIR=$SPOOL_DIR
+UMI_LIVE_CONFIG=config/umi.yaml
+UMI_LIVE_SPOOL_DIR=$SPOOL_DIR
 $COORD_ENV
 ENV
 cat > "$PAIR_WIFI_TMP" <<ENV

@@ -2,7 +2,7 @@
 """Episode-collection dashboard: live view of the record -> upload -> process -> Hub
 pipeline while collecting training data. Run from the repo root on the workstation:
 
-    uv run --package umi-flow-server python tools/collect_dashboard.py
+    uv run --package umi-live-server python tools/collect_dashboard.py
     # then open http://localhost:8900
 
 Shows, refreshed every ~3 s: episodes on the Hub, episodes mid-pipeline on the server
@@ -40,7 +40,7 @@ PIS = [("umi1", DEPLOYMENT["LEADER"]), ("umi2", DEPLOYMENT["FOLLOWER"])]
 PORT = 8900
 
 # Runs ON the box each poll: one JSON blob describing queue, stages, dataset, events.
-BOX_PROBE = r'''cd ~/umi-flow && python3 - <<'PY'
+BOX_PROBE = r'''cd ~/umi-live && python3 - <<'PY'
 import json, subprocess, time
 from pathlib import Path
 env = dict(l.split("=", 1) for l in Path(".env").read_text().splitlines()
@@ -61,7 +61,7 @@ for ep in sorted(data.glob("raw_episodes/*")):
             out["processing"].append({"id": ep.name, "at": nxt, "done": len(stages_done), "of": len(STAGES)})
     else:
         out["waiting_pair"].append(ep.name)
-info = data / "lerobot/local/umi-flow/meta/info.json"
+info = data / "lerobot/local/umi-live/meta/info.json"
 out["local_episodes"] = json.loads(info.read_text())["total_episodes"] if info.is_file() else 0
 out["repo"] = env.get("HF_REPO_ID", "")
 log = subprocess.run(["journalctl", "-u", "umi-runner", "--since", "-30min", "--no-pager", "-o", "short-iso"],
@@ -129,7 +129,7 @@ def poll_pis():
 def _hf_token() -> str | None:
     # The repo is created PRIVATE, so the poll needs auth: read the workstation
     # inventory (never committed, never sent anywhere).
-    for inv in (Path.home() / "umi-flow/provisioning/secrets",):
+    for inv in (Path.home() / "umi-live/provisioning/secrets",):
         try:
             for line in inv.read_text().splitlines():
                 if line.startswith("HF_TOKEN="):

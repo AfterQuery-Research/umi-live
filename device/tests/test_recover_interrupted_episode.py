@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from umi_flow_core import layout, manifest
+from umi_live_core import layout, manifest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "recover_interrupted_episode.py"
 spec = importlib.util.spec_from_file_location("recover_interrupted_episode", SCRIPT)

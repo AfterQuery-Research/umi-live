@@ -7,9 +7,9 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-import umi_flow_device.uploader as uploader_module
-from umi_flow_core.layout import COMPLETE_FILE
-from umi_flow_device.uploader import (
+import umi_live_device.uploader as uploader_module
+from umi_live_core.layout import COMPLETE_FILE
+from umi_live_device.uploader import (
     DEFAULT_UPLOAD_TIMEOUT_SECONDS,
     AsyncUploader,
     post_tar_file,

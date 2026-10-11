@@ -35,7 +35,7 @@ done
 case "$EPISODE" in latest|paired_[A-Za-z0-9._-]*) ;; *) die "invalid episode '$EPISODE'" ;; esac
 
 SERVER_USER="${SERVER%@*}"
-REMOTE_REPO="/home/$SERVER_USER/umi-flow"
+REMOTE_REPO="/home/$SERVER_USER/umi-live"
 case "${DATA_NAMESPACE:-}" in
   "") REMOTE_DATA="$REMOTE_REPO/data" ;;
   "."|".."|*[!A-Za-z0-9._-]*) die "invalid DATA_NAMESPACE" ;;
@@ -71,7 +71,7 @@ ssh "${SSH[@]}" "$SERVER" bash -s -- \
   "$REMOTE_RAW" "$REMOTE_DERIVED" "$REMOTE_OPERATOR" "$REMOTE_OUTPUT" "$OFFSET" "$REMOTE_PREVIEW" <<'REMOTE'
 set -euo pipefail
 raw="$1"; derived="$2"; operator="$3"; output="$4"; offset="$5"; preview="$6"
-cd "$HOME/umi-flow"
+cd "$HOME/umi-live"
 export PATH="$HOME/.local/bin:$PATH"
 operator_render="$operator"
 transfer="$(ffprobe -v error -select_streams v:0 -show_entries stream=color_transfer -of default=nw=1:nk=1 "$operator")"
@@ -89,7 +89,7 @@ case "$transfer" in
 esac
 args=("$raw" "$derived" "$output" --operator-video "$operator_render" --operator-offset-s "$offset")
 [ "$preview" = none ] || args+=(--preview-seconds "$preview")
-uv run --package umi-flow-server python tools/render_slam_demo.py "${args[@]}"
+uv run --package umi-live-server python tools/render_slam_demo.py "${args[@]}"
 REMOTE
 
 if [ -z "$OUTPUT" ]; then

@@ -16,11 +16,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from umi_flow_server import pair_stage
-from umi_flow_server.dataset_stage import run as dataset_run
-from umi_flow_server.runner import Executor, Runner, default_stages
-from umi_flow_server.server import ServerConfig, create_app
-from umi_flow_server.trajectory import PoseTrack, write_tum
+from umi_live_server import pair_stage
+from umi_live_server.dataset_stage import run as dataset_run
+from umi_live_server.runner import Executor, Runner, default_stages
+from umi_live_server.server import ServerConfig, create_app
+from umi_live_server.trajectory import PoseTrack, write_tum
 
 from tests.helpers import frame_unix_times, make_arm_episode, make_episode_tar
 
@@ -109,7 +109,7 @@ def test_device_to_lerobot_dataset(tmp_path: Path, monkeypatch):
     assert receipt["frames"] == 6
     assert receipt["state_dim"] == 14
 
-    ds_root = data_dir / "lerobot" / "local/umi-flow"
+    ds_root = data_dir / "lerobot" / "local/umi-live"
     info = json.loads((ds_root / "meta" / "info.json").read_text())
     assert info["fps"] == 30
     assert tuple(info["features"]["observation.state"]["shape"]) == (14,)

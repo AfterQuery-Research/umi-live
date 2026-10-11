@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from umi_flow_device.operation_lock import OperationLock
+from umi_live_device.operation_lock import OperationLock
 
 
 def test_operation_lock_is_exclusive_and_reusable(tmp_path: Path) -> None:

@@ -21,13 +21,13 @@ from pathlib import Path
 from typing import Literal
 
 import tyro
-from umi_flow_core import config as core_config
-from umi_flow_core import layout
-from umi_flow_core.ports import bpf_filter
-from umi_flow_device import coordinator
-from umi_flow_device.buttons import Buttons, Event, GpioButtons, KeyboardButtons
-from umi_flow_device.camera import RustV4L2Camera
-from umi_flow_device.display import (
+from umi_live_core import config as core_config
+from umi_live_core import layout
+from umi_live_core.ports import bpf_filter
+from umi_live_device import coordinator
+from umi_live_device.buttons import Buttons, Event, GpioButtons, KeyboardButtons
+from umi_live_device.camera import RustV4L2Camera
+from umi_live_device.display import (
     ST7789,
     UPLOAD_FAIL,
     UPLOAD_OK,
@@ -35,30 +35,30 @@ from umi_flow_device.display import (
     NullDisplay,
     StatusDisplay,
 )
-from umi_flow_device.episode import EpisodeRecorder
-from umi_flow_device.lidar_monitor import LidarMonitor
-from umi_flow_device.operation_lock import CAPTURE_LOCK_FILE, RECORDER_LOCK_FILE, OperationLock
-from umi_flow_device.preflight import (
+from umi_live_device.episode import EpisodeRecorder
+from umi_live_device.lidar_monitor import LidarMonitor
+from umi_live_device.operation_lock import CAPTURE_LOCK_FILE, RECORDER_LOCK_FILE, OperationLock
+from umi_live_device.preflight import (
     CheckResult,
     PipelineResult,
     PreRecordingPipeline,
     build_pre_recording_pipeline,
 )
-from umi_flow_device.ptp import chrony_status, probe_ptp
-from umi_flow_device.runtime_status import STATUS_FILE, RuntimeStatus
-from umi_flow_device.safety import SafetyPolicy
-from umi_flow_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
-from umi_flow_device.uploader import (
+from umi_live_device.ptp import chrony_status, probe_ptp
+from umi_live_device.runtime_status import STATUS_FILE, RuntimeStatus
+from umi_live_device.safety import SafetyPolicy
+from umi_live_device.sensors import CameraRecorder, LidarPcapRecorder, SensorRecorder
+from umi_live_device.uploader import (
     DEFAULT_UPLOAD_TIMEOUT_SECONDS,
     AsyncUploader,
     server_admission,
 )
 
-SPOOL_DIR_ENV = "UMI_FLOW_SPOOL_DIR"
+SPOOL_DIR_ENV = "UMI_LIVE_SPOOL_DIR"
 LEGACY_SPOOL_DIR_ENV = "ROBOT_UMI_SPOOL_DIR"
-PEER_ENV = "UMI_FLOW_PEER"
+PEER_ENV = "UMI_LIVE_PEER"
 LEGACY_PEER_ENV = "ROBOT_UMI_PEER"
-DEFAULT_SPOOL_DIR = "umi_flow_spool"
+DEFAULT_SPOOL_DIR = "umi_live_spool"
 LEGACY_DEFAULT_SPOOL_DIR = "robot_umi_spool"
 UPLOAD_URL = "http://127.0.0.1:8080/upload"
 
@@ -86,8 +86,8 @@ def _install_sigterm_handler(shutdown_requested: threading.Event):
 
 @dataclass
 class Args:
-    config: Path | None = None  # rig YAML; falls back to $UMI_FLOW_CONFIG
-    spool_dir: Path | None = None  # falls back to $UMI_FLOW_SPOOL_DIR, else umi_flow_spool
+    config: Path | None = None  # rig YAML; falls back to $UMI_LIVE_CONFIG
+    spool_dir: Path | None = None  # falls back to $UMI_LIVE_SPOOL_DIR, else umi_live_spool
     buttons: Literal["keyboard", "gpio"] = "keyboard"
     # "auto" = take the LCD kind + control pins from the rig config's controls.display;
     # "none"/"lcd" force it (dev off-Pi wants --display none). Button pins always come
@@ -126,7 +126,7 @@ def resolve_spool_dir(path: Path | None) -> Path:
             new_default = device_root() / DEFAULT_SPOOL_DIR
             legacy_default = device_root() / LEGACY_DEFAULT_SPOOL_DIR
             # Do not strand pending data during the naming migration. New installs use the
-            # UMI Flow path; an existing legacy spool remains authoritative until moved.
+            # UMI-Live path; an existing legacy spool remains authoritative until moved.
             return (
                 legacy_default
                 if legacy_default.exists() and not new_default.exists()

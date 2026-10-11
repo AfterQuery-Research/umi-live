@@ -26,9 +26,9 @@ cd "$REPO"
 
 [ -f "$REPO/.env" ] || { echo "no rendered .env — run bin/provision-pair" >&2; exit 1; }
 set -a; . "$REPO/.env"; set +a
-CONFIG_REL="${UMI_FLOW_CONFIG:-${ROBOT_UMI_CONFIG:-config/umi.yaml}}"
+CONFIG_REL="${UMI_LIVE_CONFIG:-${ROBOT_UMI_CONFIG:-config/umi.yaml}}"
 CONFIG_PATH="$REPO/$CONFIG_REL"
-SPOOL_DIR="${UMI_FLOW_SPOOL_DIR:-${ROBOT_UMI_SPOOL_DIR:-$REPO/device/umi_flow_spool}}"
+SPOOL_DIR="${UMI_LIVE_SPOOL_DIR:-${ROBOT_UMI_SPOOL_DIR:-$REPO/device/umi_live_spool}}"
 
 # needrestart (Ubuntu's post-apt hook) auto-restarts services after upgrades — including
 # systemd-networkd/resolved, which briefly kills DNS mid-install and makes the uv/rust
@@ -143,7 +143,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo --version
 
 echo "=== [4/12] Python env (device + Pi extras: GPIO/LCD) ==="
-uv sync --frozen --no-dev --package umi-flow-device --extra pi
+uv sync --frozen --no-dev --package umi-live-device --extra pi
 
 echo "=== [5/12] build the Rust V4L2 recorder ==="
 # Force a recompile of the current source. rsync -a preserves the source's (possibly
@@ -191,7 +191,7 @@ echo "=== [8/12] rig config ==="
 # Fail loudly on an unparseable config NOW (unknown key, bad YAML) instead of
 # silently skipping lidar/PTP below and reporting a false "install complete".
 if ! ERR="$("$REPO/.venv/bin/python" -c \
-    'import sys; from umi_flow_core.config import client_role,load_rig_config; print(client_role(load_rig_config(sys.argv[1])))' \
+    'import sys; from umi_live_core.config import client_role,load_rig_config; print(client_role(load_rig_config(sys.argv[1])))' \
     "$CONFIG_PATH" 2>&1)"; then
   echo "config error in $CONFIG_REL:" >&2; echo "$ERR" >&2
   echo "edit $CONFIG_REL and re-run." >&2; exit 1
@@ -210,7 +210,7 @@ echo "=== [9/12] lidar network + PTP (from the rig config) ==="
 IFACES=""
 LIDARS="$("$REPO/.venv/bin/python" - "$CONFIG_PATH" <<'PY'
 import sys
-from umi_flow_core.config import load_rig_config
+from umi_live_core.config import load_rig_config
 rig = load_rig_config(sys.argv[1])   # already validated above
 for u in rig.umis:
     print(f"{u.lidar.iface} {u.lidar.host_ip} {u.lidar.lidar_ip}")
@@ -246,19 +246,19 @@ if [ "$UMI_LEADER_HOTSPOT_ENABLED" = true ]; then
   # reference. The follower always follows the leader over 10.42.0.0/24.
   sudo sed -i "\#^$LEGACY_CHRONY_LINE\$#d" /etc/chrony/chrony.conf
   if [ "$ROLE" = leader ]; then
-    sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
+    sudo tee /etc/chrony/conf.d/90-umi-live-pair.conf >/dev/null <<EOF
 server time.cloudflare.com iburst minpoll 2 maxpoll 4 prefer
 allow $UMI_PAIR_SUBNET
 local stratum 10 orphan
 EOF
   else
-    sudo tee /etc/chrony/conf.d/90-umi-flow-pair.conf >/dev/null <<EOF
+    sudo tee /etc/chrony/conf.d/90-umi-live-pair.conf >/dev/null <<EOF
 server $UMI_PAIR_LEADER_IP iburst minpoll 2 maxpoll 4 prefer
 EOF
   fi
 else
   sudo systemctl disable --now "umi-pair-wifi@$ROLE" >/dev/null 2>&1 || true
-  sudo rm -f /etc/chrony/conf.d/90-umi-flow-pair.conf
+  sudo rm -f /etc/chrony/conf.d/90-umi-live-pair.conf
   grep -qF "$LEGACY_CHRONY_LINE" /etc/chrony/chrony.conf 2>/dev/null \
     || echo "$LEGACY_CHRONY_LINE" | sudo tee -a /etc/chrony/chrony.conf >/dev/null
 fi
@@ -290,17 +290,17 @@ echo
 echo "=== self-test ==="
 fail=0
 getcap "$TCPDUMP" | grep -q cap_net_raw && echo "OK  tcpdump can capture" || { echo "FAIL tcpdump missing capability"; fail=1; }
-[ -x "$REPO/device/v4l2_recorder/target/release/umi-flow-v4l2-recorder" ] \
+[ -x "$REPO/device/v4l2_recorder/target/release/umi-live-v4l2-recorder" ] \
   && echo "OK  camera recorder built" || { echo "FAIL recorder binary missing"; fail=1; }
 "$REPO/.venv/bin/python" -c \
-  "import cv2, umi_flow_device.sensors, umi_flow_device.camera; assert hasattr(cv2, 'aruco')" \
+  "import cv2, umi_live_device.sensors, umi_live_device.camera; assert hasattr(cv2, 'aruco')" \
   2>/dev/null \
   && echo "OK  recorder package imports" || { echo "FAIL recorder import"; fail=1; }
 LCD_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
 [ -r "$LCD_FONT" ] && echo "OK  LCD font present ($LCD_FONT)" \
   || { echo "FAIL LCD font missing ($LCD_FONT)"; fail=1; }
 CAM="$("$REPO/.venv/bin/python" -c \
-  'import sys; from umi_flow_core.config import load_rig_config; print(load_rig_config(sys.argv[1]).umis[0].camera.device)' \
+  'import sys; from umi_live_core.config import load_rig_config; print(load_rig_config(sys.argv[1]).umis[0].camera.device)' \
   "$CONFIG_PATH" 2>/dev/null)"
 if [ -n "$CAM" ] && [ -e "$CAM" ]; then echo "OK  camera present ($CAM)"; else echo "CHECK camera device ${CAM:-?} not found — verify $CONFIG_REL"; fi
 for i in $IFACES; do

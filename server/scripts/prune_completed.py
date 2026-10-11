@@ -12,8 +12,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from umi_flow_server.retention import DEFAULT_RETENTION_SECONDS, prune_completed
-from umi_flow_server.server import ServerConfig, admission_required_bytes
+from umi_live_server.retention import DEFAULT_RETENTION_SECONDS, prune_completed
+from umi_live_server.server import ServerConfig, admission_required_bytes
 
 GIB = 1024**3
 DEFAULT_ARCHIVE_TARGET_GIB = 96.0
@@ -48,7 +48,7 @@ def ensure_admission_headroom(
     archive_wait_seconds: float = DEFAULT_ARCHIVE_WAIT_SECONDS,
 ) -> AdmissionMaintenance:
     """Archive verified old raw payloads before the ingest admission gate is blocked."""
-    recording_reserve_gib = int(os.environ.get("UMI_FLOW_RECORDING_RESERVE_GIB", "64"))
+    recording_reserve_gib = int(os.environ.get("UMI_LIVE_RECORDING_RESERVE_GIB", "64"))
     cfg = ServerConfig(
         data_dir=data_dir,
         recording_reserve_bytes=recording_reserve_gib * GIB,
@@ -130,21 +130,21 @@ def main() -> None:
         "--archive-target-free-gib",
         type=float,
         default=float(
-            os.environ.get("UMI_FLOW_ARCHIVE_TARGET_FREE_GIB", DEFAULT_ARCHIVE_TARGET_GIB)
+            os.environ.get("UMI_LIVE_ARCHIVE_TARGET_FREE_GIB", DEFAULT_ARCHIVE_TARGET_GIB)
         ),
     )
     parser.add_argument(
         "--archive-min-age-hours",
         type=float,
         default=float(
-            os.environ.get("UMI_FLOW_ARCHIVE_MIN_AGE_HOURS", DEFAULT_ARCHIVE_MIN_AGE_HOURS)
+            os.environ.get("UMI_LIVE_ARCHIVE_MIN_AGE_HOURS", DEFAULT_ARCHIVE_MIN_AGE_HOURS)
         ),
     )
     parser.add_argument(
         "--archive-wait-seconds",
         type=float,
         default=float(
-            os.environ.get("UMI_FLOW_ARCHIVE_WAIT_SECONDS", DEFAULT_ARCHIVE_WAIT_SECONDS)
+            os.environ.get("UMI_LIVE_ARCHIVE_WAIT_SECONDS", DEFAULT_ARCHIVE_WAIT_SECONDS)
         ),
     )
     args = parser.parse_args()

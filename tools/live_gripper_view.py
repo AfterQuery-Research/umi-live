@@ -2,7 +2,7 @@
 """Live gripper-width viewer: streams both Pis' cameras, overlays ArUco detections and
 the computed width per arm, and serves a browser page. Run from the repo root:
 
-    uv run --package umi-flow-server python tools/live_gripper_view.py
+    uv run --package umi-live-server python tools/live_gripper_view.py
     # then open http://localhost:8899
 
 Per-frame overlay: every detected tag (outline + id), the arm's configured pair joined
@@ -23,14 +23,14 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from umi_flow_core.config import (
+from umi_live_core.config import (
     GRIPPER_ARUCO_DICTIONARY,
     load_gripper_tag_pairs,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server" / "src"))
-from umi_flow_server import gripper  # noqa: E402
+from umi_live_server import gripper  # noqa: E402
 
 TAG_PAIRS = load_gripper_tag_pairs(ROOT / "config/gripper_tags.yaml")
 

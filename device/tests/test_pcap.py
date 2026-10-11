@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from umi_flow_core import ports
-from umi_flow_device.lidar_monitor import parse_robosense_temp_c
-from umi_flow_device.pcap import read_udp_packets
-from umi_flow_test_support import PcapWriter, synth_imu_packet, synth_msop_packet
+from umi_live_core import ports
+from umi_live_device.lidar_monitor import parse_robosense_temp_c
+from umi_live_device.pcap import read_udp_packets
+from umi_live_test_support import PcapWriter, synth_imu_packet, synth_msop_packet
 
 
 def test_pcap_roundtrip(tmp_path):

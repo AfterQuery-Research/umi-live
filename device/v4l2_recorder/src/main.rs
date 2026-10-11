@@ -88,7 +88,7 @@ where
 }
 
 fn usage() -> String {
-    "usage: umi-flow-v4l2-recorder --device /dev/video0 --output camera_front.mjpeg.avi --timestamps camera_frames.jsonl --stats camera_stats.json [--width 1920] [--height 1200] [--fps 30] [--exposure 100] [--seconds N] [--warmup-frames 8] [--buffer-count 32] [--writer-queue-frames 120]".to_string()
+    "usage: umi-live-v4l2-recorder --device /dev/video0 --output camera_front.mjpeg.avi --timestamps camera_frames.jsonl --stats camera_stats.json [--width 1920] [--height 1200] [--fps 30] [--exposure 100] [--seconds N] [--warmup-frames 8] [--buffer-count 32] [--writer-queue-frames 120]".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1710,7 +1710,7 @@ mod tests {
 
     #[test]
     fn avi_writer_patches_frame_count_and_index() {
-        let temp_dir = env::temp_dir().join(format!("umi_flow_avi_test_{}", std::process::id()));
+        let temp_dir = env::temp_dir().join(format!("umi_live_avi_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
         let path = temp_dir.join("test.avi");
@@ -1739,7 +1739,7 @@ mod tests {
         use std::io::{Seek, SeekFrom};
 
         let temp_dir = env::temp_dir().join(format!(
-            "umi_flow_avi_overflow_test_{}",
+            "umi_live_avi_overflow_test_{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -1762,7 +1762,7 @@ mod tests {
     #[test]
     fn writer_thread_writes_sidecar_and_video() {
         let temp_dir =
-            env::temp_dir().join(format!("umi_flow_writer_test_{}", std::process::id()));
+            env::temp_dir().join(format!("umi_live_writer_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
         let output = temp_dir.join("camera_front.mjpeg.avi");
@@ -1850,7 +1850,7 @@ mod tests {
         use std::io::{Read, Seek, SeekFrom};
 
         let temp_dir = env::temp_dir().join(format!(
-            "umi_flow_writer_salvage_test_{}",
+            "umi_live_writer_salvage_test_{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -1953,7 +1953,7 @@ mod tests {
     #[test]
     fn stats_json_reports_escaped_error_and_ineligibility() {
         let temp_dir =
-            env::temp_dir().join(format!("umi_flow_stats_error_test_{}", std::process::id()));
+            env::temp_dir().join(format!("umi_live_stats_error_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
         let stats_path = temp_dir.join("camera_stats.json");

@@ -117,7 +117,7 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 # --frozen: keep uv.lock authoritative (match the ingest image) so the runner's
 # in-process gripper/dataset deps don't drift from the container versions.
-uv sync --frozen --no-dev --package umi-flow-server --extra align
+uv sync --frozen --no-dev --package umi-live-server --extra align
 
 echo "=== [5/8] build stage images ==="
 $DOCKER compose build umi-ingest

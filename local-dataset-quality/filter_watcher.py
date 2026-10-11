@@ -70,7 +70,7 @@ def active_dataset(repo_root: Path) -> tuple[Path, str]:
     data_dir = Path(env.get("DATA_DIR", "data")).expanduser()
     if not data_dir.is_absolute():
         data_dir = repo_root / data_dir
-    return (data_dir / "lerobot" / "local" / "umi-flow").resolve(), env.get(
+    return (data_dir / "lerobot" / "local" / "umi-live").resolve(), env.get(
         "HF_REPO_ID", ""
     )
 

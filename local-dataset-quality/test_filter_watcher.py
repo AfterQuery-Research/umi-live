@@ -7,7 +7,7 @@ from filter_watcher import active_dataset, status_payload
 
 
 def test_active_dataset_follows_server_env(tmp_path: Path) -> None:
-    repo = tmp_path / "umi-flow"
+    repo = tmp_path / "umi-live"
     repo.mkdir()
     (repo / ".env").write_text(
         'DATA_DIR="data/current-campaign"\nHF_REPO_ID="owner/live"\n', encoding="utf-8"
@@ -15,7 +15,7 @@ def test_active_dataset_follows_server_env(tmp_path: Path) -> None:
 
     dataset, hub_repo = active_dataset(repo)
 
-    assert dataset == (repo / "data/current-campaign/lerobot/local/umi-flow").resolve()
+    assert dataset == (repo / "data/current-campaign/lerobot/local/umi-live").resolve()
     assert hub_repo == "owner/live"
 
 

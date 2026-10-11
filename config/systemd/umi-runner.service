@@ -3,7 +3,7 @@
 # @REPO@/@USER@ and installs this to /etc/systemd/system/umi-runner.service.
 # Survives SSH logout/reboot (the old failure: the runner died with the session).
 # Runs from the repo so `docker compose run` finds docker-compose.yml + .env, and
-# runs gripper/dataset in-process (needs the umi-flow-server venv + ffmpeg).
+# runs gripper/dataset in-process (needs the umi-live-server venv + ffmpeg).
 [Unit]
 Description=UMI pipeline runner
 Wants=network-online.target

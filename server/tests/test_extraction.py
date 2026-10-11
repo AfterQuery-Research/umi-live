@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from umi_flow_server.episode import INGESTED_FILE, extract_episode, validate_episode
+from umi_live_server.episode import INGESTED_FILE, extract_episode, validate_episode
 
 
 def make_episode(path: Path, episode_name: str = "episode_test") -> Path:

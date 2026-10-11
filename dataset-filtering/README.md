@@ -59,8 +59,8 @@ uvx ruff check src tests
 Calibrate one UMI at a time from the repository root while its camera is idle:
 
 ```bash
-uv run --package umi-flow-server python dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi1
-uv run --package umi-flow-server python dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi2
+uv run --package umi-live-server python dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi1
+uv run --package umi-live-server python dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi2
 ```
 
 For each command, fully close the selected gripper and press Enter, then fully open it and press Enter. Each endpoint captures 30 live ArUco width measurements with the same fisheye detector as dataset processing, rejects an unstable hold, and stores the median endpoints in `config/calib/<umi>_gripper_range.json`.

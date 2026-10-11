@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from umi_flow_device.operation_lock import OperationLock
+from umi_live_device.operation_lock import OperationLock
 
 ARCHIVED_MARKER = "RAW_ARCHIVED.json"
 IN_PROGRESS_MARKER = ".RAW_ARCHIVE_IN_PROGRESS.json"

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Interactively calibrate one UMI gripper's closed/open width.
 
-Run from the umi-flow repository root while the selected UMI camera is idle:
+Run from the umi-live repository root while the selected UMI camera is idle:
 
-    uv run --package umi-flow-server python \
+    uv run --package umi-live-server python \
         dataset-filtering/scripts/calibrate_gripper_range.py --gripper umi1
 
 Close the selected gripper and press Enter, then open it and press Enter. Each
@@ -26,13 +26,13 @@ from typing import Any
 
 import cv2
 import numpy as np
-from umi_flow_core.config import load_gripper_tag_pairs
+from umi_live_core.config import load_gripper_tag_pairs
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server" / "src"))
 sys.path.insert(0, str(ROOT / "dataset-filtering" / "src"))
 
-from umi_flow_server import gripper as gripper_measurement  # noqa: E402
+from umi_live_server import gripper as gripper_measurement  # noqa: E402
 
 from dataset_filtering.gripper_calibration import (  # noqa: E402
     build_two_point_calibration_report,

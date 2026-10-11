@@ -6,9 +6,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
-from umi_flow_core import geom
-from umi_flow_server import align_stage as A
-from umi_flow_server.trajectory import PoseTrack
+from umi_live_core import geom
+from umi_live_server import align_stage as A
+from umi_live_server.trajectory import PoseTrack
 
 
 def _track(n: int) -> PoseTrack:

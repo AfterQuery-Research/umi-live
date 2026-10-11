@@ -9,8 +9,8 @@ import threading
 from pathlib import Path
 from queue import Queue
 
-from umi_flow_device.buttons import Event
-from umi_flow_device.preflight import CheckResult, PipelineResult
+from umi_live_device.buttons import Event
+from umi_live_device.preflight import CheckResult, PipelineResult
 
 RECORD_PATH = Path(__file__).resolve().parents[1] / "scripts" / "record.py"
 spec = importlib.util.spec_from_file_location("record", RECORD_PATH)

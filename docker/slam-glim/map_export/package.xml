@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>Export a GLIM offline dump to PLY (merged map + per-submap clouds/poses) for
   the cross-lidar align stage.</description>
-  <maintainer email="noreply@example.com">umi-flow</maintainer>
+  <maintainer email="noreply@example.com">umi-live</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
